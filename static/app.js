@@ -91,7 +91,7 @@ const AmuleWebApp = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [deleteModal, setDeleteModal] = useState({ show: false, fileHash: null, fileName: '', isServer: false, serverAddress: null });
-  const [ed2kLink, setEd2kLink] = useState('');
+  const [ed2kLinks, setEd2kLinks] = useState('');
   const hasUserInteracted = useRef(false);
   const [historicalData, setHistoricalData] = useState(null);
   const [speedData, setSpeedData] = useState(null);
@@ -532,31 +532,55 @@ const AmuleWebApp = () => {
     setDownloadedFiles(prev => new Set(prev).add(fileHash));
   };
 
-  const handleAddEd2kLink = (link, isServerList = false) => {
-    if (!link.trim()) return;
+
+  const extractEd2kLinks = (text) => {
+    // Extract any substring starting with ed2k:// until the first whitespace.
+    // This allows pasting mixed text containing ED2K links.
+    const matches = text.match(/ed2k:\/\/\S+/g) || [];
+
+    // Basic cleanup: trim, remove CR characters, and deduplicate while preserving order
+    const seen = new Set();
+    const links = [];
+    for (const m of matches) {
+      const link = m.trim().replace(/\r/g, "");
+      if (!link) continue;
+      if (seen.has(link)) continue;
+      seen.add(link);
+      links.push(link);
+    }
+    return links;
+  };
+
+  const handleAddEd2kLinks = (input, isServerList = false) => {
+    const links = extractEd2kLinks(input);
+
+    if (links.length === 0) return;
     
     setLoading(true);
-    sendWsMessage({ action: 'addEd2kLink', link: link.trim() });
+    sendWsMessage({ action: "addEd2kLinks", links });
 
     const handleEd2kResponse = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'ed2k-added') {
         setLoading(false);
-        if (data.success) {
-          setEd2kLink('');
-          // Refresh appropriate list based on context
-          setTimeout(() => {
-            if (isServerList) {
-              fetchServers();
-            } else {
-              fetchDownloads();
-            }
-          }, 500);
+
+        const results = Array.isArray(data.results) ? data.results : [];
+        const successCount = results.filter(r => r && r.success).length;
+        const failureCount = results.length - successCount;
+
+        if (failureCount === 0) {
+          setEd2kLinks("");
         } else {
-          setError('Failed to add ED2K link');
-          setTimeout(() => setError(''), 3000);
+          setError(`Added ${successCount}, failed ${failureCount}`);
+          setTimeout(() => setError(""), 4000);
         }
-        ws.removeEventListener('message', handleEd2kResponse);
+
+        setTimeout(() => {
+          if (isServerList) fetchServers();
+          else fetchDownloads();
+        }, 500);
+
+        ws.removeEventListener("message", handleEd2kResponse);
       } else if (data.type === 'error') {
         setLoading(false);
         setError(data.message || 'Failed to add ED2K link');
@@ -1420,15 +1444,15 @@ const AmuleWebApp = () => {
         h('div', { className: 'flex gap-2' },
           h('input', {
             type: 'text',
-            value: ed2kLink,
-            onChange: (e) => setEd2kLink(e.target.value),
+            value: ed2kLinks,
+            onChange: (e) => setEd2kLinks(e.target.value),
             placeholder: 'ed2k://|file|...',
             className: 'flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent',
             disabled: loading
           }),
           h('button', {
-            onClick: () => handleAddEd2kLink(ed2kLink, false),
-            disabled: loading || !ed2kLink.trim(),
+            onClick: () => handleAddEd2kLinks(ed2kLinks, false),
+            disabled: loading || !ed2kLinks.trim(),
             className: 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95 text-sm font-medium'
           }, loading ? 'Adding...' : 'Add Download')
         )
@@ -1782,14 +1806,14 @@ const AmuleWebApp = () => {
         h('div', { className: 'flex gap-2' },
           h('input', {
             type: 'text',
-            value: ed2kLink || 'ed2k://|serverlist|http://upd.emule-security.org/server.met|/',
-            onChange: (e) => setEd2kLink(e.target.value),
+            value: ed2kLinks || 'ed2k://|serverlist|http://upd.emule-security.org/server.met|/',
+            onChange: (e) => setEd2kLinks(e.target.value),
             placeholder: 'ed2k://|serverlist|http://...',
             className: 'flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent',
             disabled: loading
           }),
           h('button', {
-            onClick: () => handleAddEd2kLink(ed2kLink || 'ed2k://|serverlist|http://upd.emule-security.org/server.met|/', true),
+            onClick: () => handleAddEd2kLinks(ed2kLinks || 'ed2k://|serverlist|http://upd.emule-security.org/server.met|/', true),
             disabled: loading,
             className: 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95 text-sm font-medium'
           }, loading ? 'Adding...' : 'Add Servers')

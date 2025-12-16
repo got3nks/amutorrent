@@ -186,7 +186,7 @@ wss.on('connection', (ws, req) => {
         case 'getUploadingQueue': await handleGetUploads(ws); break;
         case 'download': await handleDownload(ws, data); break;
         case 'delete': await handleDelete(ws, data); break;
-        case 'addEd2kLink': await handleAddEd2kLink(ws, data); break;
+        case 'addEd2kLinks': await handleAddEd2kLinks(ws, data); break;
         default:
           ws.send(JSON.stringify({ type: 'error', message: `Unknown action: ${data.action}` }));
       }
@@ -378,16 +378,32 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  async function handleAddEd2kLink(ws, data) {
+  async function handleAddEd2kLinks(ws, data) {
     try {
-      const success = await enqueueAmuleCall(() => amuleClient.addEd2kLink(data.link));
-      ws.send(JSON.stringify({ type: 'ed2k-added', success}));
-      clientLog(`ED2K link ${data.link} ${success ? 'added' : 'failed to add'}`);
+      const links = data.links;
+
+      const cleaned = links
+        .map(s => String(s).trim())
+        .filter(Boolean);
+
+      if (cleaned.length === 0) {
+        ws.send(JSON.stringify({ type: 'error', message: 'No ED2K links provided' }));
+        return;
+      }
+
+      const results = [];
+      for (const link of cleaned) {
+        // importante: mantener el orden y no saturar aMule -> usar la cola ya existente
+        const success = await enqueueAmuleCall(() => amuleClient.addEd2kLink(link));
+        results.push({ link, success });
+      }
+
+      ws.send(JSON.stringify({ type: 'ed2k-added', results }));
     } catch (err) {
-      clientLog('AddEd2kLink error:', err);
-      ws.send(JSON.stringify({ type: 'error', message: `Failed to add ED2K link ${data.link} with error: ${err.message}` }));
+      ws.send(JSON.stringify({ type: 'error', message: `Failed to add ED2K links: ${err.message}` }));
     }
   }
+
 });
 
 // ---- Auto-refresh intervals ----
