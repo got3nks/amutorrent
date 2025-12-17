@@ -1438,22 +1438,22 @@ const AmuleWebApp = () => {
       
       // ED2K download link form
       h('div', { className: 'bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mt-3' },
-        h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2' }, 
+        h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2' },
           'Add download from ED2K link:'
         ),
         h('div', { className: 'flex gap-2' },
-          h('input', {
-            type: 'text',
+          h('textarea', {
             value: ed2kLinks,
             onChange: (e) => setEd2kLinks(e.target.value),
-            placeholder: 'ed2k://|file|...',
-            className: 'flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+            placeholder: 'ed2k://|file|... (multiple ED2K links can be pasted, one per line)',
+            rows: 2,
+            className: 'flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y',
             disabled: loading
           }),
           h('button', {
             onClick: () => handleAddEd2kLinks(ed2kLinks, false),
             disabled: loading || !ed2kLinks.trim(),
-            className: 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95 text-sm font-medium'
+            className: 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95 text-sm font-medium self-start'
           }, loading ? 'Adding...' : 'Add Download')
         )
       )

@@ -393,7 +393,7 @@ wss.on('connection', (ws, req) => {
 
       const results = [];
       for (const link of cleaned) {
-        // importante: mantener el orden y no saturar aMule -> usar la cola ya existente
+        // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
         const success = await enqueueAmuleCall(() => amuleClient.addEd2kLink(link));
         results.push({ link, success });
       }
