@@ -20,9 +20,6 @@ services:
     restart: unless-stopped
 
   amule-web:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: amule-web-controller:latest
     user: "1000:1000"
     container_name: amule-web-controller

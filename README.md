@@ -98,6 +98,10 @@ If you don't have aMule installed and want to run everything in Docker, use `doc
 # Download the all-in-one compose file
 curl -O https://raw.githubusercontent.com/got3nks/amule-web-controller/main/docker-compose.all-in-one.yml
 
+# Create the data and logs directories with proper permissions:
+mkdir -p data logs
+sudo chown -R 1000:1000 data logs
+
 # Start both aMule and the web controller
 docker compose -f docker-compose.all-in-one.yml up -d
 ```
