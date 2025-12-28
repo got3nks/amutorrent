@@ -1,0 +1,65 @@
+services:
+  amule:
+    image: ngosang/amule:latest
+    container_name: amule
+    ports:
+      - "4662:4662"       # ED2K TCP
+      - "4665:4665/udp"   # ED2K UDP (global search)
+      - "4672:4672/udp"   # ED2K UDP
+    volumes:
+      - ./data/.aMule:/home/amule/.aMule
+      - ./data/incoming:/incoming
+      - ./data/temp:/temp
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+      - GUI_PWD=${AMULE_PASSWORD:-admin}
+      - WEBUI_PWD=${AMULE_PASSWORD:-admin}
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  amule-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: amule-web-controller:latest
+    user: "1000:1000"
+    container_name: amule-web-controller
+    depends_on:
+      - amule
+    ports:
+      - "${PORT:-4000}:${PORT:-4000}"
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-4000}
+      - AMULE_HOST=amule  # aMule container service name
+      # Optional: Uncomment to pre-configure via environment variables
+      # - AMULE_PORT=4712
+      # - AMULE_PASSWORD=${AMULE_PASSWORD}
+      # - SONARR_URL=http://sonarr:8989
+      # - SONARR_API_KEY=your_api_key
+      # - RADARR_URL=http://radarr:7878
+      # - RADARR_API_KEY=your_api_key
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./logs:/usr/src/app/server/logs
+      - ./data:/usr/src/app/server/data
+    restart: unless-stopped
+
+  # Optional: GeoIP database updater
+  # Requires free MaxMind license: https://www.maxmind.com/en/geolite-free-ip-geolocation-data
+  # Uncomment and configure with your account ID and license key
+  geoip:
+    image: crazymax/geoip-updater:latest
+    container_name: geoip-updater
+    environment:
+      # Replace with your MaxMind account credentials
+      - GEOIPUPDATE_ACCOUNT_ID=YOUR_ACCOUNT_ID
+      - GEOIPUPDATE_LICENSE_KEY=YOUR_LICENSE_KEY
+      - GEOIPUPDATE_EDITION_IDS=GeoLite2-City,GeoLite2-Country
+      - GEOIPUPDATE_FREQUENCY=24h  # Update daily
+    volumes:
+      - ./data/geoip:/data
+    restart: unless-stopped

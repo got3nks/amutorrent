@@ -8,15 +8,28 @@ const fs = require('fs');
  */
 class MetricsDB {
   constructor(dbPath) {
-    // Ensure database directory exists
-    const dbDir = path.dirname(dbPath);
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-    }
+    try {
+      // Ensure database directory exists
+      const dbDir = path.dirname(dbPath);
+      if (!fs.existsSync(dbDir)) {
+        console.log(`Creating database directory: ${dbDir}`);
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
 
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL'); // Better concurrency
-    this.initSchema();
+      // Verify directory is writable
+      fs.accessSync(dbDir, fs.constants.W_OK);
+
+      // Create database with explicit options
+      // fileMustExist: false allows SQLite to create the file if it doesn't exist
+      this.db = new Database(dbPath, { fileMustExist: false });
+      this.db.pragma('journal_mode = WAL'); // Better concurrency
+      this.initSchema();
+
+      console.log(`Database initialized successfully at: ${dbPath}`);
+    } catch (error) {
+      console.error(`Failed to initialize database at ${dbPath}:`, error);
+      throw new Error(`Database initialization failed: ${error.message}. Check directory permissions for: ${path.dirname(dbPath)}`);
+    }
   }
 
   /**
@@ -142,6 +155,59 @@ class MetricsDB {
       ORDER BY bucket ASC
     `);
     return query.all(bucketSize, bucketSize, startTime, endTime, bucketSize);
+  }
+
+  /**
+   * Get the first metric record in a time range
+   * @param {number} startTime - Start timestamp in milliseconds
+   * @param {number} endTime - End timestamp in milliseconds
+   * @returns {object|null} First metric record or null
+   */
+  getFirstMetric(startTime, endTime) {
+    const query = this.db.prepare(`
+      SELECT * FROM metrics
+      WHERE timestamp >= ?
+      ORDER BY timestamp ASC
+      LIMIT 1
+    `);
+    return query.get(startTime);
+  }
+
+  /**
+   * Get the last metric record in a time range
+   * @param {number} startTime - Start timestamp in milliseconds
+   * @param {number} endTime - End timestamp in milliseconds
+   * @returns {object|null} Last metric record or null
+   */
+  getLastMetric(startTime, endTime) {
+    const query = this.db.prepare(`
+      SELECT * FROM metrics
+      WHERE timestamp <= ?
+      ORDER BY timestamp DESC
+      LIMIT 1
+    `);
+    return query.get(endTime);
+  }
+
+  /**
+   * Get peak speeds within a time range from raw data
+   * @param {number} startTime - Start timestamp in milliseconds
+   * @param {number} endTime - End timestamp in milliseconds
+   * @returns {object} Object with peakUploadSpeed and peakDownloadSpeed
+   */
+  getPeakSpeeds(startTime, endTime) {
+    const query = this.db.prepare(`
+      SELECT
+        MAX(upload_speed) as peak_upload_speed,
+        MAX(download_speed) as peak_download_speed
+      FROM metrics
+      WHERE timestamp BETWEEN ? AND ?
+    `);
+    const result = query.get(startTime, endTime);
+    return {
+      peakUploadSpeed: result?.peak_upload_speed || 0,
+      peakDownloadSpeed: result?.peak_download_speed || 0
+    };
   }
 
   /**
