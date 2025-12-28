@@ -11,10 +11,14 @@ Get aMule Web Controller running in under 5 minutes!
 
 ### Using Docker (Recommended)
 
-1. **Create `docker-compose.yml`:**
-```yaml
-version: '3.8'
+1. **Create required directories:**
+```bash
+mkdir -p data logs
+sudo chown -R 1000:1000 data logs
+```
 
+2. **Create `docker-compose.yml`:**
+```yaml
 services:
   amule-web:
     image: g0t3nks/amule-web-controller:latest
@@ -33,12 +37,12 @@ services:
     restart: unless-stopped
 ```
 
-2. **Start:**
+3. **Start:**
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-3. **Configure:**
+4. **Configure:**
 - Open http://localhost:4000
 - Complete the 5-step setup wizard:
   - **aMule Host:** `host.docker.internal` (connects to aMule on your host)
@@ -92,7 +96,7 @@ If you want to run aMule in Docker too:
 ```bash
 # Download the all-in-one compose file
 curl -O https://raw.githubusercontent.com/got3nks/amule-web-controller/main/docker-compose.all-in-one.yml
-docker-compose -f docker-compose.all-in-one.yml up -d
+docker compose -f docker-compose.all-in-one.yml up -d
 ```
 - Use `amule` as aMule host in the wizard (service name)
 
@@ -169,7 +173,7 @@ ECPassword=<your_hashed_password>
 - Ensure aMule EC port is 4712 (or update AMULE_PORT)
 
 **Docker container won't start?**
-- Check logs: `docker-compose logs amule-web`
+- Check logs: `docker compose logs amule-web`
 - Verify volumes are writable: `./logs` and `./data` directories
 
 **Setup wizard not showing?**

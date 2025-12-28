@@ -39,13 +39,22 @@ A modern, real-time web interface for controlling aMule via the EC (External Con
 docker pull g0t3nks/amule-web-controller:latest
 ```
 
-2. **Create a `docker-compose.yml` file**
+2. **Create required directories**
+
+Create the data and logs directories with proper permissions:
+
+```bash
+mkdir -p data logs
+sudo chown -R 1000:1000 data logs
+```
+
+**Note:** The container runs as user `1000:1000`. If your user ID is different, adjust the ownership accordingly or run without `sudo` if you're already user 1000.
+
+3. **Create a `docker-compose.yml` file**
 
 This example assumes **aMule is running on your host machine**:
 
 ```yaml
-version: '3.8'
-
 services:
   amule-web:
     image: g0t3nks/amule-web-controller:latest
@@ -64,12 +73,12 @@ services:
     restart: unless-stopped
 ```
 
-3. **Start the container**
+4. **Start the container**
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-4. **Access the web interface and complete setup**
+5. **Access the web interface and complete setup**
 - Open your browser and navigate to `http://localhost:4000`
 - Follow the **interactive setup wizard**:
   - **aMule Host:** Use `host.docker.internal` (to connect to aMule on your host machine)
@@ -90,7 +99,7 @@ If you don't have aMule installed and want to run everything in Docker, use `doc
 curl -O https://raw.githubusercontent.com/got3nks/amule-web-controller/main/docker-compose.all-in-one.yml
 
 # Start both aMule and the web controller
-docker-compose -f docker-compose.all-in-one.yml up -d
+docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
 See [docker-compose.all-in-one.yml](docker-compose.all-in-one.yml) in the repository for the full configuration.
@@ -130,12 +139,12 @@ cd amule-web-controller
 
 **Default:** For aMule running on your host machine
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 **Alternative:** All-in-one with aMule container included
 ```bash
-docker-compose -f docker-compose.all-in-one.yml up -d
+docker compose -f docker-compose.all-in-one.yml up -d
 ```
 
 3. **Access the web interface and complete setup**
