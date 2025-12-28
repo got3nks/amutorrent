@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   amule-web:
-    image: amule-web-controller:latest
+    image: g0t3nks/amule-web-controller:latest
     user: "1000:1000"
     container_name: amule-web-controller
     depends_on:
