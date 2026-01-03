@@ -1,6 +1,6 @@
 {
   "name": "amule-webapp-frontend",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "aMule Web Controller Frontend Build",
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./static/output.css --minify",

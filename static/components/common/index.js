@@ -19,3 +19,4 @@ export { default as MobileCardView } from './MobileCardView.js';
 export { PaginationControls } from './PaginationControls.js';
 export { SortControls } from './SortControls.js';
 export { default as SearchResultsList } from './SearchResultsList.js';
+export { default as StatCard } from './StatCard.js';

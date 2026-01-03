@@ -5,7 +5,7 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { StatsTree, SpeedChart, TransferChart } from '../common/index.js';
+import { StatsTree, SpeedChart, TransferChart, Icon } from '../common/index.js';
 import { formatBytes, formatSpeed } from '../../utils/index.js';
 
 const { createElement: h } = React;
@@ -57,38 +57,56 @@ const StatisticsView = ({
     historicalStats && h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
       // Upload Statistics
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Uploaded'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'upload', size: 16, className: 'text-green-600 dark:text-green-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Uploaded')
+        ),
         h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
           formatBytes(historicalStats.totalUploaded)
         )
       ),
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Upload Speed'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'trendingUp', size: 16, className: 'text-green-600 dark:text-green-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Upload Speed')
+        ),
         h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
           formatSpeed(historicalStats.avgUploadSpeed)
         )
       ),
       h('div', { className: 'hidden sm:block bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Upload Speed'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'zap', size: 16, className: 'text-green-600 dark:text-green-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Upload Speed')
+        ),
         h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
           formatSpeed(historicalStats.peakUploadSpeed)
         )
       ),
       // Download Statistics
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Downloaded'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'download', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Downloaded')
+        ),
         h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
           formatBytes(historicalStats.totalDownloaded)
         )
       ),
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Download Speed'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'trendingUp', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Download Speed')
+        ),
         h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
           formatSpeed(historicalStats.avgDownloadSpeed)
         )
       ),
       h('div', { className: 'hidden sm:block bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Download Speed'),
+        h('div', { className: 'flex items-center gap-2 mb-1' },
+          h(Icon, { name: 'zap', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
+          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Download Speed')
+        ),
         h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
           formatSpeed(historicalStats.peakDownloadSpeed)
         )

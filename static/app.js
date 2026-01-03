@@ -120,6 +120,14 @@ const AmuleWebApp = () => {
     loadingHistory: false
   });
 
+  // Dashboard state for home view
+  const [dashboardState, setDashboardState] = useState({
+    speedData: null,
+    historicalData: null,
+    historicalStats: null,
+    loading: false
+  });
+
   // Sort configuration state with localStorage persistence
   const [sortConfig, setSortConfig] = useState(() => {
     const defaultConfig = {
@@ -412,6 +420,10 @@ const AmuleWebApp = () => {
     let intervalId = null;
 
     switch (currentView) {
+      case 'home':
+        fetchDashboardData();
+        intervalId = setInterval(fetchDashboardData, STATISTICS_REFRESH_INTERVAL);
+        break;
       case 'search':
         fetchPreviousSearchResults();
         break;
@@ -530,6 +542,32 @@ const AmuleWebApp = () => {
     }
   };
 
+  // Fetch dashboard data for home view
+  const fetchDashboardData = async () => {
+    setDashboardState(prev => ({ ...prev, loading: true }));
+    try {
+      const [speedRes, historyRes, statsRes] = await Promise.all([
+        fetch('/api/metrics/speed-history?range=24h'),
+        fetch('/api/metrics/history?range=24h'),
+        fetch('/api/metrics/stats?range=24h')
+      ]);
+
+      const speedData = await speedRes.json();
+      const historicalData = await historyRes.json();
+      const historicalStats = await statsRes.json();
+
+      setDashboardState({
+        speedData,
+        historicalData,
+        historicalStats,
+        loading: false
+      });
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      setDashboardState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   // Navigation handler
   const handleNavigate = (view) => {
     setCurrentView(view);
@@ -628,7 +666,20 @@ const AmuleWebApp = () => {
         h('main', { className: 'flex-1 bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700' },
           currentView === 'home' && h(HomeView, {
             stats,
-            onNavigate: setCurrentView
+            onNavigate: setCurrentView,
+            // Dashboard data
+            downloads,
+            uploads,
+            categories: categoryState.list,
+            dashboardState,
+            theme,
+            // Search integration
+            searchQuery: searchState.query,
+            onSearchQueryChange: (q) => setSearchState(prev => ({ ...prev, query: q })),
+            searchType: searchState.type,
+            onSearchTypeChange: (t) => setSearchState(prev => ({ ...prev, type: t })),
+            searchLocked: searchState.locked,
+            onSearch: handleSearch
           }),
           currentView === 'search' && h(SearchView, {
             searchQuery: searchState.query,
