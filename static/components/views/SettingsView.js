@@ -53,13 +53,18 @@ const SettingsView = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [scriptTestResult, setScriptTestResult] = useState(null);
   const [openSections, setOpenSections] = useState({
     server: false,
     amule: false,
+    integrations: false,
+    rtorrent: false,
     directories: false,
     history: false,
+    eventScripting: false,
     sonarr: false,
-    radarr: false
+    radarr: false,
+    prowlarr: false
   });
 
   // Load current configuration on mount
@@ -75,12 +80,26 @@ const SettingsView = () => {
       setFormData({
         server: { ...currentConfig.server },
         amule: { ...currentConfig.amule },
+        rtorrent: { ...currentConfig.rtorrent },
         directories: { ...currentConfig.directories },
         integrations: {
           sonarr: { ...currentConfig.integrations.sonarr },
-          radarr: { ...currentConfig.integrations.radarr }
+          radarr: { ...currentConfig.integrations.radarr },
+          prowlarr: { ...currentConfig.integrations?.prowlarr || { enabled: false, url: '', apiKey: '' } }
         },
-        history: { ...currentConfig.history }
+        history: { ...currentConfig.history },
+        eventScripting: { ...currentConfig.eventScripting || {
+          enabled: false,
+          scriptPath: '',
+          events: {
+            downloadAdded: true,
+            downloadFinished: true,
+            categoryChanged: true,
+            fileMoved: true,
+            fileDeleted: true
+          },
+          timeout: 30000
+        }}
       });
 
       // Store original password values (masked as '********')
@@ -88,8 +107,10 @@ const SettingsView = () => {
       setOriginalPasswords({
         auth: currentConfig.server?.auth?.password || '',
         amule: currentConfig.amule.password,
+        rtorrent: currentConfig.rtorrent?.password || '',
         sonarr: currentConfig.integrations.sonarr.apiKey,
-        radarr: currentConfig.integrations.radarr.apiKey
+        radarr: currentConfig.integrations.radarr.apiKey,
+        prowlarr: currentConfig.integrations?.prowlarr?.apiKey || ''
       });
     }
   }, [currentConfig]);
@@ -111,6 +132,11 @@ const SettingsView = () => {
         updates.amule = true;
       }
 
+      // Check rtorrent
+      if (results.rtorrent && results.rtorrent.success === false) {
+        updates.rtorrent = true;
+      }
+
       // Check directories
       if (results.directories) {
         if ((results.directories.data && !results.directories.data.success) ||
@@ -127,6 +153,11 @@ const SettingsView = () => {
       // Check Radarr
       if (results.radarr && results.radarr.success === false) {
         updates.radarr = true;
+      }
+
+      // Check Prowlarr
+      if (results.prowlarr && results.prowlarr.success === false) {
+        updates.prowlarr = true;
       }
 
       // Return merged state (preserves existing open sections)
@@ -146,11 +177,17 @@ const SettingsView = () => {
     if (unmasked.amule?.password === '********') {
       delete unmasked.amule.password;
     }
+    if (unmasked.rtorrent?.password === '********') {
+      delete unmasked.rtorrent.password;
+    }
     if (unmasked.integrations?.sonarr?.apiKey === '********') {
       delete unmasked.integrations.sonarr.apiKey;
     }
     if (unmasked.integrations?.radarr?.apiKey === '********') {
       delete unmasked.integrations.radarr.apiKey;
+    }
+    if (unmasked.integrations?.prowlarr?.apiKey === '********') {
+      delete unmasked.integrations.prowlarr.apiKey;
     }
 
     return unmasked;
@@ -189,11 +226,25 @@ const SettingsView = () => {
 
   // Test aMule connection
   const handleTestAmule = async () => {
-    if (!formData) return;
+    if (!formData || formData.amule?.enabled === false) return;
     setIsTesting(true);
     try {
       const unmasked = getUnmaskedConfig(formData);
       await testConfig({ amule: unmasked.amule });
+    } catch (err) {
+      // Error is handled by useConfig
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  // Test rtorrent connection
+  const handleTestRtorrent = async () => {
+    if (!formData || !formData.rtorrent?.enabled) return;
+    setIsTesting(true);
+    try {
+      const unmasked = getUnmaskedConfig(formData);
+      await testConfig({ rtorrent: unmasked.rtorrent });
     } catch (err) {
       // Error is handled by useConfig
     } finally {
@@ -243,6 +294,40 @@ const SettingsView = () => {
     }
   };
 
+  // Test Prowlarr
+  const handleTestProwlarr = async () => {
+    if (!formData) return;
+    setIsTesting(true);
+    try {
+      const unmasked = getUnmaskedConfig(formData);
+      await testConfig({ prowlarr: unmasked.integrations.prowlarr });
+    } catch (err) {
+      // Error is handled by useConfig
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  // Test Event Script Path
+  const handleTestScript = async () => {
+    if (!formData?.eventScripting?.scriptPath) return;
+    setIsTesting(true);
+    setScriptTestResult(null);
+    try {
+      const response = await fetch('/api/config/test-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scriptPath: formData.eventScripting.scriptPath })
+      });
+      const result = await response.json();
+      setScriptTestResult(result);
+    } catch (err) {
+      setScriptTestResult({ success: false, message: err.message });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   // Test all
   const handleTestAll = async () => {
     if (!formData) return;
@@ -279,6 +364,12 @@ const SettingsView = () => {
       }
     }
 
+    // Cross-validation: at least one client must be enabled
+    if (formData.amule?.enabled === false && !formData.rtorrent?.enabled) {
+      setSaveError('At least one download client (aMule or rTorrent) must be enabled.');
+      return;
+    }
+
     // Always test before saving
     // If tests haven't been run, run them first
     if (!testResults || !testResults.results) {
@@ -287,10 +378,12 @@ const SettingsView = () => {
       try {
         const unmasked = getUnmaskedConfig(formData);
         results = await testConfig({
-          amule: unmasked.amule,
+          amule: unmasked.amule?.enabled !== false ? unmasked.amule : undefined,
+          rtorrent: unmasked.rtorrent?.enabled ? unmasked.rtorrent : undefined,
           directories: unmasked.directories,
           sonarr: unmasked.integrations.sonarr.enabled ? unmasked.integrations.sonarr : undefined,
-          radarr: unmasked.integrations.radarr.enabled ? unmasked.integrations.radarr : undefined
+          radarr: unmasked.integrations.radarr.enabled ? unmasked.integrations.radarr : undefined,
+          prowlarr: unmasked.integrations.prowlarr?.enabled ? unmasked.integrations.prowlarr : undefined
         });
       } catch (err) {
         setSaveError('Configuration test failed. Please review the errors and fix them before saving.');
@@ -354,15 +447,18 @@ const SettingsView = () => {
   const hasTestErrors = () => checkTestErrors(testResults, formData);
 
 
-  if (loading && !formData) {
-    return h('div', { className: 'flex items-center justify-center h-64' },
-      h(LoadingSpinner, { message: 'Loading configuration...' })
-    );
-  }
-
+  // Show loading state when formData hasn't been initialized yet
+  // (loading flag is for async operations, formData null means initial load)
   if (!formData) {
-    return h('div', { className: 'p-4' },
-      h('p', { className: 'text-red-600 dark:text-red-400' }, 'Failed to load configuration')
+    // If there's an error, show error message
+    if (error) {
+      return h('div', { className: 'p-4' },
+        h('p', { className: 'text-red-600 dark:text-red-400' }, 'Failed to load configuration: ', error)
+      );
+    }
+    // Otherwise show loading spinner
+    return h('div', { className: 'flex items-center justify-center h-64' },
+      h(LoadingSpinner, { text: 'Loading configuration...' })
     );
   }
 
@@ -492,60 +588,356 @@ const SettingsView = () => {
       open: openSections.amule,
       onToggle: (value) => setOpenSections(prev => ({ ...prev, amule: value }))
     },
-      isDocker && h(AlertBox, { type: 'info' },
-          h('p', {}, 'You are running in Docker. If aMule is running on your host machine, use the special hostname ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), '. If aMule is running in another container, use that container\'s name as the hostname.')
-      ),
-      h(ConfigField, {
-        label: 'Host',
-        description: 'aMule External Connection (EC) host address',
-        value: formData.amule.host,
-        onChange: (value) => updateField('amule', 'host', value),
-        placeholder: '127.0.0.1',
-        required: true,
-        fromEnv: meta?.fromEnv.amuleHost
-      }),
-      h(ConfigField, {
-        label: 'Port',
-        description: 'aMule EC port (default: 4712)',
-        value: formData.amule.port,
-        onChange: (value) => updateField('amule', 'port', value),
-        type: 'number',
-        placeholder: '4712',
-        required: true,
-        fromEnv: meta?.fromEnv.amulePort
+      h(EnableToggle, {
+        enabled: formData.amule?.enabled !== false,
+        onChange: (value) => updateField('amule', 'enabled', value),
+        label: 'Enable aMule Integration',
+        description: 'Connect to aMule for managing ed2k/Kademlia downloads'
       }),
 
-      // Warning if aMule password is from environment
-      meta?.fromEnv.amulePassword && h(AlertBox, { type: 'warning' },
-        h('p', {}, 'aMule password is set via AMULE_PASSWORD environment variable and cannot be changed here. To change the password, update the environment variable and restart the server.')
-      ),
+      formData.amule?.enabled !== false && h('div', { className: 'mt-4 space-y-4' },
+        isDocker && h(AlertBox, { type: 'info' },
+            h('p', {}, 'You are running in Docker. If aMule is running on your host machine, use the special hostname ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), '. If aMule is running in another container, use that container\'s name as the hostname.')
+        ),
+        h(ConfigField, {
+          label: 'Host',
+          description: 'aMule External Connection (EC) host address',
+          value: formData.amule.host,
+          onChange: (value) => updateField('amule', 'host', value),
+          placeholder: '127.0.0.1',
+          required: formData.amule?.enabled !== false,
+          fromEnv: meta?.fromEnv.amuleHost
+        }),
+        h(ConfigField, {
+          label: 'Port',
+          description: 'aMule EC port (default: 4712)',
+          value: formData.amule.port,
+          onChange: (value) => updateField('amule', 'port', value),
+          type: 'number',
+          placeholder: '4712',
+          required: formData.amule?.enabled !== false,
+          fromEnv: meta?.fromEnv.amulePort
+        }),
 
-      !meta?.fromEnv.amulePassword && h(ConfigField, {
-        label: 'Password',
-        description: 'aMule EC password (set in aMule preferences)',
-        value: formData.amule.password,
-        onChange: (value) => updateField('amule', 'password', value),
-        required: true,
-        fromEnv: meta?.fromEnv.amulePassword
-      },
-        h(PasswordField, {
+        // Warning if aMule password is from environment
+        meta?.fromEnv.amulePassword && h(AlertBox, { type: 'warning' },
+          h('p', {}, 'aMule password is set via AMULE_PASSWORD environment variable and cannot be changed here. To change the password, update the environment variable and restart the server.')
+        ),
+
+        !meta?.fromEnv.amulePassword && h(ConfigField, {
+          label: 'Password',
+          description: 'aMule EC password (set in aMule preferences)',
           value: formData.amule.password,
           onChange: (value) => updateField('amule', 'password', value),
-          placeholder: 'Enter aMule EC password',
-          disabled: meta?.fromEnv.amulePassword
+          required: formData.amule?.enabled !== false,
+          fromEnv: meta?.fromEnv.amulePassword
+        },
+          h(PasswordField, {
+            value: formData.amule.password,
+            onChange: (value) => updateField('amule', 'password', value),
+            placeholder: 'Enter aMule EC password',
+            disabled: meta?.fromEnv.amulePassword
+          })
+        ),
+        h(ConfigField, {
+          label: 'Shared Files Auto-Reload Interval (hours)',
+          description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.',
+          value: formData.amule.sharedFilesReloadIntervalHours ?? 3,
+          onChange: (value) => updateField('amule', 'sharedFilesReloadIntervalHours', parseInt(value) || 0),
+          type: 'number',
+          placeholder: '3',
+          fromEnv: meta?.fromEnv.amuleSharedFilesReloadInterval
+        }),
+        h('div', { className: 'mt-4' },
+          h(TestButton, {
+            onClick: handleTestAmule,
+            loading: isTesting,
+            disabled: !formData.amule.host || !formData.amule.port || !formData.amule.password
+          }, 'Test Connection')
+        ),
+        testResults?.results?.amule && h(TestResultIndicator, {
+          result: testResults.results.amule,
+          label: 'aMule Connection Test'
         })
+      )
+    ),
+
+    // *arr Integrations
+    h(ConfigSection, {
+      title: '*arr Integrations',
+      description: 'Sonarr and Radarr scheduler settings',
+      defaultOpen: false,
+      open: openSections.integrations,
+      onToggle: (value) => setOpenSections(prev => ({ ...prev, integrations: value }))
+    },
+      // *arr Integration Configuration info
+      h(IntegrationConfigInfo, {
+        title: '*arr Integration Configuration',
+        port: formData.server.port,
+        authEnabled: formData.server.auth?.enabled,
+        amuleEnabled: formData.amule?.enabled !== false,
+        className: 'mb-6'
+      }),
+
+      // Sonarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.sonarr.enabled,
+          onChange: (value) => updateNestedField('integrations', 'sonarr', 'enabled', value),
+          label: 'Enable Sonarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing TV episodes via Sonarr API'
+        }),
+        formData.integrations.sonarr.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Sonarr URL',
+            description: 'Sonarr server URL (e.g., http://localhost:8989)',
+            value: formData.integrations.sonarr.url,
+            onChange: (value) => updateNestedField('integrations', 'sonarr', 'url', value),
+            placeholder: 'http://localhost:8989',
+            required: formData.integrations.sonarr.enabled,
+            fromEnv: meta?.fromEnv.sonarrUrl
+          }),
+          meta?.fromEnv.sonarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Sonarr API key is set via SONARR_API_KEY environment variable.')
+          ),
+          !meta?.fromEnv.sonarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Sonarr API key (found in Settings → General)',
+            value: formData.integrations.sonarr.apiKey,
+            onChange: (value) => updateNestedField('integrations', 'sonarr', 'apiKey', value),
+            required: formData.integrations.sonarr.enabled,
+            fromEnv: meta?.fromEnv.sonarrApiKey
+          },
+            h(PasswordField, {
+              value: formData.integrations.sonarr.apiKey,
+              onChange: (value) => updateNestedField('integrations', 'sonarr', 'apiKey', value),
+              placeholder: 'Enter Sonarr API key',
+              disabled: meta?.fromEnv.sonarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.sonarr.searchIntervalHours,
+            onChange: (value) => updateNestedField('integrations', 'sonarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6',
+            fromEnv: meta?.fromEnv.sonarrSearchInterval
+          }),
+          h('div', { className: 'mt-4' },
+            h(TestButton, {
+              onClick: handleTestSonarr,
+              loading: isTesting,
+              disabled: !formData.integrations.sonarr.url || !formData.integrations.sonarr.apiKey
+            }, 'Test Sonarr Connection')
+          ),
+          testResults?.results?.sonarr && h(TestResultIndicator, {
+            result: testResults.results.sonarr,
+            label: 'Sonarr API Test'
+          })
+        )
       ),
-      h('div', { className: 'mt-4' },
-        h(TestButton, {
-          onClick: handleTestAmule,
-          loading: isTesting,
-          disabled: !formData.amule.host || !formData.amule.port || !formData.amule.password
-        }, 'Test Connection')
-      ),
-      testResults?.results?.amule && h(TestResultIndicator, {
-        result: testResults.results.amule,
-        label: 'aMule Connection Test'
-      })
+
+      // Radarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.radarr.enabled,
+          onChange: (value) => updateNestedField('integrations', 'radarr', 'enabled', value),
+          label: 'Enable Radarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing movies via Radarr API'
+        }),
+        formData.integrations.radarr.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Radarr URL',
+            description: 'Radarr server URL (e.g., http://localhost:7878)',
+            value: formData.integrations.radarr.url,
+            onChange: (value) => updateNestedField('integrations', 'radarr', 'url', value),
+            placeholder: 'http://localhost:7878',
+            required: formData.integrations.radarr.enabled,
+            fromEnv: meta?.fromEnv.radarrUrl
+          }),
+          meta?.fromEnv.radarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Radarr API key is set via RADARR_API_KEY environment variable.')
+          ),
+          !meta?.fromEnv.radarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Radarr API key (found in Settings → General)',
+            value: formData.integrations.radarr.apiKey,
+            onChange: (value) => updateNestedField('integrations', 'radarr', 'apiKey', value),
+            required: formData.integrations.radarr.enabled,
+            fromEnv: meta?.fromEnv.radarrApiKey
+          },
+            h(PasswordField, {
+              value: formData.integrations.radarr.apiKey,
+              onChange: (value) => updateNestedField('integrations', 'radarr', 'apiKey', value),
+              placeholder: 'Enter Radarr API key',
+              disabled: meta?.fromEnv.radarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.radarr.searchIntervalHours,
+            onChange: (value) => updateNestedField('integrations', 'radarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6',
+            fromEnv: meta?.fromEnv.radarrSearchInterval
+          }),
+          h('div', { className: 'mt-4' },
+            h(TestButton, {
+              onClick: handleTestRadarr,
+              loading: isTesting,
+              disabled: !formData.integrations.radarr.url || !formData.integrations.radarr.apiKey
+            }, 'Test Radarr Connection')
+          ),
+          testResults?.results?.radarr && h(TestResultIndicator, {
+            result: testResults.results.radarr,
+            label: 'Radarr API Test'
+          })
+        )
+      )
+    ),
+
+    // rtorrent Configuration
+    h(ConfigSection, {
+      title: 'rTorrent Connection',
+      description: 'rTorrent XML-RPC settings',
+      defaultOpen: false,
+      open: openSections.rtorrent,
+      onToggle: (value) => setOpenSections(prev => ({ ...prev, rtorrent: value }))
+    },
+      h(EnableToggle, {
+        enabled: formData.rtorrent?.enabled || false,
+        onChange: (value) => updateField('rtorrent', 'enabled', value),
+        label: 'Enable rTorrent Integration',
+        description: 'Connect to rTorrent for managing BitTorrent downloads'
+      }),
+
+      formData.rtorrent?.enabled && h('div', { className: 'mt-4 space-y-4' },
+        isDocker && h(AlertBox, { type: 'info' },
+          h('p', {}, 'You are running in Docker. If rTorrent is running on your host machine, use ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), ' as the hostname.')
+        ),
+
+        h(ConfigField, {
+          label: 'Host',
+          description: 'rTorrent XML-RPC host address',
+          value: formData.rtorrent.host || '',
+          onChange: (value) => updateField('rtorrent', 'host', value),
+          placeholder: '127.0.0.1',
+          required: formData.rtorrent.enabled,
+          fromEnv: meta?.fromEnv.rtorrentHost
+        }),
+
+        h(ConfigField, {
+          label: 'Port',
+          description: 'rTorrent XML-RPC port (default: 8000)',
+          value: formData.rtorrent.port || 8000,
+          onChange: (value) => updateField('rtorrent', 'port', parseInt(value, 10) || 8000),
+          type: 'number',
+          placeholder: '8000',
+          required: formData.rtorrent.enabled,
+          fromEnv: meta?.fromEnv.rtorrentPort
+        }),
+
+        h(ConfigField, {
+          label: 'XML-RPC Path',
+          description: 'Path for XML-RPC endpoint (default: /RPC2)',
+          value: formData.rtorrent.path || '/RPC2',
+          onChange: (value) => updateField('rtorrent', 'path', value),
+          placeholder: '/RPC2',
+          fromEnv: meta?.fromEnv.rtorrentPath
+        }),
+
+        h(ConfigField, {
+          label: 'Username (Optional)',
+          description: 'Username for HTTP basic authentication (if required)',
+          value: formData.rtorrent.username || '',
+          onChange: (value) => updateField('rtorrent', 'username', value),
+          placeholder: 'Leave empty if not required',
+          fromEnv: meta?.fromEnv.rtorrentUsername
+        }),
+
+        // Warning if rtorrent password is from environment
+        meta?.fromEnv.rtorrentPassword && h(AlertBox, { type: 'warning' },
+          h('p', {}, 'rTorrent password is set via RTORRENT_PASSWORD environment variable.')
+        ),
+
+        !meta?.fromEnv.rtorrentPassword && h(ConfigField, {
+          label: 'Password (Optional)',
+          description: 'Password for HTTP basic authentication (if required)',
+          fromEnv: meta?.fromEnv.rtorrentPassword
+        },
+          h(PasswordField, {
+            value: formData.rtorrent.password || '',
+            onChange: (value) => updateField('rtorrent', 'password', value),
+            placeholder: 'Leave empty if not required',
+            disabled: meta?.fromEnv.rtorrentPassword
+          })
+        ),
+
+        h('div', { className: 'mt-4' },
+          h(TestButton, {
+            onClick: handleTestRtorrent,
+            loading: isTesting,
+            disabled: !formData.rtorrent.host || !formData.rtorrent.port
+          }, 'Test rTorrent Connection')
+        ),
+
+        testResults?.results?.rtorrent && h(TestResultIndicator, {
+          result: testResults.results.rtorrent,
+          label: 'rTorrent Connection Test'
+        }),
+
+        // Prowlarr Integration (inside rTorrent section)
+        h('div', { className: 'mt-6 pt-6 border-t border-gray-200 dark:border-gray-700' },
+          h(EnableToggle, {
+            enabled: formData.integrations.prowlarr?.enabled || false,
+            onChange: (value) => updateNestedField('integrations', 'prowlarr', 'enabled', value),
+            label: 'Enable Prowlarr Integration',
+            description: 'Search for torrents via Prowlarr indexer manager'
+          }),
+          formData.integrations.prowlarr?.enabled && h('div', { className: 'mt-4 space-y-4' },
+            h(ConfigField, {
+              label: 'Prowlarr URL',
+              description: 'Prowlarr server URL (e.g., http://localhost:9696)',
+              value: formData.integrations.prowlarr?.url || '',
+              onChange: (value) => updateNestedField('integrations', 'prowlarr', 'url', value),
+              placeholder: 'http://localhost:9696',
+              required: formData.integrations.prowlarr?.enabled,
+              fromEnv: meta?.fromEnv.prowlarrUrl
+            }),
+            meta?.fromEnv.prowlarrApiKey && h(AlertBox, { type: 'warning' },
+              h('p', {}, 'Prowlarr API key is set via PROWLARR_API_KEY environment variable.')
+            ),
+            !meta?.fromEnv.prowlarrApiKey && h(ConfigField, {
+              label: 'API Key',
+              description: 'Prowlarr API key (found in Settings → General)',
+              value: formData.integrations.prowlarr?.apiKey || '',
+              onChange: (value) => updateNestedField('integrations', 'prowlarr', 'apiKey', value),
+              required: formData.integrations.prowlarr?.enabled,
+              fromEnv: meta?.fromEnv.prowlarrApiKey
+            },
+              h(PasswordField, {
+                value: formData.integrations.prowlarr?.apiKey || '',
+                onChange: (value) => updateNestedField('integrations', 'prowlarr', 'apiKey', value),
+                placeholder: 'Enter Prowlarr API key',
+                disabled: meta?.fromEnv.prowlarrApiKey
+              })
+            ),
+            h('div', { className: 'mt-4' },
+              h(TestButton, {
+                onClick: handleTestProwlarr,
+                loading: isTesting,
+                disabled: !formData.integrations.prowlarr?.url || !formData.integrations.prowlarr?.apiKey
+              }, 'Test Prowlarr Connection')
+            ),
+            testResults?.results?.prowlarr && h(TestResultIndicator, {
+              result: testResults.results.prowlarr,
+              label: 'Prowlarr API Test'
+            })
+          )
+        )
+      )
     ),
 
     // Directories Configuration
@@ -649,151 +1041,82 @@ const SettingsView = () => {
       )
     ),
 
-    // Sonarr Integration
+    // Event Scripting Configuration (Advanced)
     h(ConfigSection, {
-      title: 'Sonarr Integration',
-      description: 'Automatic TV show search integration',
+      title: 'Custom Event Script',
+      description: 'Advanced: Execute a custom script when events occur',
       defaultOpen: false,
-      open: openSections.sonarr,
-      onToggle: (value) => setOpenSections(prev => ({ ...prev, sonarr: value }))
+      open: openSections.eventScripting,
+      onToggle: (value) => setOpenSections(prev => ({ ...prev, eventScripting: value }))
     },
+      // Recommendation to use Notifications page
+      h(AlertBox, { type: 'info', className: 'mb-4' },
+        h('div', {},
+          h('p', { className: 'font-medium mb-1' }, 'Looking for push notifications?'),
+          h('p', { className: 'text-sm mb-2' }, 'Use the Notifications page to easily configure Discord, Telegram, Slack, and other notification services.'),
+          h('button', {
+            onClick: () => setAppCurrentView('notifications'),
+            className: 'text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium'
+          }, 'Go to Notifications →')
+        )
+      ),
+
       h(EnableToggle, {
-        enabled: formData.integrations.sonarr.enabled,
-        onChange: (value) => updateNestedField('integrations', 'sonarr', 'enabled', value),
-        label: 'Enable Sonarr Integration',
-        description: 'Enable automatic searching for TV shows'
+        enabled: formData.eventScripting?.enabled || false,
+        onChange: (value) => updateField('eventScripting', 'enabled', value),
+        label: 'Enable Custom Event Script',
+        description: 'Execute your own script when events occur (for power users)'
       }),
-      formData.integrations.sonarr.enabled && h('div', { className: 'mt-4 space-y-4' },
+      formData.eventScripting?.enabled && h('div', { className: 'mt-4 space-y-4' },
         h(ConfigField, {
-          label: 'Sonarr URL',
-          description: 'Sonarr server URL (e.g., http://localhost:8989)',
-          value: formData.integrations.sonarr.url,
-          onChange: (value) => updateNestedField('integrations', 'sonarr', 'url', value),
-          placeholder: 'http://localhost:8989',
-          required: formData.integrations.sonarr.enabled,
-          fromEnv: meta?.fromEnv.sonarrUrl
+          label: 'Script Path',
+          description: 'Full path to the script to execute (must be executable)',
+          value: formData.eventScripting?.scriptPath || '',
+          onChange: (value) => updateField('eventScripting', 'scriptPath', value),
+          placeholder: '/path/to/script.sh',
+          required: formData.eventScripting?.enabled
         }),
-
-        // Warning if Sonarr API key is from environment
-        meta?.fromEnv.sonarrApiKey && h(AlertBox, { type: 'warning' },
-          h('p', {}, 'Sonarr API key is set via SONARR_API_KEY environment variable and cannot be changed here. To change the API key, update the environment variable and restart the server.')
-        ),
-
-        !meta?.fromEnv.sonarrApiKey && h(ConfigField, {
-          label: 'API Key',
-          description: 'Sonarr API key (found in Settings → General)',
-          value: formData.integrations.sonarr.apiKey,
-          onChange: (value) => updateNestedField('integrations', 'sonarr', 'apiKey', value),
-          required: formData.integrations.sonarr.enabled,
-          fromEnv: meta?.fromEnv.sonarrApiKey
-        },
-          h(PasswordField, {
-            value: formData.integrations.sonarr.apiKey,
-            onChange: (value) => updateNestedField('integrations', 'sonarr', 'apiKey', value),
-            placeholder: 'Enter Sonarr API key',
-            disabled: meta?.fromEnv.sonarrApiKey
-          })
-        ),
         h(ConfigField, {
-          label: 'Search Interval (hours)',
-          description: 'Hours between automatic searches (0 = disabled)',
-          value: formData.integrations.sonarr.searchIntervalHours,
-          onChange: (value) => updateNestedField('integrations', 'sonarr', 'searchIntervalHours', value),
+          label: 'Timeout (ms)',
+          description: 'Maximum time to wait for script execution before killing it',
+          value: formData.eventScripting?.timeout || 30000,
+          onChange: (value) => updateField('eventScripting', 'timeout', parseInt(value) || 30000),
           type: 'number',
-          placeholder: '6',
-          fromEnv: meta?.fromEnv.sonarrSearchInterval
+          placeholder: '30000'
         }),
-        // Integration configuration info message
-        h(IntegrationConfigInfo, {
-          title: 'Sonarr Integration Configuration',
-          port: formData.server.port,
-          authEnabled: formData.server.auth?.enabled
-        }),
+
         h('div', { className: 'mt-4' },
           h(TestButton, {
-            onClick: handleTestSonarr,
+            onClick: handleTestScript,
             loading: isTesting,
-            disabled: !formData.integrations.sonarr.url || !formData.integrations.sonarr.apiKey
-          }, 'Test Sonarr Connection')
-        ),
-        testResults?.results?.sonarr && h(TestResultIndicator, {
-          result: testResults.results.sonarr,
-          label: 'Sonarr API Test'
-        })
-      )
-    ),
-
-    // Radarr Integration
-    h(ConfigSection, {
-      title: 'Radarr Integration',
-      description: 'Automatic movie search integration',
-      defaultOpen: false,
-      open: openSections.radarr,
-      onToggle: (value) => setOpenSections(prev => ({ ...prev, radarr: value }))
-    },
-      h(EnableToggle, {
-        enabled: formData.integrations.radarr.enabled,
-        onChange: (value) => updateNestedField('integrations', 'radarr', 'enabled', value),
-        label: 'Enable Radarr Integration',
-        description: 'Enable automatic searching for movies'
-      }),
-      formData.integrations.radarr.enabled && h('div', { className: 'mt-4 space-y-4' },
-        h(ConfigField, {
-          label: 'Radarr URL',
-          description: 'Radarr server URL (e.g., http://localhost:7878)',
-          value: formData.integrations.radarr.url,
-          onChange: (value) => updateNestedField('integrations', 'radarr', 'url', value),
-          placeholder: 'http://localhost:7878',
-          required: formData.integrations.radarr.enabled,
-          fromEnv: meta?.fromEnv.radarrUrl
-        }),
-
-        // Warning if Radarr API key is from environment
-        meta?.fromEnv.radarrApiKey && h(AlertBox, { type: 'warning' },
-          h('p', {}, 'Radarr API key is set via RADARR_API_KEY environment variable and cannot be changed here. To change the API key, update the environment variable and restart the server.')
+            disabled: !formData.eventScripting?.scriptPath
+          }, 'Test Script Path')
         ),
 
-        !meta?.fromEnv.radarrApiKey && h(ConfigField, {
-          label: 'API Key',
-          description: 'Radarr API key (found in Settings → General)',
-          value: formData.integrations.radarr.apiKey,
-          onChange: (value) => updateNestedField('integrations', 'radarr', 'apiKey', value),
-          required: formData.integrations.radarr.enabled,
-          fromEnv: meta?.fromEnv.radarrApiKey
-        },
-          h(PasswordField, {
-            value: formData.integrations.radarr.apiKey,
-            onChange: (value) => updateNestedField('integrations', 'radarr', 'apiKey', value),
-            placeholder: 'Enter Radarr API key',
-            disabled: meta?.fromEnv.radarrApiKey
-          })
-        ),
-        h(ConfigField, {
-          label: 'Search Interval (hours)',
-          description: 'Hours between automatic searches (0 = disabled)',
-          value: formData.integrations.radarr.searchIntervalHours,
-          onChange: (value) => updateNestedField('integrations', 'radarr', 'searchIntervalHours', value),
-          type: 'number',
-          placeholder: '6',
-          fromEnv: meta?.fromEnv.radarrSearchInterval
+        scriptTestResult && h(TestResultIndicator, {
+          result: scriptTestResult,
+          label: 'Event Script Test'
         }),
-        // Integration configuration info message
-        h(IntegrationConfigInfo, {
-          title: 'Radarr Integration Configuration',
-          port: formData.server.port,
-          authEnabled: formData.server.auth?.enabled
-        }),
-        h('div', { className: 'mt-4' },
-          h(TestButton, {
-            onClick: handleTestRadarr,
-            loading: isTesting,
-            disabled: !formData.integrations.radarr.url || !formData.integrations.radarr.apiKey
-          }, 'Test Radarr Connection')
-        ),
-        testResults?.results?.radarr && h(TestResultIndicator, {
-          result: testResults.results.radarr,
-          label: 'Radarr API Test'
-        })
+
+        h(AlertBox, { type: 'info', className: 'mt-4' },
+          h('div', {},
+            h('p', { className: 'font-medium mb-2' }, 'Script Interface:'),
+            h('ul', { className: 'list-disc list-inside space-y-1 text-sm' },
+              h('li', {}, 'Event type passed as first argument: ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, './script.sh downloadFinished')),
+              h('li', {}, 'Environment variables: ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'EVENT_TYPE'), ', ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'EVENT_HASH'), ', ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'EVENT_FILENAME'), ', ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'EVENT_CLIENT_TYPE')),
+              h('li', {}, 'Full event data as JSON via stdin')
+            ),
+            h('p', { className: 'mt-3 font-medium mb-1' }, 'Supported Events:'),
+            h('ul', { className: 'list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-400' },
+              h('li', {}, h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'downloadAdded'), ' - A new download is started'),
+              h('li', {}, h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'downloadFinished'), ' - A download completes'),
+              h('li', {}, h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'categoryChanged'), ' - A file\'s category is changed'),
+              h('li', {}, h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'fileMoved'), ' - A file is moved'),
+              h('li', {}, h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'fileDeleted'), ' - A file is deleted')
+            ),
+            h('p', { className: 'mt-2 text-sm' }, 'Script execution is non-blocking (fire-and-forget). Errors are logged but don\'t affect the operation.')
+          )
+        )
       )
     ),
 

@@ -10,6 +10,9 @@ const response = require('../lib/responseFormatter');
 const { MS_PER_HOUR, MS_PER_DAY } = require('../lib/timeRange');
 const { validate } = require('../middleware/validateRequest');
 
+// Singleton managers - imported directly instead of injected
+const authManager = require('./authManager');
+
 // Validation middleware for login
 const validateLogin = validate({
   password: {
@@ -42,8 +45,8 @@ class AuthAPI extends BaseModule {
         }
 
         // Check if IP is blocked
-        if (this.authManager.checkIPBlocked(clientIp)) {
-          const timeRemaining = this.authManager.getBlockTimeRemaining(clientIp);
+        if (authManager.checkIPBlocked(clientIp)) {
+          const timeRemaining = authManager.getBlockTimeRemaining(clientIp);
           const minutesRemaining = Math.ceil(timeRemaining / 60000);
 
           this.log(`🚫 Blocked login attempt from ${clientIp} (${minutesRemaining} minutes remaining)`);
@@ -62,9 +65,9 @@ class AuthAPI extends BaseModule {
         }
 
         // Apply delay if needed based on previous failed attempts
-        const attemptCount = this.authManager.getAttemptCount(clientIp);
+        const attemptCount = authManager.getAttemptCount(clientIp);
         if (attemptCount > 0) {
-          const delay = this.authManager.getDelayForAttempts(attemptCount);
+          const delay = authManager.getDelayForAttempts(attemptCount);
           if (delay > 0) {
             this.log(`⏳ Applying ${delay}ms delay for IP ${clientIp} (${attemptCount} previous attempts)`);
             await new Promise(resolve => setTimeout(resolve, delay));
@@ -72,16 +75,16 @@ class AuthAPI extends BaseModule {
         }
 
         // Verify password
-        const isValid = await this.authManager.verifyPassword(password, configPassword);
+        const isValid = await authManager.verifyPassword(password, configPassword);
 
         if (!isValid) {
           // Record failed attempt
-          this.authManager.recordFailedAttempt(clientIp);
+          authManager.recordFailedAttempt(clientIp);
           return response.unauthorized(res, 'Invalid password');
         }
 
         // Successful login
-        this.authManager.recordSuccessfulLogin(clientIp);
+        authManager.recordSuccessfulLogin(clientIp);
 
         // Set session
         req.session.authenticated = true;

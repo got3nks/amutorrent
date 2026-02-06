@@ -122,14 +122,17 @@ class QBittorrentHandler {
 
   /**
    * Initialize categories on startup
+   * Initial sync is triggered by amuleManager.onConnect callback (see server.js)
    */
   initCategories() {
-    this.waitForCategoryInit().catch(err => {
-      logger.error('[qBittorrent] Failed to initialize category mappings:', err);
-    });
+    if (this.config && !this.config.AMULE_ENABLED) {
+      // aMule disabled: mark as initialized (no categories to load)
+      this.categoryCacheInitialized = true;
+    }
 
-    // Refresh periodically (every 5 minutes)
+    // Periodic refresh (every 5 minutes)
     setInterval(() => {
+      if (this.config && !this.config.AMULE_ENABLED) return;
       this.syncCategories().catch(err => {
         logger.error('[qBittorrent] Failed to refresh category mappings:', err);
       });
@@ -170,6 +173,7 @@ class QBittorrentHandler {
 
   /**
    * Wait for categories to be initialized
+   * Resolved by syncCategories() when called from amuleManager.onConnect callback
    */
   async waitForCategoryInit() {
     const firstRun = await this.isFirstRun();
@@ -182,38 +186,14 @@ class QBittorrentHandler {
       const promise = new Promise(r => { resolve = r; });
       this.categoryInitPromise = { promise, resolve };
 
-      // Retry loop in background
-      (async () => {
-        const retryInterval = 10000;
-        const maxRetries = 6;
-        let retryCount = 0;
-
-        while (!this.categoryCacheInitialized && retryCount < maxRetries) {
-          if (retryCount > 0) {
-            logger.log(`[qBittorrent] Waiting for aMule connection to load categories (attempt ${retryCount}/${maxRetries})...`);
-          }
-
-          await this.syncCategories();
-
-          if (this.categoryCacheInitialized) {
-            logger.log('[qBittorrent] Categories initialized successfully');
-            break;
-          }
-
-          retryCount++;
-          if (retryCount < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, retryInterval));
-          }
-        }
-
+      // Safety timeout: don't block requests forever if aMule never connects
+      setTimeout(() => {
         if (!this.categoryCacheInitialized) {
           logger.warn('[qBittorrent] Category initialization timeout, aMule may not be available');
           this.categoryCacheInitialized = true;
-          if (this.categoryInitPromise) {
-            this.categoryInitPromise.resolve();
-          }
+          this.categoryInitPromise.resolve();
         }
-      })();
+      }, 60000);
     }
 
     await this.categoryInitPromise.promise;

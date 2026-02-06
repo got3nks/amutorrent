@@ -9,6 +9,9 @@ const fs = require('fs').promises;
 const path = require('path');
 const { hoursToMs, minutesToMs, MS_PER_HOUR } = require('../lib/timeRange');
 
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+
 // Debug mode - set to true to see detailed search decisions
 const DEBUG = true;
 
@@ -219,7 +222,7 @@ class ArrManager extends BaseModule {
     const pollInterval = 10000; // 10 seconds
     const startTime = Date.now();
 
-    while (!this.amuleManager.acquireSearchLock()) {
+    while (!amuleManager.acquireSearchLock()) {
       if (Date.now() - startTime > maxWaitTime) {
         this.log(`⚠️  Timeout waiting for search lock, skipping ${service} automatic search`);
         return false;
@@ -228,7 +231,7 @@ class ArrManager extends BaseModule {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
 
-    this.amuleManager.searchInProgress = true;
+    amuleManager.searchInProgress = true;
     this.broadcast({ type: 'search-lock', locked: true });
     this.log(`🔒 Search lock acquired for ${service} automatic search`);
     return true;
@@ -238,7 +241,7 @@ class ArrManager extends BaseModule {
    * Release search lock
    */
   releaseSearchLock(service) {
-    this.amuleManager.releaseSearchLock();
+    amuleManager.releaseSearchLock();
     this.broadcast({ type: 'search-lock', locked: false });
     this.log(`🔓 Search lock released after ${service} automatic search`);
   }

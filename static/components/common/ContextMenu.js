@@ -9,7 +9,7 @@ import React from 'https://esm.sh/react@18.2.0';
 import Icon from './Icon.js';
 import Portal from './Portal.js';
 
-const { createElement: h, useEffect, useRef, useState, useCallback } = React;
+const { createElement: h, useEffect, useLayoutEffect, useRef, useState, useCallback } = React;
 
 /**
  * ContextMenu component
@@ -25,49 +25,36 @@ const ContextMenu = ({ show, x, y, items, onClose, anchorEl }) => {
   const [position, setPosition] = useState({ x, y, expandUp: false });
 
   // Calculate position and determine if menu should expand upward
-  useEffect(() => {
+  // Uses CSS bottom positioning when expanding up, so no menu height measurement needed
+  useLayoutEffect(() => {
     if (!show) return;
 
-    const updatePosition = () => {
-      const menuHeight = menuRef.current?.offsetHeight || 200;
-      const menuWidth = menuRef.current?.offsetWidth || 180;
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
-      const padding = 8;
+    const menuWidth = menuRef.current?.offsetWidth || 180;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const padding = 8;
 
-      let newX = x;
-      let newY = y;
-      let expandUp = false;
+    // Expand upward when cursor is in the bottom half of the viewport
+    const expandUp = y > viewportHeight / 2;
 
-      // Check if menu would overflow bottom
-      if (y + menuHeight + padding > viewportHeight) {
-        expandUp = true;
-        // If we have an anchor element, position above it
-        if (anchorEl) {
-          const rect = anchorEl.getBoundingClientRect();
-          newY = rect.top - menuHeight - 2;
-        } else {
-          newY = y - menuHeight;
-        }
-      }
+    let newX = x;
+    let anchorY = y;
 
-      // Check if menu would overflow right
-      if (x + menuWidth + padding > viewportWidth) {
-        newX = x - menuWidth;
-      }
+    // For anchor element (button-triggered), use its edge as the anchor point
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      anchorY = expandUp ? rect.top : rect.bottom;
+    }
 
-      // Ensure menu doesn't go off-screen on left or top
-      if (newX < padding) newX = padding;
-      if (newY < padding) newY = padding;
+    // Check if menu would overflow right
+    if (x + menuWidth + padding > viewportWidth) {
+      newX = x - menuWidth;
+    }
 
-      setPosition({ x: newX, y: newY, expandUp });
-    };
+    // Ensure menu doesn't go off-screen on left
+    if (newX < padding) newX = padding;
 
-    // Initial positioning
-    updatePosition();
-
-    // Use RAF for smoother positioning after render
-    requestAnimationFrame(updatePosition);
+    setPosition({ x: newX, y: anchorY, expandUp });
   }, [show, x, y, anchorEl]);
 
   // Handle click outside
@@ -109,11 +96,9 @@ const ContextMenu = ({ show, x, y, items, onClose, anchorEl }) => {
     h('div', {
       ref: menuRef,
       className: 'fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[180px] animate-fadeIn',
-      style: {
-        left: position.x,
-        top: position.y,
-        transformOrigin: position.expandUp ? 'bottom' : 'top'
-      }
+      style: position.expandUp
+        ? { left: position.x, bottom: window.innerHeight - position.y, transformOrigin: 'bottom' }
+        : { left: position.x, top: position.y, transformOrigin: 'top' }
     },
     items.filter(item => !item.hidden).map((item, idx) => {
       if (item.divider) {
@@ -146,7 +131,17 @@ const ContextMenu = ({ show, x, y, items, onClose, anchorEl }) => {
         }),
         h('span', null, item.label)
       );
-    })
+    }),
+    // Dismiss action
+    h('div', { key: 'dismiss-divider', className: 'border-t border-gray-200 dark:border-gray-700 my-1 md:hidden' }),
+    h('button', {
+      key: 'dismiss',
+      onClick: (e) => { e.stopPropagation(); onClose(); },
+      className: 'w-full px-3 py-2 text-left text-sm flex items-center gap-2 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors md:hidden'
+    },
+      h(Icon, { name: 'x', size: 16, className: 'text-gray-400 dark:text-gray-500' }),
+      h('span', null, 'Dismiss')
+    )
   ));
 };
 
@@ -204,10 +199,10 @@ export const useContextMenu = () => {
 export const MoreButton = ({ onClick, className = '' }) => {
   return h('button', {
     onClick,
-    className: `p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center justify-center ${className}`,
+    className: `flex items-center justify-center ${className}`,
     title: 'More options'
   },
-    h(Icon, { name: 'moreVertical', size: 16, className: 'text-gray-600 dark:text-gray-400 block' })
+    h(Icon, { name: 'moreVertical', size: 16, className: 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors block' })
   );
 };
 

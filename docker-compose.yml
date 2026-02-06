@@ -1,11 +1,11 @@
 services:
-  amule-web:
+  amutorrent:
     build:
       context: .
       dockerfile: Dockerfile
-    image: amule-web-controller:latest
+    image: amutorrent:latest
     user: "1000:1000"
-    container_name: amule-web-controller
+    container_name: amutorrent
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     environment:
@@ -15,11 +15,23 @@ services:
       # Web UI Authentication
       # - WEB_AUTH_ENABLED=true
       # - WEB_AUTH_PASSWORD=your_secure_password
-      # aMule Connection
-      - AMULE_HOST=host.docker.internal  # aMule on host machine
+      # aMule Connection (services on host machine)
+      - AMULE_ENABLED=true
+      - AMULE_HOST=host.docker.internal
       # - AMULE_PORT=4712
       # - AMULE_PASSWORD=your_password
-      # Sonarr/Radarr Integration
+      # rTorrent Connection (optional)
+      # - RTORRENT_ENABLED=true
+      # - RTORRENT_HOST=host.docker.internal
+      # - RTORRENT_PORT=8000
+      # - RTORRENT_PATH=/RPC2
+      # - RTORRENT_USERNAME=
+      # - RTORRENT_PASSWORD=
+      # Prowlarr Integration (optional - requires rTorrent)
+      # - PROWLARR_ENABLED=true
+      # - PROWLARR_URL=http://host.docker.internal:9696
+      # - PROWLARR_API_KEY=your_api_key
+      # Sonarr/Radarr Integration (optional)
       # - SONARR_URL=http://host.docker.internal:8989
       # - SONARR_API_KEY=your_api_key
       # - RADARR_URL=http://host.docker.internal:7878
@@ -29,6 +41,16 @@ services:
     volumes:
       - ./logs:/usr/src/app/server/logs
       - ./data:/usr/src/app/server/data
+      # Event Scripting: Edit scripts/custom.sh to run your own scripts on events
+      - ./scripts:/usr/src/app/scripts
+      # Download directories (optional): Required for moving/deleting files
+      # - /path/to/rTorrent/downloads:/downloads/rTorrent
+      # - /path/to/aMule/incoming:/downloads/aMule
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:' + (process.env.PORT || 4000) + '/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   # Optional: GeoIP database updater

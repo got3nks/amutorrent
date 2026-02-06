@@ -32,15 +32,25 @@ const ENV_VAR_MAP = {
   PORT: { path: 'server.port', type: 'int' },
   WEB_AUTH_ENABLED: { path: 'server.auth.enabled', type: 'boolean' },
   WEB_AUTH_PASSWORD: { path: 'server.auth.password', type: 'string' },
+  AMULE_ENABLED: { path: 'amule.enabled', type: 'boolean' },
   AMULE_HOST: { path: 'amule.host', type: 'string' },
   AMULE_PORT: { path: 'amule.port', type: 'int' },
   AMULE_PASSWORD: { path: 'amule.password', type: 'string' },
+  AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS: { path: 'amule.sharedFilesReloadIntervalHours', type: 'int' },
+  RTORRENT_ENABLED: { path: 'rtorrent.enabled', type: 'boolean' },
+  RTORRENT_HOST: { path: 'rtorrent.host', type: 'string' },
+  RTORRENT_PORT: { path: 'rtorrent.port', type: 'int' },
+  RTORRENT_PATH: { path: 'rtorrent.path', type: 'string' },
+  RTORRENT_USERNAME: { path: 'rtorrent.username', type: 'string' },
+  RTORRENT_PASSWORD: { path: 'rtorrent.password', type: 'string' },
   SONARR_URL: { path: 'integrations.sonarr.url', type: 'string', enablesIntegration: 'integrations.sonarr.enabled' },
   SONARR_API_KEY: { path: 'integrations.sonarr.apiKey', type: 'string' },
   SONARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.sonarr.searchIntervalHours', type: 'int' },
   RADARR_URL: { path: 'integrations.radarr.url', type: 'string', enablesIntegration: 'integrations.radarr.enabled' },
   RADARR_API_KEY: { path: 'integrations.radarr.apiKey', type: 'string' },
-  RADARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.radarr.searchIntervalHours', type: 'int' }
+  RADARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.radarr.searchIntervalHours', type: 'int' },
+  PROWLARR_URL: { path: 'integrations.prowlarr.url', type: 'string', enablesIntegration: 'integrations.prowlarr.enabled' },
+  PROWLARR_API_KEY: { path: 'integrations.prowlarr.apiKey', type: 'string' }
 };
 
 /**
@@ -49,8 +59,10 @@ const ENV_VAR_MAP = {
 const SENSITIVE_PATHS = [
   'server.auth.password',
   'amule.password',
+  'rtorrent.password',
   'integrations.sonarr.apiKey',
-  'integrations.radarr.apiKey'
+  'integrations.radarr.apiKey',
+  'integrations.prowlarr.apiKey'
 ];
 
 /**
@@ -60,8 +72,10 @@ const SENSITIVE_PATHS = [
 const SENSITIVE_ENV_VARS = [
   'WEB_AUTH_PASSWORD',
   'AMULE_PASSWORD',
+  'RTORRENT_PASSWORD',
   'SONARR_API_KEY',
-  'RADARR_API_KEY'
+  'RADARR_API_KEY',
+  'PROWLARR_API_KEY'
 ];
 
 // ============================================================================
@@ -222,9 +236,19 @@ class Config extends BaseModule {
         }
       },
       amule: {
+        enabled: true,
         host: '127.0.0.1',
         port: 4712,
-        password: 'admin'
+        password: 'admin',
+        sharedFilesReloadIntervalHours: 3  // 0 = disabled, otherwise hours between auto-reloads
+      },
+      rtorrent: {
+        enabled: false,
+        host: '127.0.0.1',
+        port: 8000,
+        path: '/RPC2',
+        username: '',
+        password: ''
       },
       directories: {
         data: 'server/data',
@@ -243,12 +267,29 @@ class Config extends BaseModule {
           url: '',
           apiKey: '',
           searchIntervalHours: 6
+        },
+        prowlarr: {
+          enabled: false,
+          url: '',
+          apiKey: ''
         }
       },
       history: {
         enabled: true,
         retentionDays: 30,       // 0 = never delete, positive number = days to keep
         usernameHeader: ''      // HTTP header for username (e.g., 'X-Remote-User' for Authelia)
+      },
+      eventScripting: {
+        enabled: false,
+        scriptPath: 'scripts/custom.sh',  // Path to custom user script (for power users)
+        events: {
+          downloadAdded: true,
+          downloadFinished: true,
+          categoryChanged: true,
+          fileMoved: true,
+          fileDeleted: true
+        },
+        timeout: 30000           // Script execution timeout in milliseconds
       }
     };
   }
@@ -408,15 +449,24 @@ class Config extends BaseModule {
       }
     }
 
-    // Validate aMule connection
-    if (!config.amule?.host) {
-      errors.push('aMule host is required');
+    // At least one download client must be enabled
+    const amuleEnabled = config.amule?.enabled !== false; // Default true for backward compatibility
+    const rtorrentEnabled = config.rtorrent?.enabled || false;
+    if (!amuleEnabled && !rtorrentEnabled) {
+      errors.push('At least one download client (aMule or rTorrent) must be enabled');
     }
-    if (!config.amule?.port || config.amule.port < 1 || config.amule.port > 65535) {
-      errors.push('Invalid aMule port (must be between 1 and 65535)');
-    }
-    if (!config.amule?.password) {
-      errors.push('aMule password is required');
+
+    // Validate aMule connection (only if enabled)
+    if (amuleEnabled) {
+      if (!config.amule?.host) {
+        errors.push('aMule host is required');
+      }
+      if (!config.amule?.port || config.amule.port < 1 || config.amule.port > 65535) {
+        errors.push('Invalid aMule port (must be between 1 and 65535)');
+      }
+      if (!config.amule?.password) {
+        errors.push('aMule password is required');
+      }
     }
 
     // Validate directories
@@ -444,6 +494,16 @@ class Config extends BaseModule {
       }
       if (!config.integrations.radarr.apiKey) {
         errors.push('Radarr API key is required when Radarr is enabled');
+      }
+    }
+
+    // Validate Prowlarr if enabled
+    if (config.integrations?.prowlarr?.enabled) {
+      if (!config.integrations.prowlarr.url) {
+        errors.push('Prowlarr URL is required when Prowlarr is enabled');
+      }
+      if (!config.integrations.prowlarr.apiKey) {
+        errors.push('Prowlarr API key is required when Prowlarr is enabled');
       }
     }
 
@@ -497,8 +557,12 @@ class Config extends BaseModule {
         'utf8'
       );
 
-      // Update runtime config
-      this.runtimeConfig = config;
+      // Update runtime config (merge with defaults so sections not managed by
+      // the frontend — like history — keep their default values)
+      const defaults = this.getDefaults();
+      const merged = JSON.parse(JSON.stringify(defaults));
+      this.deepMerge(merged, config);
+      this.runtimeConfig = merged;
 
       // Update fileConfig to reflect what's now in the file
       this.fileConfig = configToSave;
@@ -645,6 +709,10 @@ class Config extends BaseModule {
     return this.runtimeConfig?.server?.port || 4000;
   }
 
+  get AMULE_ENABLED() {
+    return this.runtimeConfig?.amule?.enabled !== false; // Default true for backward compatibility
+  }
+
   get AMULE_HOST() {
     return this.runtimeConfig?.amule?.host || '127.0.0.1';
   }
@@ -655,6 +723,13 @@ class Config extends BaseModule {
 
   get AMULE_PASSWORD() {
     return this.runtimeConfig?.amule?.password || 'admin';
+  }
+
+  get AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS() {
+    // Return interval only if aMule is enabled, otherwise 0 (disabled)
+    return this.runtimeConfig?.amule?.enabled !== false
+      ? (this.runtimeConfig?.amule?.sharedFilesReloadIntervalHours ?? 3)
+      : 0;
   }
 
   get SONARR_URL() {
@@ -691,6 +766,18 @@ class Config extends BaseModule {
     return this.runtimeConfig?.integrations?.radarr?.enabled
       ? this.runtimeConfig.integrations.radarr.searchIntervalHours
       : 0;
+  }
+
+  get PROWLARR_URL() {
+    return this.runtimeConfig?.integrations?.prowlarr?.enabled
+      ? this.runtimeConfig.integrations.prowlarr.url
+      : null;
+  }
+
+  get PROWLARR_API_KEY() {
+    return this.runtimeConfig?.integrations?.prowlarr?.enabled
+      ? this.runtimeConfig.integrations.prowlarr.apiKey
+      : null;
   }
 
   get DATA_DIR() {
@@ -751,12 +838,64 @@ class Config extends BaseModule {
     return path.join(this.getDataDir(), 'history.db');
   }
 
+  getMoveOpsDbPath() {
+    return path.join(this.getDataDir(), 'move_ops.db');
+  }
+
   getGeoIPCityDbPath() {
     return path.join(this.getGeoIPDir(), 'GeoLite2-City.mmdb');
   }
 
   getGeoIPCountryDbPath() {
     return path.join(this.getGeoIPDir(), 'GeoLite2-Country.mmdb');
+  }
+
+  // ==========================================================================
+  // AMULE ACCESSORS
+  // ==========================================================================
+
+  /**
+   * Get aMule configuration
+   * @returns {Object|null} aMule config or null if not configured
+   */
+  getAmuleConfig() {
+    return this.runtimeConfig?.amule || null;
+  }
+
+  // ==========================================================================
+  // RTORRENT ACCESSORS
+  // ==========================================================================
+
+  /**
+   * Get rtorrent configuration
+   * @returns {Object|null} rtorrent config or null if not configured
+   */
+  getRtorrentConfig() {
+    return this.runtimeConfig?.rtorrent || null;
+  }
+
+  get RTORRENT_ENABLED() {
+    return this.runtimeConfig?.rtorrent?.enabled || false;
+  }
+
+  get RTORRENT_HOST() {
+    return this.runtimeConfig?.rtorrent?.host || '';
+  }
+
+  get RTORRENT_PORT() {
+    return this.runtimeConfig?.rtorrent?.port || 8000;
+  }
+
+  get RTORRENT_PATH() {
+    return this.runtimeConfig?.rtorrent?.path || '/RPC2';
+  }
+
+  get RTORRENT_USERNAME() {
+    return this.runtimeConfig?.rtorrent?.username || '';
+  }
+
+  get RTORRENT_PASSWORD() {
+    return this.runtimeConfig?.rtorrent?.password || '';
   }
 }
 

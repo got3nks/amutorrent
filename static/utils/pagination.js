@@ -5,7 +5,7 @@
  */
 
 /**
- * Calculate pagination metadata
+ * Calculate pagination metadata (traditional page-based)
  * @param {Array} data - Data array to paginate
  * @param {number} page - Current page (0-based)
  * @param {number} pageSize - Items per page
@@ -28,6 +28,39 @@ export const calculatePagination = (data, page, pageSize) => {
     pagesCount,
     start,
     paginatedData
+  };
+};
+
+/**
+ * Calculate load-more metadata (cumulative loading)
+ * @param {Array} data - Data array
+ * @param {number} loadedPages - Number of pages loaded (1-based, starts at 1)
+ * @param {number} pageSize - Items per page/batch
+ * @returns {object} { loadedData, loadedCount, totalCount, hasMore, remaining }
+ */
+export const calculateLoadMore = (data, loadedPages, pageSize) => {
+  if (!Array.isArray(data)) {
+    return {
+      loadedData: [],
+      loadedCount: 0,
+      totalCount: 0,
+      hasMore: false,
+      remaining: 0
+    };
+  }
+
+  const totalCount = data.length;
+  const loadedCount = Math.min(loadedPages * pageSize, totalCount);
+  const loadedData = data.slice(0, loadedCount);
+  const remaining = totalCount - loadedCount;
+  const hasMore = remaining > 0;
+
+  return {
+    loadedData,
+    loadedCount,
+    totalCount,
+    hasMore,
+    remaining
   };
 };
 

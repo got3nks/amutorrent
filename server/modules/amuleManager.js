@@ -13,8 +13,10 @@ class AmuleManager extends BaseModule {
     super();
     this.client = null;
     this.reconnectInterval = null;
+    this.sharedFilesReloadInterval = null;  // Timer for automatic shared files reload
     this.searchInProgress = false;
     this.connectionInProgress = false; // Prevent concurrent connection attempts
+    this._onConnectCallbacks = [];
     this.setupGlobalErrorHandlers();
   }
 
@@ -66,6 +68,13 @@ class AmuleManager extends BaseModule {
 
   // Initialize aMule client
   async initClient() {
+    // Check if aMule is enabled
+    const amuleConfig = config.getAmuleConfig();
+    if (!amuleConfig || amuleConfig.enabled === false) {
+      this.log('ℹ️  aMule integration is disabled, skipping connection');
+      return false;
+    }
+
     // Prevent concurrent connection attempts
     if (this.connectionInProgress) {
       this.log('⚠️  Connection attempt already in progress, skipping...');
@@ -124,6 +133,12 @@ class AmuleManager extends BaseModule {
 
       this.log('✅ Connected to aMule successfully');
 
+      // Notify listeners (e.g. qBittorrent API category sync)
+      this._onConnectCallbacks.forEach(cb => cb());
+
+      // Start shared files auto-reload scheduler
+      this.startSharedFilesReloadScheduler();
+
       // Stop reconnection attempts
       if (this.reconnectInterval) {
         clearInterval(this.reconnectInterval);
@@ -142,10 +157,27 @@ class AmuleManager extends BaseModule {
 
   // Start connection and auto-reconnect
   async startConnection() {
+    // Don't start if not enabled
+    const amuleConfig = config.getAmuleConfig();
+    if (!amuleConfig || amuleConfig.enabled === false) {
+      this.log('ℹ️  aMule integration is disabled, skipping connection');
+      return;
+    }
+
     const connected = await this.initClient();
     if (!connected && !this.reconnectInterval) {
       this.log('🔄 Will retry connection every 10 seconds...');
       this.reconnectInterval = setInterval(async () => {
+        // Check if still enabled before retrying
+        const currentConfig = config.getAmuleConfig();
+        if (!currentConfig || currentConfig.enabled === false) {
+          this.log('ℹ️  aMule disabled, stopping reconnection attempts');
+          if (this.reconnectInterval) {
+            clearInterval(this.reconnectInterval);
+            this.reconnectInterval = null;
+          }
+          return;
+        }
         this.log('🔄 Attempting to reconnect to aMule...');
         await this.initClient();
       }, 10000);
@@ -157,9 +189,20 @@ class AmuleManager extends BaseModule {
     return this.client;
   }
 
+  // Check if aMule integration is enabled in config
+  isEnabled() {
+    const amuleConfig = config.getAmuleConfig();
+    return amuleConfig && amuleConfig.enabled !== false;
+  }
+
   // Check if client is connected
   isConnected() {
     return !!this.client;
+  }
+
+  // Register a callback to be called when aMule connects
+  onConnect(callback) {
+    this._onConnectCallbacks.push(callback);
   }
 
   // Search lock management
@@ -179,9 +222,81 @@ class AmuleManager extends BaseModule {
     return this.searchInProgress;
   }
 
+  // ============================================================================
+  // SHARED FILES AUTO-RELOAD SCHEDULER
+  // ============================================================================
+
+  /**
+   * Start the shared files auto-reload scheduler based on config
+   * Called when aMule connects and when configuration changes
+   */
+  startSharedFilesReloadScheduler() {
+    // Stop any existing scheduler first
+    this.stopSharedFilesReloadScheduler();
+
+    const intervalHours = config.AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS;
+
+    // 0 means disabled
+    if (!intervalHours || intervalHours <= 0) {
+      this.log('ℹ️  Shared files auto-reload is disabled');
+      return;
+    }
+
+    // Convert hours to milliseconds
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+
+    this.log(`📂 Starting shared files auto-reload scheduler (every ${intervalHours} hour${intervalHours > 1 ? 's' : ''})`);
+
+    this.sharedFilesReloadInterval = setInterval(async () => {
+      await this.performSharedFilesReload();
+    }, intervalMs);
+  }
+
+  /**
+   * Stop the shared files auto-reload scheduler
+   */
+  stopSharedFilesReloadScheduler() {
+    if (this.sharedFilesReloadInterval) {
+      clearInterval(this.sharedFilesReloadInterval);
+      this.sharedFilesReloadInterval = null;
+      this.log('🛑 Stopped shared files auto-reload scheduler');
+    }
+  }
+
+  /**
+   * Perform the actual shared files reload
+   */
+  async performSharedFilesReload() {
+    if (!this.client) {
+      this.log('⚠️  Cannot reload shared files: aMule client not connected');
+      return;
+    }
+
+    try {
+      this.log('📂 Auto-reloading shared files...');
+      await this.client.refreshSharedFiles();
+      this.log('✅ Shared files auto-reload completed');
+    } catch (err) {
+      this.log('❌ Shared files auto-reload failed:', err.message);
+    }
+  }
+
+  /**
+   * Reconfigure the scheduler (call when configuration changes)
+   */
+  reconfigureSharedFilesReloadScheduler() {
+    // Only reconfigure if we're connected
+    if (this.client) {
+      this.startSharedFilesReloadScheduler();
+    }
+  }
+
   // Graceful shutdown
   async shutdown() {
     this.log('🛑 Shutting down aMule connection...');
+
+    // Stop shared files auto-reload scheduler
+    this.stopSharedFilesReloadScheduler();
 
     // Stop reconnection attempts
     if (this.reconnectInterval) {

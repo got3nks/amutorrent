@@ -50,7 +50,7 @@ const ConfigField = ({
     description && h('p', { className: 'text-xs text-gray-500 dark:text-gray-400 mb-2' }, description),
     children || h('input', {
       type,
-      value: value || '',
+      value: value ?? '',
       onChange: (e) => onChange(type === 'number' ? parseInt(e.target.value, 10) : e.target.value),
       placeholder,
       required,

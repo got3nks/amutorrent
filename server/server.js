@@ -22,16 +22,26 @@ const configAPI = require('./modules/configAPI');
 const authManager = require('./modules/authManager');
 const authAPI = require('./modules/authAPI');
 const amuleManager = require('./modules/amuleManager');
+const rtorrentManager = require('./modules/rtorrentManager');
 const geoIPManager = require('./modules/geoIPManager');
 const arrManager = require('./modules/arrManager');
 const metricsAPI = require('./modules/metricsAPI');
 const historyAPI = require('./modules/historyAPI');
 const torznabAPI = require('./modules/torznabAPI');
 const qbittorrentAPI = require('./modules/qbittorrentAPI');
+const prowlarrAPI = require('./modules/prowlarrAPI');
+const rtorrentAPI = require('./modules/rtorrentAPI');
 const webSocketHandlers = require('./modules/webSocketHandlers');
 const autoRefreshManager = require('./modules/autoRefreshManager');
+const dataFetchService = require('./lib/DataFetchService');
+const categoryManager = require('./lib/CategoryManager');
 const basicRoutes = require('./modules/basicRoutes');
 const versionAPI = require('./modules/versionAPI');
+const moveOperationManager = require('./lib/MoveOperationManager');
+const filesystemAPI = require('./modules/filesystemAPI');
+const eventScriptingManager = require('./lib/EventScriptingManager');
+const notificationManager = require('./lib/NotificationManager');
+const notificationsAPI = require('./modules/notificationsAPI');
 
 // Middleware
 const requireAuth = require('./middleware/auth');
@@ -40,7 +50,6 @@ const requireAuth = require('./middleware/auth');
 const MetricsDB = require('./database');
 const HashStore = require('./lib/qbittorrent/hashStore');
 const DownloadHistory = require('./lib/downloadHistory');
-const HostnameResolver = require('./lib/hostnameResolver');
 const logger = require('./lib/logger');
 
 // ============================================================================
@@ -92,27 +101,20 @@ const hashStore = new HashStore(hashDbPath);
 const historyDbPath = config.getHistoryDbPath();
 const downloadHistory = new DownloadHistory(historyDbPath);
 
-// Hostname resolver for peer IPs
-const hostnameResolver = new HostnameResolver({
-  ttl: 60 * 60 * 1000,        // 1 hour cache TTL
-  failedTtl: 10 * 60 * 1000,  // 10 minutes for failed lookups
-  maxCacheSize: 5000,         // Max cached entries
-  timeout: 3000               // 3 second DNS timeout
-});
+// Move operations database
+const moveOpsDbPath = config.getMoveOpsDbPath();
+moveOperationManager.initDB(moveOpsDbPath);
 
 // ============================================================================
 // MODULE DEPENDENCY INJECTION
 // ============================================================================
 
 // Common dependencies object - modules pick what they need via inject()
+// Note: Singleton managers (amuleManager, rtorrentManager, geoIPManager, authManager,
+// config, categoryManager, hostnameResolver) should be imported directly in modules that need them
 const deps = {
-  amuleManager,
-  authManager,
-  geoIPManager,
-  hostnameResolver,
   metricsDB,
   downloadHistoryDB: downloadHistory,
-  configManager: config,
   hashStore,
   wss,
   broadcast: broadcastFn
@@ -123,13 +125,83 @@ metricsAPI.inject(deps);
 autoRefreshManager.inject(deps);
 historyAPI.inject(deps);
 amuleManager.inject(deps);
+rtorrentManager.inject(deps);
 qbittorrentAPI.inject(deps);
+prowlarrAPI.inject(deps);
 authAPI.inject(deps);
 webSocketHandlers.inject(deps);
 configAPI.inject(deps);
 basicRoutes.inject(deps);
 arrManager.inject(deps);
 torznabAPI.inject(deps);
+dataFetchService.inject(deps);
+rtorrentAPI.inject(deps);
+moveOperationManager.inject(deps);
+filesystemAPI.inject(deps);
+eventScriptingManager.inject(deps);
+notificationsAPI.inject(deps);
+
+// When aMule connects (including late enablement), sync categories
+amuleManager.onConnect(async () => {
+  try {
+    // Sync qBittorrent API categories
+    await qbittorrentAPI.handler.syncCategories();
+  } catch (err) {
+    log('[qBittorrent] Failed to sync categories on aMule connect:', err.message);
+  }
+
+  try {
+    // Sync unified categories with aMule
+    const amuleCategories = await amuleManager.getClient()?.getCategories();
+    if (amuleCategories) {
+      // Extract aMule's default path (category with id=0)
+      const defaultCat = amuleCategories.find(c => c.id === 0);
+      if (defaultCat?.path) {
+        categoryManager.setClientDefaultPath('amule', defaultCat.path);
+      }
+
+      const result = await categoryManager.syncWithAmule(amuleCategories);
+      // If categories need to be updated in aMule, do it now
+      if (result.toUpdateInAmule && result.toUpdateInAmule.length > 0) {
+        for (const catUpdate of result.toUpdateInAmule) {
+          await categoryManager.updateAmuleCategoryWithVerify(
+            catUpdate.categoryId,
+            catUpdate.title,
+            catUpdate.path,
+            catUpdate.comment,
+            catUpdate.color,
+            catUpdate.priority
+          );
+        }
+      }
+
+      // Re-validate paths now that we have aMule's default path
+      await categoryManager.validateAllPaths();
+    }
+  } catch (err) {
+    log('[CategoryManager] Failed to sync categories on aMule connect:', err.message);
+  }
+});
+
+// When rtorrent connects, sync labels as categories
+rtorrentManager.onConnect && rtorrentManager.onConnect(async () => {
+  try {
+    // Get rTorrent's default directory
+    const defaultDir = await rtorrentManager.getDefaultDirectory();
+    if (defaultDir) {
+      categoryManager.setClientDefaultPath('rtorrent', defaultDir);
+    }
+
+    const downloads = await rtorrentManager.getDownloads();
+    const labels = [...new Set(downloads.map(d => d.label).filter(Boolean))];
+    await categoryManager.syncWithRtorrent(labels);
+
+    // Re-validate paths now that we have rtorrent's default path
+    await categoryManager.validateAllPaths();
+  } catch (err) {
+    log('[CategoryManager] Failed to sync labels on rtorrent connect:', err.message);
+  }
+});
 
 // ============================================================================
 // ROUTE REGISTRATION (ORDER MATTERS!)
@@ -169,6 +241,10 @@ basicRoutes.registerRoutes(app);    // Protected basic routes (home, health)
 configAPI.registerRoutes(app);      // Configuration management API
 metricsAPI.registerRoutes(app);     // Metrics API
 historyAPI.registerRoutes(app);     // Download history API
+prowlarrAPI.registerRoutes(app);    // Prowlarr torrent search API
+rtorrentAPI.registerRoutes(app);    // rtorrent API (files, etc.)
+filesystemAPI.registerRoutes(app);  // Filesystem browsing API
+notificationsAPI.registerRoutes(app); // Notifications API
 versionAPI.registerProtectedRoutes(app); // Version seen tracking (protected)
 
 // ============================================================================
@@ -224,6 +300,15 @@ async function initializeServices() {
   initializeSessionMiddleware();
   authManager.start();
 
+  // Initialize category manager (load categories from file)
+  await categoryManager.load();
+
+  // Initialize notification manager
+  notificationManager.init();
+
+  // Validate category paths on boot
+  await categoryManager.validateAllPaths();
+
   // Initialize GeoIP database
   await geoIPManager.initGeoIP();
 
@@ -235,6 +320,13 @@ async function initializeServices() {
   // Start aMule connection with auto-reconnect (non-blocking)
   // Connection happens in background - server starts immediately
   amuleManager.startConnection();
+
+  // Start rtorrent connection with auto-reconnect (non-blocking)
+  // Only connects if rtorrent is enabled in config
+  rtorrentManager.startConnection();
+
+  // Recover any interrupted move operations (may fail gracefully if clients not yet connected)
+  await moveOperationManager.recoverOperations();
 
   // Start auto-refresh loop for stats/downloads/uploads
   autoRefreshManager.start();
@@ -286,7 +378,7 @@ async function startServer() {
     // In first-run mode, only start HTTP server and WebSocket
     // Don't initialize aMule, GeoIP, or Arr services until configured
     server.listen(config.PORT, () => {
-      log(`🚀 aMule Web Controller running on http://localhost:${config.PORT}`);
+      log(`🚀 aMuTorrent web UI running on http://localhost:${config.PORT}`);
       log(`📊 WebSocket server ready`);
       log(`⚙️  SETUP MODE - Complete configuration via web interface`);
     });
@@ -299,7 +391,7 @@ async function startServer() {
 
     // Start HTTP server
     server.listen(config.PORT, () => {
-      log(`🚀 aMule Web Controller running on http://localhost:${config.PORT}`);
+      log(`🚀 aMuTorrent web UI running on http://localhost:${config.PORT}`);
       log(`📊 WebSocket server ready`);
       log(`🔌 aMule connection: ${config.AMULE_HOST}:${config.AMULE_PORT}`);
     });
@@ -328,6 +420,11 @@ async function startServer() {
         amuleManager.shutdown().then(() => {
           log('aMule connection closed');
 
+          // Shutdown rtorrent connection
+          return rtorrentManager.shutdown();
+        }).then(() => {
+          log('rtorrent connection closed');
+
           // Close databases
           metricsDB.close();
           log('Metrics database closed');
@@ -337,6 +434,10 @@ async function startServer() {
 
           downloadHistory.close();
           log('Download history closed');
+
+          // Close move operation manager
+          moveOperationManager.shutdown();
+          log('Move operation manager closed');
 
           // Close GeoIP
           geoIPManager.shutdown().then(() => {

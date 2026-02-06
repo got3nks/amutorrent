@@ -196,4 +196,40 @@ const Textarea = ({
   });
 };
 
-export { Button, Input, Select, IconButton, Textarea, BUTTON_VARIANTS, BASE_HEIGHT };
+/**
+ * SegmentedControl Component - Toggle switch with multiple options
+ *
+ * @param {Array} options - Array of { value, label } objects
+ * @param {string|number} value - Currently selected value
+ * @param {function} onChange - Change handler (receives new value)
+ * @param {boolean} disabled - Whether control is disabled
+ * @param {string} className - Additional CSS classes
+ */
+const SegmentedControl = ({
+  options = [],
+  value,
+  onChange,
+  disabled = false,
+  className = ''
+}) => {
+  return h('div', {
+    className: `flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden ${className}`
+  },
+    options.map((opt, index) =>
+      h('button', {
+        key: opt.value,
+        onClick: () => !disabled && onChange(opt.value),
+        disabled,
+        className: `px-3 py-1.5 text-sm font-medium transition-colors ${
+          index > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''
+        } ${
+          value === opt.value
+            ? 'bg-blue-600 text-white'
+            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`
+      }, opt.label)
+    )
+  );
+};
+
+export { Button, Input, Select, IconButton, Textarea, SegmentedControl, BUTTON_VARIANTS, BASE_HEIGHT };

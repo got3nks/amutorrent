@@ -6,7 +6,6 @@
  */
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'https://esm.sh/react@18.2.0';
-import { ERROR_DISPLAY_DURATION } from '../utils/index.js';
 import { useAppState } from './AppStateContext.js';
 import { useLiveData } from './LiveDataContext.js';
 import { useStaticData } from './StaticDataContext.js';
@@ -23,6 +22,19 @@ export const WebSocketProvider = ({ children }) => {
   const reconnectTimeoutRef = useRef(null);
   const handleMessageRef = useRef(null);
 
+  // Dynamic message handlers - allows components to subscribe to specific message types
+  const dynamicHandlersRef = useRef(new Set());
+
+  // Add a dynamic message handler
+  const addMessageHandler = useCallback((handler) => {
+    dynamicHandlersRef.current.add(handler);
+  }, []);
+
+  // Remove a dynamic message handler
+  const removeMessageHandler = useCallback((handler) => {
+    dynamicHandlersRef.current.delete(handler);
+  }, []);
+
   // Get auth state
   const { authEnabled, isAuthenticated } = useAuth();
 
@@ -30,27 +42,31 @@ export const WebSocketProvider = ({ children }) => {
   const {
     setAppCurrentView,
     setAppPage,
-    setAppError
+    addAppError,
+    addAppSuccess
   } = useAppState();
 
   // Get setters from LiveDataContext (frequently changing)
   const {
     setDataStats,
-    setDataDownloads,
-    setDataUploads,
-    markDataLoaded: markLiveDataLoaded,
-    resetDataLoaded: resetLiveDataLoaded
+    setDataItems,
+    markDataLoaded: markLiveDataLoaded
   } = useLiveData();
 
   // Get setters from StaticDataContext (less frequently changing)
   const {
-    setDataShared,
     setDataServers,
     setDataCategories,
+    setClientDefaultPaths,
+    setClientsEnabled,
+    setClientsConnected,
+    setKnownTrackers,
+    setHistoryTrackUsername,
+    setHasCategoryPathWarnings,
     setDataLogs,
     setDataServerInfo,
+    setDataAppLogs,
     setDataStatsTree,
-    setDataDownloadsEd2kLinks,
     setDataServersEd2kLinks,
     markDataLoaded: markStaticDataLoaded,
     resetDataLoaded: resetStaticDataLoaded,
@@ -59,6 +75,7 @@ export const WebSocketProvider = ({ children }) => {
 
   const {
     setSearchPreviousResults,
+    setSearchPreviousResultsLoaded,
     setSearchLocked,
     setSearchResults,
     setSearchNoResultsError
@@ -80,6 +97,32 @@ export const WebSocketProvider = ({ children }) => {
       return;
     }
 
+    // Helper for batch operation completion (success and error handling)
+    const handleBatchComplete = (actionName) => {
+      const results = data.results || [];
+      const failures = results.filter(r => !r.success);
+      const successes = results.filter(r => r.success);
+
+      if (failures.length > 0) {
+        const truncate = (s, max = 35) => s && s.length > max ? s.slice(0, max) + '…' : s;
+        const details = failures.map(f => f.fileName ? `• ${truncate(f.fileName)}: "${f.error || 'unknown error'}"` : `• ${f.error}`).filter(Boolean);
+        const msg = details.length > 0
+          ? `Failed ${failures.length} ${actionName} action(s) on:\n${details.join('\n')}`
+          : `Failed ${failures.length} ${actionName} action(s)`;
+        addAppError(msg);
+      }
+
+      if (successes.length > 0) {
+        const actionVerb = actionName === 'delete' ? 'Deleted' :
+                          actionName === 'pause' ? 'Paused' :
+                          actionName === 'resume' ? 'Resumed' :
+                          actionName === 'download' ? 'Downloading' :
+                          actionName === 'category change' ? 'Changed category for' :
+                          actionName === 'label change' ? 'Changed label for' : 'Completed';
+        addAppSuccess(`${actionVerb} ${successes.length} file${successes.length > 1 ? 's' : ''}`);
+      }
+    };
+
     const messageHandlers = {
       // Batch update - single message with multiple data types (reduces re-renders)
       'batch-update': () => {
@@ -90,39 +133,98 @@ export const WebSocketProvider = ({ children }) => {
         // React 18 batches these setState calls within the same event
         if (batch.stats !== undefined) {
           setDataStats(batch.stats);
+          // Update clientsEnabled separately (rarely changes, prevents unnecessary re-renders)
+          if (batch.stats.clientsEnabled) {
+            setClientsEnabled(prev => {
+              const newEnabled = batch.stats.clientsEnabled;
+              if (prev.amule === newEnabled.amule &&
+                  prev.rtorrent === newEnabled.rtorrent &&
+                  prev.prowlarr === newEnabled.prowlarr) {
+                return prev; // Keep same reference
+              }
+              return newEnabled;
+            });
+          }
+          // Update clientsConnected separately (connection status, changes less frequently than stats)
+          if (batch.stats.clients) {
+            setClientsConnected(prev => {
+              const newConnected = batch.stats.clients;
+              if (prev.amule === newConnected.amule &&
+                  prev.rtorrent === newConnected.rtorrent) {
+                return prev; // Keep same reference
+              }
+              return newConnected;
+            });
+          }
+          // Update historyTrackUsername if present in stats
+          if (batch.stats.historyTrackUsername !== undefined) {
+            setHistoryTrackUsername(prev => {
+              if (prev === batch.stats.historyTrackUsername) return prev;
+              return batch.stats.historyTrackUsername;
+            });
+          }
         }
         if (batch.categories !== undefined) {
           // Only update if categories actually changed (prevents unnecessary re-renders)
-          // Categories are pushed every 5s but rarely change
+          // Categories are now unified (aMule + rtorrent), pushed every 5s but rarely change
           setDataCategories(prev => {
             const newCats = batch.categories || [];
-            // Quick check: same length and same IDs = no change
+            // Quick check: same length and same names = no change
             if (prev.length === newCats.length &&
-                prev.every((cat, i) => cat.id === newCats[i]?.id && cat.title === newCats[i]?.title)) {
+                prev.every((cat, i) => cat.name === newCats[i]?.name && cat.title === newCats[i]?.title)) {
               return prev; // Keep same reference
             }
             return newCats;
           });
           markStaticDataLoaded('categories');
         }
-        if (batch.downloads !== undefined) {
-          setDataDownloads(batch.downloads);
-          markLiveDataLoaded('downloads');
+        if (batch.clientDefaultPaths !== undefined) {
+          // Only update if paths actually changed
+          setClientDefaultPaths(prev => {
+            const newPaths = batch.clientDefaultPaths || {};
+            if (prev.amule === newPaths.amule && prev.rtorrent === newPaths.rtorrent) {
+              return prev; // Keep same reference
+            }
+            return newPaths;
+          });
         }
-        if (batch.uploads !== undefined) {
-          setDataUploads(batch.uploads || []);
-          markLiveDataLoaded('uploads');
+        if (batch.hasPathWarnings !== undefined) {
+          // Only update if value actually changed
+          setHasCategoryPathWarnings(prev => {
+            if (prev === batch.hasPathWarnings) return prev;
+            return batch.hasPathWarnings;
+          });
+        }
+        if (batch.items !== undefined) {
+          setDataItems(batch.items || []);
+          markLiveDataLoaded('items');
+        }
+
+        // Extract unique trackers from unified items
+        const trackerSet = new Set();
+        if (batch.items) {
+          batch.items.forEach(item => { if (item.tracker) trackerSet.add(item.tracker); });
+        }
+
+        if (trackerSet.size > 0) {
+          setKnownTrackers(prev => {
+            const newTrackers = Array.from(trackerSet).sort();
+            // Merge with existing trackers (trackers may come from different batches)
+            const merged = new Set([...prev, ...newTrackers]);
+            const mergedArray = Array.from(merged).sort();
+            // Only update if changed (prevents unnecessary re-renders)
+            if (mergedArray.length === prev.length &&
+                mergedArray.every((t, i) => t === prev[i])) {
+              return prev;
+            }
+            return mergedArray;
+          });
         }
       },
-      'downloads-update': () => {
-        setDataDownloads(data.data);
-        markLiveDataLoaded('downloads');
+      'previous-search-results': () => {
+        setSearchPreviousResults(data.data || []);
+        setSearchPreviousResultsLoaded(true);
       },
-      'shared-update': () => {
-        setDataShared(data.data);
-        markStaticDataLoaded('shared');
-      },
-      'previous-search-results': () => setSearchPreviousResults(data.data || []),
       'search-lock': () => setSearchLocked(data.locked),
       'search-results': () => {
         if (!data.data || data.data.length === 0) {
@@ -133,12 +235,14 @@ export const WebSocketProvider = ({ children }) => {
           setAppPage(0);
         }
       },
-      'download-started': () => {},
-      'stats-update': () => setDataStats(data.data),
-      'uploads-update': () => {
-        setDataUploads(data.data || []);
-        markLiveDataLoaded('uploads');
-      },
+      // Batch operation completion handlers - show error only on partial failure
+      'batch-download-complete': () => handleBatchComplete('download'),
+      // Format: "Failed X action(s) on:\n• file1 - error1\n• file2 - error2"
+      'batch-pause-complete': () => handleBatchComplete('pause'),
+      'batch-resume-complete': () => handleBatchComplete('resume'),
+      'batch-delete-complete': () => handleBatchComplete('delete'),
+      'batch-category-changed': () => handleBatchComplete('category change'),
+      'batch-label-changed': () => handleBatchComplete('label change'),
       'servers-update': () => {
         setDataServers(data.data?.EC_TAG_SERVER || []);
         markStaticDataLoaded('servers');
@@ -156,11 +260,27 @@ export const WebSocketProvider = ({ children }) => {
         setDataServerInfo(data.data?.EC_TAG_STRING || '');
         markStaticDataLoaded('serverInfo');
       },
+      'app-log-update': () => {
+        setDataAppLogs(data.data || '');
+        markStaticDataLoaded('appLogs');
+      },
       'stats-tree-update': () => {
         setDataStatsTree(data.data);
       },
       'categories-update': () => {
         setDataCategories(data.data || []);
+        if (data.clientDefaultPaths) {
+          // Only update if paths actually changed
+          setClientDefaultPaths(prev => {
+            const newPaths = data.clientDefaultPaths;
+            if (prev.amule === newPaths.amule && prev.rtorrent === newPaths.rtorrent) {
+              return prev;
+            }
+            return newPaths;
+          });
+        }
+        // Update path warnings flag
+        setHasCategoryPathWarnings(data.hasPathWarnings || false);
         markStaticDataLoaded('categories');
       },
       'ed2k-added': () => {
@@ -170,15 +290,17 @@ export const WebSocketProvider = ({ children }) => {
         // Use ref to get current value (avoids stale closure)
         const wasServerList = lastEd2kWasServerListRef.current;
 
-        if (failureCount === 0) {
+        if (successCount > 0) {
+          addAppSuccess(wasServerList
+            ? 'Servers added from ED2K server list'
+            : `Added ${successCount} ED2K link${successCount > 1 ? 's' : ''}`);
+          // Clear server links input if this was a server list add
           if (wasServerList) {
             setDataServersEd2kLinks("");
-          } else {
-            setDataDownloadsEd2kLinks("");
           }
-        } else {
-          setAppError(`Added ${successCount}, failed ${failureCount}`);
-          setTimeout(() => setAppError(""), ERROR_DISPLAY_DURATION);
+        }
+        if (failureCount > 0) {
+          addAppError(`Failed to add ${failureCount} link${failureCount > 1 ? 's' : ''}`);
         }
 
         if (wasServerList) {
@@ -188,16 +310,30 @@ export const WebSocketProvider = ({ children }) => {
           }, 500);
           // Reset flag
           lastEd2kWasServerListRef.current = false;
-        } else {
-          setTimeout(() => {
-            resetLiveDataLoaded('downloads');
-            sendMessage({ action: 'getDownloads' });
-          }, 100);
         }
+        // Note: Server broadcasts batch-update with items after adding ED2K links
+      },
+      'magnet-added': () => {
+        const results = Array.isArray(data.results) ? data.results : [];
+        const successCount = results.filter(r => r && r.success).length;
+        const failureCount = results.length - successCount;
+
+        if (successCount > 0) {
+          addAppSuccess(`Added ${successCount} magnet${successCount > 1 ? 's' : ''}`);
+        }
+        if (failureCount > 0) {
+          addAppError(`Failed to add ${failureCount} magnet${failureCount > 1 ? 's' : ''}`);
+        }
+        // Note: Server broadcasts batch-update with items after adding magnet links
+      },
+      'torrent-added': () => {
+        if (data.success) {
+          addAppSuccess('Added torrent file');
+        }
+        // Note: Server broadcasts batch-update with items after adding torrent files
       },
       'error': () => {
-        setAppError(data.message || 'An error occurred');
-        setTimeout(() => setAppError(''), ERROR_DISPLAY_DURATION);
+        addAppError(data.message || 'An error occurred');
       }
     };
 
@@ -205,18 +341,28 @@ export const WebSocketProvider = ({ children }) => {
     if (handler) {
       handler();
     }
+
+    // Call dynamic handlers (for components that need to listen to specific messages)
+    dynamicHandlersRef.current.forEach(h => {
+      try {
+        h(data);
+      } catch (err) {
+        console.error('Error in dynamic message handler:', err);
+      }
+    });
   }, [
     authEnabled, isAuthenticated, sendMessage,
-    setAppCurrentView, setAppPage, setAppError,
+    setAppCurrentView, setAppPage, addAppError, addAppSuccess,
     // Live data setters
-    setDataStats, setDataDownloads, setDataUploads,
-    markLiveDataLoaded, resetLiveDataLoaded,
+    setDataStats, setDataItems,
+    markLiveDataLoaded,
     // Static data setters
-    setDataShared, setDataServers, setDataCategories, setDataLogs, setDataServerInfo,
-    setDataStatsTree, setDataDownloadsEd2kLinks, setDataServersEd2kLinks,
+    setDataServers, setDataCategories, setClientDefaultPaths, setClientsEnabled, setClientsConnected,
+    setKnownTrackers, setHistoryTrackUsername, setDataLogs, setDataServerInfo,
+    setDataStatsTree, setDataServersEd2kLinks,
     markStaticDataLoaded, resetStaticDataLoaded,
     // Search setters
-    setSearchPreviousResults, setSearchLocked, setSearchResults, setSearchNoResultsError
+    setSearchPreviousResults, setSearchPreviousResultsLoaded, setSearchLocked, setSearchResults, setSearchNoResultsError
   ]); // lastEd2kWasServerListRef accessed via ref, no dep needed
 
   // Keep ref updated with latest handler (avoids stale closures in WebSocket)
@@ -285,8 +431,10 @@ export const WebSocketProvider = ({ children }) => {
   // Memoize context value to prevent unnecessary re-renders of consumers
   const value = useMemo(() => ({
     wsConnected,
-    sendMessage
-  }), [wsConnected, sendMessage]);
+    sendMessage,
+    addMessageHandler,
+    removeMessageHandler
+  }), [wsConnected, sendMessage, addMessageHandler, removeMessageHandler]);
 
   return h(WebSocketContext.Provider, { value }, children);
 };

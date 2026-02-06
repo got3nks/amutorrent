@@ -5,14 +5,17 @@
  * Centralizes all aMule data fetching logic
  */
 
-import React, { createContext, useContext, useCallback, useMemo } from 'https://esm.sh/react@18.2.0';
+import React, { createContext, useContext, useCallback, useMemo, useRef, useEffect } from 'https://esm.sh/react@18.2.0';
 import { useWebSocketConnection } from './WebSocketContext.js';
-import { useLiveData } from './LiveDataContext.js';
 import { useStaticData } from './StaticDataContext.js';
+import { useLiveData } from './LiveDataContext.js';
 
 const { createElement: h } = React;
 
 const DataFetchContext = createContext(null);
+
+// History refresh interval (5 seconds)
+const HISTORY_REFRESH_INTERVAL = 5000;
 
 /**
  * DataFetchProvider - provides data fetching functions through context
@@ -21,36 +24,65 @@ const DataFetchContext = createContext(null);
  */
 export const DataFetchProvider = ({ children }) => {
   const { sendMessage } = useWebSocketConnection();
-  const { resetDataLoaded: resetLiveDataLoaded } = useLiveData();
-  const { resetDataLoaded: resetStaticDataLoaded } = useStaticData();
+  const { resetDataLoaded: resetStaticDataLoaded, setHistoryTrackUsername } = useStaticData();
+  const {
+    setDataHistory,
+    setHistoryLoading,
+    markDataLoaded: markLiveDataLoaded,
+    dataLoaded: liveDataLoaded
+  } = useLiveData();
 
-  const fetchDownloads = useCallback(async () => {
-    resetLiveDataLoaded('downloads');
-    sendMessage({ action: 'getDownloads' });
-  }, [sendMessage, resetLiveDataLoaded]);
+  // Track if history auto-refresh is active
+  const historyRefreshRef = useRef(null);
+
+  // Fetch all history data from API
+  const fetchHistory = useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) setHistoryLoading(true);
+      const response = await fetch('/api/history/all');
+      if (!response.ok) throw new Error('Failed to fetch history');
+      const data = await response.json();
+      setDataHistory(data.entries || []);
+      setHistoryTrackUsername(data.trackUsername || false);
+    } catch (err) {
+      console.error('Error fetching history:', err);
+    } finally {
+      markLiveDataLoaded('history');
+      if (showLoading) setHistoryLoading(false);
+    }
+  }, [setDataHistory, setHistoryLoading, setHistoryTrackUsername, markLiveDataLoaded]);
+
+  // Start history auto-refresh (called when HistoryView mounts)
+  const startHistoryRefresh = useCallback(() => {
+    // Initial fetch
+    fetchHistory(true);
+    // Set up interval for subsequent refreshes (no loading indicator)
+    if (historyRefreshRef.current) clearInterval(historyRefreshRef.current);
+    historyRefreshRef.current = setInterval(() => fetchHistory(false), HISTORY_REFRESH_INTERVAL);
+  }, [fetchHistory]);
+
+  // Stop history auto-refresh (called when HistoryView unmounts)
+  const stopHistoryRefresh = useCallback(() => {
+    if (historyRefreshRef.current) {
+      clearInterval(historyRefreshRef.current);
+      historyRefreshRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (historyRefreshRef.current) clearInterval(historyRefreshRef.current);
+    };
+  }, []);
 
   const fetchPreviousSearchResults = useCallback(async () => {
     sendMessage({ action: 'getPreviousSearchResults' });
   }, [sendMessage]);
 
-  const fetchShared = useCallback(async () => {
-    resetStaticDataLoaded('shared');
-    sendMessage({ action: 'getShared' });
-  }, [sendMessage, resetStaticDataLoaded]);
-
   const refreshSharedFiles = useCallback(async () => {
-    resetStaticDataLoaded('shared');
     sendMessage({ action: 'refreshSharedFiles' });
-  }, [sendMessage, resetStaticDataLoaded]);
-
-  const fetchStats = useCallback(() => {
-    sendMessage({ action: 'getStats' });
   }, [sendMessage]);
-
-  const fetchUploads = useCallback(() => {
-    resetLiveDataLoaded('uploads');
-    sendMessage({ action: 'getUploadingQueue' });
-  }, [sendMessage, resetLiveDataLoaded]);
 
   const fetchLogs = useCallback(() => {
     resetStaticDataLoaded('logs');
@@ -60,6 +92,11 @@ export const DataFetchProvider = ({ children }) => {
   const fetchServerInfo = useCallback(() => {
     resetStaticDataLoaded('serverInfo');
     sendMessage({ action: 'getServerInfo' });
+  }, [sendMessage, resetStaticDataLoaded]);
+
+  const fetchAppLogs = useCallback(() => {
+    resetStaticDataLoaded('appLogs');
+    sendMessage({ action: 'getAppLog' });
   }, [sendMessage, resetStaticDataLoaded]);
 
   const fetchStatsTree = useCallback(() => {
@@ -78,21 +115,21 @@ export const DataFetchProvider = ({ children }) => {
 
   // Memoize context value to prevent unnecessary re-renders of consumers
   const value = useMemo(() => ({
-    fetchDownloads,
     fetchPreviousSearchResults,
-    fetchShared,
     refreshSharedFiles,
-    fetchStats,
-    fetchUploads,
     fetchLogs,
     fetchServerInfo,
+    fetchAppLogs,
     fetchStatsTree,
     fetchServers,
-    fetchCategories
+    fetchCategories,
+    fetchHistory,
+    startHistoryRefresh,
+    stopHistoryRefresh
   }), [
-    fetchDownloads, fetchPreviousSearchResults, fetchShared, refreshSharedFiles,
-    fetchStats, fetchUploads, fetchLogs, fetchServerInfo, fetchStatsTree,
-    fetchServers, fetchCategories
+    fetchPreviousSearchResults, refreshSharedFiles,
+    fetchLogs, fetchServerInfo, fetchAppLogs, fetchStatsTree,
+    fetchServers, fetchCategories, fetchHistory, startHistoryRefresh, stopHistoryRefresh
   ]);
 
   return h(DataFetchContext.Provider, { value }, children);

@@ -4,23 +4,21 @@
  */
 
 const express = require('express');
+const path = require('path');
 const BaseModule = require('../lib/BaseModule');
 const config = require('./config');
 const configTester = require('../lib/configTester');
 const response = require('../lib/responseFormatter');
+const eventScriptingManager = require('../lib/EventScriptingManager');
+
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+const rtorrentManager = require('./rtorrentManager');
 
 class ConfigAPI extends BaseModule {
   constructor() {
     super();
-    this.amuleManager = null;
     this.initializeServices = null;
-  }
-
-  /**
-   * Set dependencies
-   */
-  setAmuleManager(manager) {
-    this.amuleManager = manager;
   }
 
   setInitializeServices(fn) {
@@ -41,33 +39,53 @@ class ConfigAPI extends BaseModule {
       // For getCurrent - check if values come from env and are not overridden
       return {
         port: config.isFromEnv('server.port'),
+        amuleEnabled: config.isFromEnv('amule.enabled'),
         amuleHost: config.isFromEnv('amule.host'),
         amulePort: config.isFromEnv('amule.port'),
+        amuleSharedFilesReloadInterval: config.isFromEnv('amule.sharedFilesReloadIntervalHours'),
         serverAuthEnabled: config.isFromEnv('server.auth.enabled'),
         serverAuthPassword: config.isFromEnv('server.auth.password'),
         amulePassword: config.isFromEnv('amule.password'),
+        rtorrentEnabled: config.isFromEnv('rtorrent.enabled'),
+        rtorrentHost: config.isFromEnv('rtorrent.host'),
+        rtorrentPort: config.isFromEnv('rtorrent.port'),
+        rtorrentPath: config.isFromEnv('rtorrent.path'),
+        rtorrentUsername: config.isFromEnv('rtorrent.username'),
+        rtorrentPassword: config.isFromEnv('rtorrent.password'),
         sonarrUrl: config.isFromEnv('integrations.sonarr.url'),
         sonarrApiKey: config.isFromEnv('integrations.sonarr.apiKey'),
         sonarrSearchInterval: config.isFromEnv('integrations.sonarr.searchIntervalHours'),
         radarrUrl: config.isFromEnv('integrations.radarr.url'),
         radarrApiKey: config.isFromEnv('integrations.radarr.apiKey'),
-        radarrSearchInterval: config.isFromEnv('integrations.radarr.searchIntervalHours')
+        radarrSearchInterval: config.isFromEnv('integrations.radarr.searchIntervalHours'),
+        prowlarrUrl: config.isFromEnv('integrations.prowlarr.url'),
+        prowlarrApiKey: config.isFromEnv('integrations.prowlarr.apiKey')
       };
     } else {
       // For getDefaults - check environment variables directly
       return {
         port: !!process.env.PORT,
+        amuleEnabled: process.env.AMULE_ENABLED !== undefined,
         amuleHost: !!process.env.AMULE_HOST,
         amulePort: !!process.env.AMULE_PORT,
+        amuleSharedFilesReloadInterval: !!process.env.AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS,
         serverAuthEnabled: process.env.WEB_AUTH_ENABLED !== undefined,
         serverAuthPassword: !!process.env.WEB_AUTH_PASSWORD,
         amulePassword: !!process.env.AMULE_PASSWORD,
+        rtorrentEnabled: process.env.RTORRENT_ENABLED !== undefined,
+        rtorrentHost: !!process.env.RTORRENT_HOST,
+        rtorrentPort: !!process.env.RTORRENT_PORT,
+        rtorrentPath: !!process.env.RTORRENT_PATH,
+        rtorrentUsername: !!process.env.RTORRENT_USERNAME,
+        rtorrentPassword: !!process.env.RTORRENT_PASSWORD,
         sonarrUrl: !!process.env.SONARR_URL,
         sonarrApiKey: !!process.env.SONARR_API_KEY,
         sonarrSearchInterval: !!process.env.SONARR_SEARCH_INTERVAL_HOURS,
         radarrUrl: !!process.env.RADARR_URL,
         radarrApiKey: !!process.env.RADARR_API_KEY,
-        radarrSearchInterval: !!process.env.RADARR_SEARCH_INTERVAL_HOURS
+        radarrSearchInterval: !!process.env.RADARR_SEARCH_INTERVAL_HOURS,
+        prowlarrUrl: !!process.env.PROWLARR_URL,
+        prowlarrApiKey: !!process.env.PROWLARR_API_KEY
       };
     }
   }
@@ -82,8 +100,10 @@ class ConfigAPI extends BaseModule {
     const passwordPaths = [
       { new: 'server.auth.password', current: 'server.auth.password' },
       { new: 'amule.password', current: 'amule.password' },
+      { new: 'rtorrent.password', current: 'rtorrent.password' },
       { new: 'integrations.sonarr.apiKey', current: 'integrations.sonarr.apiKey' },
-      { new: 'integrations.radarr.apiKey', current: 'integrations.radarr.apiKey' }
+      { new: 'integrations.radarr.apiKey', current: 'integrations.radarr.apiKey' },
+      { new: 'integrations.prowlarr.apiKey', current: 'integrations.prowlarr.apiKey' }
     ];
 
     for (const { new: newPath, current: currentPath } of passwordPaths) {
@@ -168,23 +188,70 @@ class ConfigAPI extends BaseModule {
   }
 
   /**
+   * POST /api/config/check-path
+   * Check if a directory exists and has read+write permissions
+   * Body: { path: string }
+   * Returns: { exists: boolean, readable: boolean, writable: boolean, error?: string }
+   */
+  async checkPath(req, res) {
+    try {
+      const { path: dirPath } = req.body;
+
+      if (!dirPath || typeof dirPath !== 'string') {
+        return response.badRequest(res, 'Path is required');
+      }
+
+      const normalizedPath = path.normalize(dirPath.trim());
+
+      // Use configTester with checkOnly option to avoid creating directories
+      const testResult = await configTester.testDirectoryAccess(normalizedPath, { checkOnly: true });
+
+      res.json({
+        path: normalizedPath,
+        exists: testResult.exists,
+        readable: testResult.readable,
+        writable: testResult.writable,
+        error: testResult.error,
+        isDocker: config.isDocker
+      });
+    } catch (err) {
+      this.log('❌ Error checking path:', err.message);
+      response.serverError(res, 'Failed to check path');
+    }
+  }
+
+  /**
    * POST /api/config/test
    * Test configuration components
-   * Body: { amule?, directories?, sonarr?, radarr? }
+   * Body: { amule?, rtorrent?, directories?, sonarr?, radarr?, prowlarr? }
    * Note: If passwords are missing, use current config values
    */
   async testConfig(req, res) {
     try {
-      const { amule, directories, sonarr, radarr } = req.body;
+      const { amule, rtorrent, directories, sonarr, radarr, prowlarr } = req.body;
       const results = {};
       const currentConfig = config.getConfig();
 
-      // Test aMule connection if provided
-      if (amule) {
+      // Test aMule connection if provided and enabled
+      if (amule && amule.enabled !== false) {
         const password = amule.password || currentConfig.amule.password;
         this.log(`🧪 Testing aMule connection to ${amule.host}:${amule.port}...`);
         results.amule = await configTester.testAmuleConnection(amule.host, amule.port, password);
         this.logTestResult('aMule connection', results.amule);
+      }
+
+      // Test rtorrent connection if provided and enabled
+      if (rtorrent && rtorrent.enabled) {
+        const password = rtorrent.password || currentConfig.rtorrent?.password;
+        this.log(`🧪 Testing rtorrent connection to ${rtorrent.host}:${rtorrent.port}${rtorrent.path || '/RPC2'}...`);
+        results.rtorrent = await configTester.testRtorrentConnection(
+          rtorrent.host,
+          rtorrent.port,
+          rtorrent.path,
+          rtorrent.username,
+          password
+        );
+        this.logTestResult('rtorrent connection', results.rtorrent);
       }
 
       // Test directories if provided
@@ -226,6 +293,22 @@ class ConfigAPI extends BaseModule {
         this.logTestResult('Radarr API', results.radarr);
       }
 
+      // Test Prowlarr if provided and enabled
+      if (prowlarr && prowlarr.enabled) {
+        const apiKey = prowlarr.apiKey || currentConfig.integrations?.prowlarr?.apiKey;
+        this.log(`🧪 Testing Prowlarr API at ${prowlarr.url}...`);
+        results.prowlarr = await configTester.testProwlarrAPI(prowlarr.url, apiKey);
+        this.logTestResult('Prowlarr API', results.prowlarr);
+      }
+
+      // Test event scripting if provided and enabled
+      const { eventScripting } = req.body;
+      if (eventScripting && eventScripting.enabled && eventScripting.scriptPath) {
+        this.log(`🧪 Testing event script: ${eventScripting.scriptPath}...`);
+        results.eventScripting = await eventScriptingManager.testScriptPath(eventScripting.scriptPath);
+        this.logTestResult('Event script', results.eventScripting);
+      }
+
       // Determine overall success
       const allPassed = Object.values(results).every(result => {
         if (typeof result === 'object' && result !== null) {
@@ -245,6 +328,30 @@ class ConfigAPI extends BaseModule {
     } catch (err) {
       this.log('❌ Error testing config:', err.message);
       response.serverError(res, 'Failed to test configuration');
+    }
+  }
+
+  /**
+   * POST /api/config/test-script
+   * Test if a script path is valid and executable
+   * Body: { scriptPath: string }
+   */
+  async testScript(req, res) {
+    try {
+      const { scriptPath } = req.body;
+
+      if (!scriptPath || typeof scriptPath !== 'string') {
+        return response.badRequest(res, 'Script path is required');
+      }
+
+      this.log(`🧪 Testing event script: ${scriptPath}...`);
+      const result = await eventScriptingManager.testScriptPath(scriptPath.trim());
+      this.logTestResult('Event script', result);
+
+      res.json(result);
+    } catch (err) {
+      this.log('❌ Error testing script:', err.message);
+      response.serverError(res, 'Failed to test script');
     }
   }
 
@@ -286,17 +393,26 @@ class ConfigAPI extends BaseModule {
 
       this.log('✅ Configuration saved successfully');
 
-      // Shutdown any existing aMule connection before reinitializing
-      if (this.amuleManager && this.amuleManager) {
+      // Shutdown any existing connections before reinitializing
+      if (amuleManager) {
         this.log('🔄 Closing existing aMule connection...');
         try {
-          await this.amuleManager.shutdown();
+          await amuleManager.shutdown();
         } catch (err) {
           this.log('⚠️  Error shutting down aMule connection:', err.message);
         }
       }
 
-      // Initialize services or restart aMule connection based on context
+      if (rtorrentManager) {
+        this.log('🔄 Closing existing rtorrent connection...');
+        try {
+          await rtorrentManager.shutdown();
+        } catch (err) {
+          this.log('⚠️  Error shutting down rtorrent connection:', err.message);
+        }
+      }
+
+      // Initialize services or restart connections based on context
       if (wasFirstRun && this.initializeServices) {
         // This is completing first-run setup - initialize all services now
         this.log('🎯 First-run setup completed, initializing all services...');
@@ -306,15 +422,26 @@ class ConfigAPI extends BaseModule {
           this.log('⚠️  Service initialization failed:', err.message);
           // Don't fail the save if initialization fails - user can restart server
         }
-      } else if (this.amuleManager) {
-        // Settings changed after initial setup - reconnect aMule immediately
-        this.log('🔄 Connecting to aMule with new settings...');
-        try {
-          await this.amuleManager.startConnection();
-          this.log('✅ aMule reconnected successfully');
-        } catch (err) {
-          this.log('⚠️  aMule reconnection failed:', err.message);
-          // Don't fail the save if reconnection fails
+      } else {
+        // Settings changed after initial setup - reconnect clients
+        if (amuleManager) {
+          this.log('🔄 Connecting to aMule with new settings...');
+          try {
+            await amuleManager.startConnection();
+            this.log('✅ aMule reconnected successfully');
+          } catch (err) {
+            this.log('⚠️  aMule reconnection failed:', err.message);
+          }
+        }
+
+        if (rtorrentManager) {
+          this.log('🔄 Connecting to rtorrent with new settings...');
+          try {
+            await rtorrentManager.startConnection();
+            this.log('✅ rtorrent reconnected successfully');
+          } catch (err) {
+            this.log('⚠️  rtorrent reconnection failed:', err.message);
+          }
         }
       }
 
@@ -345,8 +472,14 @@ class ConfigAPI extends BaseModule {
     // GET /api/config/defaults - Get default configuration with env overrides
     router.get('/defaults', this.getDefaults.bind(this));
 
+    // POST /api/config/check-path - Check directory permissions
+    router.post('/check-path', this.checkPath.bind(this));
+
     // POST /api/config/test - Test configuration components
     router.post('/test', this.testConfig.bind(this));
+
+    // POST /api/config/test-script - Test script path
+    router.post('/test-script', this.testScript.bind(this));
 
     // POST /api/config/save - Save configuration
     router.post('/save', this.saveConfig.bind(this));

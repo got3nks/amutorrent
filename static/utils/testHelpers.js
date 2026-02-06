@@ -15,8 +15,13 @@ export function hasTestErrors(testResults, formData) {
 
   const results = testResults.results;
 
-  // Check aMule
-  if (results.amule && results.amule.success === false) {
+  // Check aMule (only if enabled)
+  if (formData?.amule?.enabled !== false && results.amule && results.amule.success === false) {
+    return true;
+  }
+
+  // Check rtorrent (only if enabled)
+  if (formData?.rtorrent?.enabled && results.rtorrent && results.rtorrent.success === false) {
     return true;
   }
 
@@ -41,6 +46,11 @@ export function hasTestErrors(testResults, formData) {
     return true;
   }
 
+  // Check Prowlarr (only if enabled)
+  if (formData?.integrations?.prowlarr?.enabled && results.prowlarr && results.prowlarr.success === false) {
+    return true;
+  }
+
   return false;
 }
 
@@ -55,8 +65,13 @@ export function checkResultsForErrors(results, formData) {
 
   const testData = results.results;
 
-  // Check aMule
-  if (testData.amule && testData.amule.success === false) {
+  // Check aMule (only if enabled)
+  if (formData?.amule?.enabled !== false && testData.amule && testData.amule.success === false) {
+    return true;
+  }
+
+  // Check rtorrent (only if enabled)
+  if (formData?.rtorrent?.enabled && testData.rtorrent && testData.rtorrent.success === false) {
     return true;
   }
 
@@ -80,6 +95,11 @@ export function checkResultsForErrors(results, formData) {
     return true;
   }
 
+  // Check Prowlarr (only if enabled)
+  if (formData?.integrations?.prowlarr?.enabled && testData.prowlarr && testData.prowlarr.success === false) {
+    return true;
+  }
+
   return false;
 }
 
@@ -94,9 +114,18 @@ export function buildTestPayload(formData, unmaskPasswords = false, getUnmaskedC
   const configData = unmaskPasswords && getUnmaskedConfig ? getUnmaskedConfig(formData) : formData;
 
   const payload = {
-    amule: configData.amule,
     directories: configData.directories
   };
+
+  // Add aMule if enabled
+  if (configData.amule?.enabled !== false) {
+    payload.amule = configData.amule;
+  }
+
+  // Add rtorrent if enabled
+  if (configData.rtorrent?.enabled) {
+    payload.rtorrent = configData.rtorrent;
+  }
 
   // Add Sonarr if enabled
   if (configData.integrations?.sonarr?.enabled) {
@@ -106,6 +135,11 @@ export function buildTestPayload(formData, unmaskPasswords = false, getUnmaskedC
   // Add Radarr if enabled
   if (configData.integrations?.radarr?.enabled) {
     payload.radarr = configData.integrations.radarr;
+  }
+
+  // Add Prowlarr if enabled
+  if (configData.integrations?.prowlarr?.enabled) {
+    payload.prowlarr = configData.integrations.prowlarr;
   }
 
   return payload;

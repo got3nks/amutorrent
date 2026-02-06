@@ -1,6 +1,6 @@
 {
-  "name": "aMule webapp",
-  "short_name": "aMule",
+  "name": "aMuTorrent",
+  "short_name": "aMuTorrent",
   "icons": [
     {
       "src": "/static/web-app-manifest-192x192.png",

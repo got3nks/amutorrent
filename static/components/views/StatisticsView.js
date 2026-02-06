@@ -6,225 +6,268 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { StatsTree, Icon, Button } from '../common/index.js';
-import { formatBytes, formatSpeed } from '../../utils/index.js';
+import { Button, ClientIcon, SegmentedControl } from '../common/index.js';
+import { VIEW_TITLE_STYLES } from '../../utils/index.js';
 import { useAppState } from '../../contexts/AppStateContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
 import { useTheme } from '../../contexts/ThemeContext.js';
+import { useClientChartConfig } from '../../hooks/useClientChartConfig.js';
+import { StatsTreeModal } from '../modals/index.js';
+import { StatsWidget, DashboardChartWidget } from '../dashboard/index.js';
 
-const { createElement: h, useCallback, useEffect, lazy, Suspense } = React;
+const { createElement: h, useState, useCallback, useEffect, lazy, Suspense } = React;
 
 // Lazy load chart components for better initial page load performance
-const SpeedChart = lazy(() => import('../common/SpeedChart.js'));
-const TransferChart = lazy(() => import('../common/TransferChart.js'));
+const ClientSpeedChart = lazy(() => import('../common/ClientSpeedChart.js'));
+const ClientTransferChart = lazy(() => import('../common/ClientTransferChart.js'));
 
 /**
  * Statistics view component - now uses contexts directly
  */
 const StatisticsView = () => {
+
   // Get data from contexts
-  const { appStatsState, setAppStatsState, setAppError } = useAppState();
-  const { dataStatsTree } = useStaticData();
+  const { appStatsState, setAppStatsState, addAppError } = useAppState();
+  const { dataStatsTree, clientsEnabled } = useStaticData();
   const { fetchStatsTree } = useDataFetch();
   const { theme } = useTheme();
 
-  // Defer chart rendering until after initial paint
-  const [shouldRenderCharts, setShouldRenderCharts] = React.useState(false);
-  React.useEffect(() => {
-    // Use requestIdleCallback for better performance, fallback to setTimeout
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => setShouldRenderCharts(true));
-    } else {
-      setTimeout(() => setShouldRenderCharts(true), 0);
-    }
-  }, []);
+  // Get client chart configuration from hook
+  const {
+    amuleConnected,
+    isAmuleEnabled,
+    showBothCharts,
+    showSingleClient,
+    singleClientType,
+    singleClientName,
+    shouldRenderCharts
+  } = useClientChartConfig();
+
+  // Check if aMule is enabled in config (not just connected)
+  const amuleConfigEnabled = clientsEnabled?.amule !== false;
+
+  // Show ED2K stats tree button only when aMule is enabled in config, connected, and enabled in filter
+  const showAmuleStatsTree = amuleConfigEnabled && amuleConnected && isAmuleEnabled;
+
+  // State for stats tree modal
+  const [showStatsTreeModal, setShowStatsTreeModal] = useState(false);
+  // Persist expanded nodes state across modal open/close
+  const [statsTreeExpandedNodes, setStatsTreeExpandedNodes] = useState({});
+  // Chart mode: 'speed' or 'transfer'
+  const [chartMode, setChartMode] = useState('speed');
 
   // Aliases for readability
   const loadingHistory = appStatsState.loadingHistory;
   const historicalRange = appStatsState.historicalRange;
   const historicalStats = appStatsState.historicalStats;
-  const historicalData = appStatsState.historicalData;
   const speedData = appStatsState.speedData;
+  const historicalData = appStatsState.historicalData;
   const statsTree = dataStatsTree;
 
   // Fetch historical data for statistics
   const fetchHistoricalData = useCallback(async (range, showLoading = true) => {
     if (showLoading) setAppStatsState(prev => ({ ...prev, loadingHistory: true }));
     try {
-      const [speedRes, historyRes, statsRes] = await Promise.all([
-        fetch(`/api/metrics/speed-history?range=${range}`),
-        fetch(`/api/metrics/history?range=${range}`),
-        fetch(`/api/metrics/stats?range=${range}`)
-      ]);
-
-      const speedHistoryData = await speedRes.json();
-      const historyData = await historyRes.json();
-      const statsData = await statsRes.json();
+      const response = await fetch(`/api/metrics/dashboard?range=${range}`);
+      const { speedData, historicalData, historicalStats } = await response.json();
 
       setAppStatsState({
-        speedData: speedHistoryData,
-        historicalData: historyData,
-        historicalStats: statsData,
+        speedData,
+        historicalData,
+        historicalStats,
         historicalRange: range,
         loadingHistory: false
       });
     } catch (err) {
       console.error('Error fetching historical data:', err);
-      setAppError('Failed to load historical data');
+      addAppError('Failed to load historical data');
       if (showLoading) setAppStatsState(prev => ({ ...prev, loadingHistory: false }));
     }
-  }, [setAppStatsState, setAppError]);
+  }, [setAppStatsState, addAppError]);
 
   // Local handlers
   const onFetchHistoricalData = fetchHistoricalData;
 
-  // Fetch initial data on mount
+  // Fetch initial data on mount only
   useEffect(() => {
-    fetchStatsTree();
+    if (amuleConfigEnabled) {
+      fetchStatsTree();
+    }
     fetchHistoricalData(historicalRange, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
 
-    // Set up auto-refresh intervals
+  // Set up auto-refresh intervals (separate effect to avoid re-triggering on range change)
+  useEffect(() => {
     const STATISTICS_REFRESH_INTERVAL = 30000; // 30 seconds
-    const statsTreeInterval = setInterval(fetchStatsTree, STATISTICS_REFRESH_INTERVAL);
+    const statsTreeInterval = amuleConfigEnabled
+      ? setInterval(fetchStatsTree, STATISTICS_REFRESH_INTERVAL)
+      : null;
     const historicalDataInterval = setInterval(() => {
       fetchHistoricalData(historicalRange, false);
     }, STATISTICS_REFRESH_INTERVAL);
 
     return () => {
-      clearInterval(statsTreeInterval);
+      if (statsTreeInterval) clearInterval(statsTreeInterval);
       clearInterval(historicalDataInterval);
     };
-  }, [fetchStatsTree, fetchHistoricalData, historicalRange]);
+  }, [fetchStatsTree, fetchHistoricalData, historicalRange, amuleConfigEnabled]);
 
-  return h('div', { className: 'space-y-2 sm:space-y-3' },
+  // Check if we have data to render charts
+  const hasSpeedData = speedData?.data?.length > 0;
+  const hasHistoricalData = historicalData?.data?.length > 0;
+
+  // Loader placeholder for charts without data
+  const chartLoader = h('div', { className: 'h-full flex items-center justify-center' },
+    h('div', { className: 'loader' })
+  );
+
+  // Helper to render chart content with loading state - only creates chart element when data exists
+  const renderSpeedChart = (clientType) => {
+    if (!shouldRenderCharts || !hasSpeedData) return chartLoader;
+    return h(Suspense, { fallback: chartLoader },
+      h(ClientSpeedChart, { speedData, clientType, theme, historicalRange })
+    );
+  };
+
+  const renderTransferChart = (clientType) => {
+    if (!shouldRenderCharts || !hasHistoricalData) return chartLoader;
+    return h(Suspense, { fallback: chartLoader },
+      h(ClientTransferChart, { historicalData, clientType, theme, historicalRange })
+    );
+  };
+
+  // Helper to create chart title with icon
+  const chartTitle = (title, icon) => h('span', { className: 'flex items-center gap-2' },
+    h(ClientIcon, { clientType: icon, size: 16 }),
+    title
+  );
+
+  return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Header
-    h('div', { className: 'flex justify-between items-center gap-2 pl-1 lg:pl-2' },
-      h('h2', { className: 'text-base sm:text-lg font-bold text-gray-800 dark:text-gray-100' }, 'Historical Statistics'),
-      h('div', { className: 'flex gap-2' },
-        ['24h', '7d', '30d'].map(range =>
-          h(Button, {
-            key: range,
-            variant: historicalRange === range ? 'primary' : 'secondary',
-            onClick: () => onFetchHistoricalData(range, false),
-            disabled: loadingHistory
-          }, range.toUpperCase())
+    h('div', { className: 'flex justify-between items-center gap-2' },
+      h('h2', { className: VIEW_TITLE_STYLES.desktop }, 'Historical Statistics'),
+      // Time range toggle
+      h(SegmentedControl, {
+        options: [
+          { value: '24h', label: '24H' },
+          { value: '7d', label: '7D' },
+          { value: '30d', label: '30D' }
+        ],
+        value: historicalRange,
+        onChange: (range) => onFetchHistoricalData(range, true),
+        disabled: loadingHistory
+      })
+    ),
+
+    // Summary Statistics Cards with loading state
+    h('div', { className: loadingHistory ? 'opacity-50 pointer-events-none' : '' },
+      // Desktop (with peak speeds)
+      h('div', { className: 'hidden sm:block' },
+        h(StatsWidget, {
+          stats: historicalStats,
+          showPeakSpeeds: true,
+          timeRange: historicalRange
+        })
+      ),
+
+      // Mobile (compact, no peak speeds)
+      h('div', { className: 'sm:hidden' },
+        h(StatsWidget, {
+          stats: historicalStats,
+          showPeakSpeeds: false,
+          compact: true,
+          timeRange: historicalRange
+        })
+      )
+    ),
+
+    // Network Activity section header with chart mode toggle (only when both clients active)
+    h('div', { className: 'flex justify-between items-center gap-2 pt-2' },
+      h('h3', { className: VIEW_TITLE_STYLES.desktop }, 'Network Activity'),
+      // Only show toggle when both clients are active
+      showBothCharts && h(SegmentedControl, {
+        options: [
+          { value: 'speed', label: 'Speed' },
+          { value: 'transfer', label: 'Transferred' }
+        ],
+        value: chartMode,
+        onChange: setChartMode
+      })
+    ),
+
+    // Charts section with loading overlay
+    h('div', { className: 'relative' },
+      // Loading overlay (shows on top of content)
+      loadingHistory && h('div', { className: 'absolute inset-0 bg-white/70 dark:bg-gray-900/70 z-10 flex flex-col items-center justify-center rounded-lg' },
+        h('div', { className: 'loader' }),
+        h('p', { className: 'text-sm text-gray-500 dark:text-gray-400 mt-2' }, 'Loading historical data...')
+      ),
+
+      // Charts content (always rendered, dimmed when loading)
+      h('div', { className: loadingHistory ? 'opacity-50 pointer-events-none' : '' },
+        // BOTH CLIENTS: Show toggle-controlled charts
+        showBothCharts && h(React.Fragment, null,
+          // Speed charts (when chartMode === 'speed')
+          chartMode === 'speed' && h(React.Fragment, null,
+            h(DashboardChartWidget, {
+              title: chartTitle('aMule Speed', 'amule'),
+              height: '225px'
+            }, renderSpeedChart('amule')),
+            h(DashboardChartWidget, {
+              title: chartTitle('rTorrent Speed', 'rtorrent'),
+              height: '225px'
+            }, renderSpeedChart('rtorrent'))
+          ),
+          // Transfer charts (when chartMode === 'transfer')
+          chartMode === 'transfer' && h(React.Fragment, null,
+            h(DashboardChartWidget, {
+              title: chartTitle('aMule Data Transferred', 'amule'),
+              height: '225px'
+            }, renderTransferChart('amule')),
+            h(DashboardChartWidget, {
+              title: chartTitle('rTorrent Data Transferred', 'rtorrent'),
+              height: '225px'
+            }, renderTransferChart('rtorrent'))
+          )
+        ),
+
+        // SINGLE CLIENT: Show both chart types (no toggle needed)
+        showSingleClient && h(React.Fragment, null,
+          h(DashboardChartWidget, {
+            title: chartTitle(`${singleClientName} Speed`, singleClientType),
+            height: '225px'
+          }, renderSpeedChart(singleClientType)),
+          h(DashboardChartWidget, {
+            title: chartTitle(`${singleClientName} Data Transferred`, singleClientType),
+            height: '225px'
+          }, renderTransferChart(singleClientType))
         )
       )
     ),
 
-    // Summary Statistics Cards - Upload stats first, then Download stats
-    historicalStats && h('div', { className: 'grid grid-cols-2 sm:grid-cols-3 gap-3' },
-      // Upload Statistics
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'upload', size: 16, className: 'text-green-600 dark:text-green-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Uploaded')
-        ),
-        h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
-          formatBytes(historicalStats.totalUploaded)
-        )
-      ),
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'trendingUp', size: 16, className: 'text-green-600 dark:text-green-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Upload Speed')
-        ),
-        h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
-          formatSpeed(historicalStats.avgUploadSpeed)
-        )
-      ),
-      h('div', { className: 'hidden sm:block bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'zap', size: 16, className: 'text-green-600 dark:text-green-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Upload Speed')
-        ),
-        h('div', { className: 'text-lg font-bold text-green-600 dark:text-green-400' },
-          formatSpeed(historicalStats.peakUploadSpeed)
-        )
-      ),
-      // Download Statistics
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'download', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Total Downloaded')
-        ),
-        h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
-          formatBytes(historicalStats.totalDownloaded)
-        )
-      ),
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'trendingUp', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Avg Download Speed')
-        ),
-        h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
-          formatSpeed(historicalStats.avgDownloadSpeed)
-        )
-      ),
-      h('div', { className: 'hidden sm:block bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700' },
-        h('div', { className: 'flex items-center gap-2 mb-1' },
-          h(Icon, { name: 'zap', size: 16, className: 'text-blue-600 dark:text-blue-400' }),
-          h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, 'Peak Download Speed')
-        ),
-        h('div', { className: 'text-lg font-bold text-blue-600 dark:text-blue-400' },
-          formatSpeed(historicalStats.peakDownloadSpeed)
-        )
+    // ED2K Statistics Tree button (only when aMule is connected and enabled)
+    showAmuleStatsTree && h('div', { className: 'flex justify-center pt-2' },
+      h(Button, {
+        variant: 'secondary',
+        onClick: () => setShowStatsTreeModal(true),
+        className: 'flex items-center gap-2'
+      },
+        h(ClientIcon, { clientType: 'amule', size: 18 }),
+        'Open ED2K Statistics Tree'
       )
     ),
 
-    // Speed Chart
-    !loadingHistory && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-      h('h3', { className: 'text-sm font-semibold mb-3 text-gray-700 dark:text-gray-300' }, 'Speed Over Time'),
-      h('div', { className: 'w-full', style: { height: '300px' } },
-        shouldRenderCharts
-          ? h(Suspense, {
-              fallback: h('div', {
-                className: 'h-full flex items-center justify-center'
-              },
-                h('div', { className: 'loader' })
-              )
-            },
-              h(SpeedChart, { speedData, theme, historicalRange })
-            )
-          : h('div', {
-              className: 'h-full flex items-center justify-center'
-            },
-              h('div', { className: 'loader' })
-            )
-      )
-    ),
-
-    // Data Transferred Chart
-    !loadingHistory && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-      h('h3', { className: 'text-sm font-semibold mb-3 text-gray-700 dark:text-gray-300' }, 'Data Transferred Over Time'),
-      h('div', { className: 'w-full', style: { height: '300px' } },
-        shouldRenderCharts
-          ? h(Suspense, {
-              fallback: h('div', {
-                className: 'h-full flex items-center justify-center'
-              },
-                h('div', { className: 'loader' })
-              )
-            },
-              h(TransferChart, { historicalData, theme, historicalRange })
-            )
-          : h('div', {
-              className: 'h-full flex items-center justify-center'
-            },
-              h('div', { className: 'loader' })
-            )
-      )
-    ),
-
-    // Loading state
-    loadingHistory && h('div', { className: 'flex flex-col items-center justify-center py-6' },
-      h('div', { className: 'loader' }),
-      h('p', { className: 'text-sm text-gray-500 dark:text-gray-400 mt-2' }, 'Loading historical data...')
-    ),
-
-    // Statistics Tree (original content) - auto-refreshes every 5 seconds
-    h(StatsTree, { statsTree, loading: statsTree === null })
+    // Stats Tree Modal
+    h(StatsTreeModal, {
+      show: showStatsTreeModal,
+      onClose: () => setShowStatsTreeModal(false),
+      statsTree,
+      loading: statsTree === null,
+      expandedNodes: statsTreeExpandedNodes,
+      onExpandedNodesChange: setStatsTreeExpandedNodes
+    })
   );
 };
 

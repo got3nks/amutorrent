@@ -2,110 +2,179 @@
  * Auto-refresh Module
  * Handles periodic data updates and broadcasting
  * Also handles download completion detection for history tracking
+ * Supports both aMule and rtorrent clients
  */
 
 const config = require('./config');
 const BaseModule = require('../lib/BaseModule');
 const { getDiskSpace } = require('../lib/diskSpace');
 const { getCpuUsage } = require('../lib/cpuUsage');
+const dataFetchService = require('../lib/DataFetchService');
+const { extractTrackerDomain } = require('../lib/downloadNormalizer');
+
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+const rtorrentManager = require('./rtorrentManager');
+
+// How often to update download history status (in milliseconds)
+const HISTORY_UPDATE_INTERVAL = 30000; // 30 seconds
 
 class AutoRefreshManager extends BaseModule {
   constructor() {
     super();
     this.refreshInterval = null;
     this.cleanupTimeout = null;
+    this._cachedBatchUpdate = null;
+    this._lastHistoryUpdate = 0; // Timestamp of last history update
+  }
+
+  /**
+   * Get the last cached batch update
+   * Used to send initial data to newly connected WebSocket clients
+   * @returns {Object|null} The last batch update or null if none available
+   */
+  getCachedBatchUpdate() {
+    return this._cachedBatchUpdate;
   }
 
   // Auto-refresh loop
   async autoRefreshLoop() {
-    if (!this.amuleManager || !this.amuleManager.isConnected()) {
+    const amuleConnected = amuleManager && amuleManager.isConnected();
+    const rtorrentConnected = rtorrentManager && rtorrentManager.isConnected();
+
+    // If neither client is connected, wait and retry
+    if (!amuleConnected && !rtorrentConnected) {
       this.refreshInterval = setTimeout(() => this.autoRefreshLoop(), config.AUTO_REFRESH_INTERVAL);
       return;
     }
 
     try {
-      // Get stats and store metrics
-      const stats = await this.amuleManager.getClient().getStats();
-      if (stats) {
-        // Store metrics in database
+      let stats = null;
+      let rtorrentStats = null;
+
+      // Get aMule stats if connected
+      if (amuleConnected) {
+        stats = await amuleManager.getClient().getStats();
+      }
+
+      // Get rtorrent stats if connected
+      if (rtorrentConnected) {
         try {
-          const uploadSpeed = stats.EC_TAG_STATS_UL_SPEED || 0;
-          const downloadSpeed = stats.EC_TAG_STATS_DL_SPEED || 0;
+          rtorrentStats = await rtorrentManager.getGlobalStats();
+        } catch (err) {
+          this.log('⚠️  Error fetching rtorrent stats:', err.message);
+        }
+      }
+
+      // Store metrics in database (both aMule and rtorrent)
+      if (stats || rtorrentStats) {
+        try {
+          const uploadSpeed = stats?.EC_TAG_STATS_UL_SPEED || 0;
+          const downloadSpeed = stats?.EC_TAG_STATS_DL_SPEED || 0;
 
           // aMule provides cumulative totals (lifetime stats)
-          const totalUploaded = stats.EC_TAG_STATS_TOTAL_SENT_BYTES || null;
-          const totalDownloaded = stats.EC_TAG_STATS_TOTAL_RECEIVED_BYTES || null;
+          const totalUploaded = stats?.EC_TAG_STATS_TOTAL_SENT_BYTES || null;
+          const totalDownloaded = stats?.EC_TAG_STATS_TOTAL_RECEIVED_BYTES || null;
 
-          this.metricsDB.insertMetric(uploadSpeed, downloadSpeed, totalUploaded, totalDownloaded);
+          // Format rtorrent stats for metrics DB
+          const rtMetrics = rtorrentStats ? {
+            uploadSpeed: rtorrentStats.uploadSpeed || 0,
+            downloadSpeed: rtorrentStats.downloadSpeed || 0,
+            uploadTotal: rtorrentStats.uploadTotal || 0,
+            downloadTotal: rtorrentStats.downloadTotal || 0,
+            pid: rtorrentStats.pid || 0  // For restart detection (PID changes on restart)
+          } : null;
+
+          this.metricsDB.insertMetric(uploadSpeed, downloadSpeed, totalUploaded, totalDownloaded, rtMetrics);
         } catch (err) {
           this.log('⚠️  Error saving metrics:', err.message);
         }
       }
 
-      // Only update if there is at least one client connected
-      if(this.wss.clients.size > 0) {
-          // Build batch update object - only include successful fetches
-          const batchUpdate = {};
+      // Fetch all data using DataFetchService (downloads, shared, uploads, labels, categories)
+      // Always fetch - needed for history updates even without WebSocket clients
+      const batchData = await dataFetchService.getBatchData();
 
-          // Add disk space and CPU usage information to stats
-          if (stats) {
-            try {
-              const dataDir = config.DATA_DIR || './server/data';
-              stats.diskSpace = await getDiskSpace(dataDir);
-            } catch (err) {
-              this.log('⚠️  Error getting disk space:', err.message);
-            }
-            try {
-              stats.cpuUsage = await getCpuUsage();
-            } catch (err) {
-              this.log('⚠️  Error getting CPU usage:', err.message);
-            }
-            batchUpdate.stats = stats;
-          }
+      // Update history status from live data (throttled to reduce SQLite writes)
+      // This runs regardless of WebSocket clients - history should always be tracked
+      const now = Date.now();
+      if (now - this._lastHistoryUpdate >= HISTORY_UPDATE_INTERVAL) {
+        this.updateHistoryStatus(batchData);
+        this._lastHistoryUpdate = now;
+      }
 
-          // Get categories
-          try {
-            const categories = await this.amuleManager.getClient().getCategories();
-            if (categories) batchUpdate.categories = categories;
-          } catch (err) {
-            this.log('⚠️  Error fetching categories:', err.message);
-          }
+      // Only build and broadcast updates if there are WebSocket clients connected
+      if (this.wss.clients.size > 0) {
+        // Build batch update object - only include successful fetches
+        const batchUpdate = {};
 
-          // Get downloads
-          let downloads = null;
-          try {
-            downloads = await this.amuleManager.getClient().getDownloadQueue();
-            if (downloads) batchUpdate.downloads = downloads;
-          } catch (err) {
-            this.log('⚠️  Error fetching downloads:', err.message);
-          }
+        // Combine stats from both clients
+        const combinedStats = stats || {};
+        if (rtorrentStats) {
+          combinedStats.rtorrent = {
+            connected: true,
+            downloadSpeed: rtorrentStats.downloadSpeed || 0,
+            uploadSpeed: rtorrentStats.uploadSpeed || 0,
+            downloadTotal: rtorrentStats.downloadTotal || 0,
+            uploadTotal: rtorrentStats.uploadTotal || 0,
+            portOpen: rtorrentStats.portOpen || false,
+            listenPort: rtorrentStats.listenPort || 0
+          };
+        } else if (rtorrentConnected) {
+          combinedStats.rtorrent = { connected: true };
+        }
 
-          // Get shared files (needed for history completion detection)
-          let sharedFiles = null;
-          try {
-            sharedFiles = await this.amuleManager.getClient().getSharedFiles();
-          } catch (err) {
-            this.log('⚠️  Error fetching shared files:', err.message);
-          }
+        // Add connection status
+        combinedStats.clients = {
+          amule: amuleConnected,
+          rtorrent: rtorrentConnected
+        };
 
-          // Check for download completions (history tracking)
-          if (downloads || sharedFiles) {
-            await this.checkDownloadCompletions(downloads, sharedFiles);
-          }
+        // Add config-level enabled status (for UI visibility decisions)
+        combinedStats.clientsEnabled = {
+          amule: config.AMULE_ENABLED,
+          rtorrent: config.RTORRENT_ENABLED,
+          prowlarr: config.getConfig()?.integrations?.prowlarr?.enabled === true
+        };
 
-          // Get uploads with GeoIP enrichment
-          try {
-            const uploadsData = await this.amuleManager.getClient().getUploadingQueue();
-            const enrichedUploads = this.normalizeAndEnrichUploads(uploadsData);
-            if (enrichedUploads) batchUpdate.uploads = enrichedUploads;
-          } catch (err) {
-            this.log('⚠️  Error fetching uploads:', err.message);
-          }
+        // Add disk space and CPU usage information to stats
+        try {
+          const dataDir = config.DATA_DIR || './server/data';
+          combinedStats.diskSpace = await getDiskSpace(dataDir);
+        } catch (err) {
+          this.log('⚠️  Error getting disk space:', err.message);
+        }
+        try {
+          combinedStats.cpuUsage = await getCpuUsage();
+        } catch (err) {
+          this.log('⚠️  Error getting CPU usage:', err.message);
+        }
+        batchUpdate.stats = combinedStats;
 
-          // Send single batch update (only if we have data)
-          if (Object.keys(batchUpdate).length > 0) {
-            this.broadcast({ type: 'batch-update', data: batchUpdate });
-          }
+        // Always include unified items so frontend can mark them as loaded
+        // (empty array = "no data" vs missing key = "not yet fetched")
+        batchUpdate.items = batchData.items;
+
+        // Include unified categories (managed by CategoryManager)
+        if (batchData.categories && batchData.categories.length > 0) {
+          batchUpdate.categories = batchData.categories;
+        }
+
+        // Include client default paths for Default category display
+        if (batchData.clientDefaultPaths) {
+          batchUpdate.clientDefaultPaths = batchData.clientDefaultPaths;
+        }
+
+        // Include category path warnings flag
+        if (batchData.hasPathWarnings !== undefined) {
+          batchUpdate.hasPathWarnings = batchData.hasPathWarnings;
+        }
+
+        // Cache and send batch update (only if we have data)
+        if (Object.keys(batchUpdate).length > 0) {
+          this._cachedBatchUpdate = batchUpdate;
+          this.broadcast({ type: 'batch-update', data: batchUpdate });
+        }
       }
 
     } catch (err) {
@@ -135,46 +204,123 @@ class AutoRefreshManager extends BaseModule {
   }
 
   /**
-   * Check for download completions and update history
-   * Compares pending downloads in history DB with current aMule state
-   * @param {Array} currentDownloads - Current downloads from aMule
-   * @param {Array} sharedFiles - Current shared files from aMule
+   * Update history status from live data
+   * Called every refresh cycle to keep history status in sync with actual downloads
+   * Also detects externally added downloads (added outside the web UI)
+   * @param {Object} batchData - Data from dataFetchService.getBatchData()
    */
-  async checkDownloadCompletions(currentDownloads, sharedFiles) {
+  updateHistoryStatus(batchData) {
     if (!this.downloadHistoryDB || !config.getConfig()?.history?.enabled) {
       return;
     }
 
     try {
-      // Get all pending downloads from history (started but not completed/deleted)
-      const pendingDownloads = this.downloadHistoryDB.getPendingDownloads();
+      const activeHashes = new Set();
+      const completedHashes = new Set();
+      const metadataMap = new Map();
 
-      if (pendingDownloads.length === 0) {
-        return;
-      }
+      // Get known hashes from database to detect external additions
+      const knownHashes = this.downloadHistoryDB.getKnownHashes();
 
-      // Create sets for fast lookup
-      // Use top-level fileHash property which is already a formatted string
-      const downloadHashes = new Set(
-        (currentDownloads || []).map(d => d.fileHash?.toLowerCase()).filter(Boolean)
-      );
-      const sharedHashes = new Set(
-        (sharedFiles || []).map(f => f.fileHash?.toLowerCase()).filter(Boolean)
-      );
+      // Process aMule data
+      const amuleDownloads = batchData._amuleDownloads || [];
+      const amuleSharedFiles = batchData._amuleSharedFiles || [];
 
-      // Check each pending download
-      for (const entry of pendingDownloads) {
-        const hash = entry.hash.toLowerCase();
+      // aMule: downloads with progress < 100 are active
+      // Note: aMule doesn't have trackers, but we can track uploaded and derive ratio
+      for (const d of amuleDownloads) {
+        const hash = d.hash?.toLowerCase();
+        if (!hash) continue;
 
-        if (sharedHashes.has(hash)) {
-          // File is now in shared files - download completed!
-          this.downloadHistoryDB.markCompleted(hash);
+        // Detect external additions (not in database)
+        if (!knownHashes.has(hash)) {
+          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'amule');
+          knownHashes.add(hash); // Add to known set to avoid duplicate detection
         }
-        // Note: If not in downloads and not in shared, it stays as "pending"
-        // The API will compute this as "missing" status when queried
+
+        if (d.progress < 100) {
+          activeHashes.add(hash);
+        }
+        // Store metadata for potential updates
+        const downloaded = d.downloaded || 0;
+        const uploaded = d.transferredTotal || d.transferred || 0;
+        const ratio = downloaded > 0 ? uploaded / downloaded : 0;
+
+        metadataMap.set(hash, {
+          size: d.size,
+          name: d.name,
+          downloaded,
+          uploaded,
+          ratio,
+          clientType: 'amule'
+          // No trackerDomain for aMule
+        });
       }
+
+      // aMule: shared files are completed only if not still downloading
+      // (aMule shows files in shared list while still in progress)
+      for (const f of amuleSharedFiles) {
+        const hash = f.hash?.toLowerCase();
+        if (!hash) continue;
+        // Only mark as completed if not already marked as active (still downloading)
+        if (!activeHashes.has(hash)) {
+          completedHashes.add(hash);
+        }
+        // Update or merge metadata
+        const existing = metadataMap.get(hash) || {};
+        const uploaded = f.transferredTotal || f.transferred || existing.uploaded || 0;
+        const size = f.size || existing.size || 0;
+        const ratio = size > 0 ? uploaded / size : 0;
+
+        metadataMap.set(hash, {
+          ...existing,
+          size,
+          name: f.name || existing.name,
+          uploaded,
+          ratio,
+          clientType: 'amule'
+          // No trackerDomain for aMule
+        });
+      }
+
+      // Process rtorrent data
+      const rtorrentDownloads = batchData._rtorrentDownloads || [];
+
+      for (const d of rtorrentDownloads) {
+        const hash = d.hash?.toLowerCase();
+        if (!hash) continue;
+
+        // Detect external additions (not in database) - only for incomplete downloads
+        if (!knownHashes.has(hash) && d.progress < 100) {
+          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'rtorrent');
+          knownHashes.add(hash); // Add to known set to avoid duplicate detection
+        }
+
+        if (d.progress >= 100) {
+          completedHashes.add(hash);
+        } else {
+          activeHashes.add(hash);
+        }
+
+        // Extract primary tracker domain (with subdomain removal)
+        const trackerDomain = extractTrackerDomain(d.trackers);
+
+        // Store metadata for potential updates (including transfer stats)
+        metadataMap.set(hash, {
+          size: d.size,
+          name: d.name,
+          downloaded: d.downloaded || 0,
+          uploaded: d.uploadTotal || 0,
+          ratio: d.ratio || 0,
+          trackerDomain,
+          clientType: 'rtorrent'
+        });
+      }
+
+      // Batch update the database
+      this.downloadHistoryDB.batchUpdateFromLiveData(activeHashes, completedHashes, metadataMap);
     } catch (err) {
-      this.log('⚠️  Error checking download completions:', err.message);
+      this.log('⚠️  Error updating history status:', err.message);
     }
   }
 

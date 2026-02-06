@@ -75,6 +75,28 @@ export const getKADStatus = (stats) => {
 };
 
 /**
+ * Get BitTorrent (rTorrent) network status from stats
+ * @param {object} stats - Stats object from WebSocket
+ * @returns {NetworkStatus} BT status information
+ */
+export const getBTStatus = (stats) => {
+  if (!stats || !stats.rtorrent?.connected) {
+    return { status: 'red', label: 'BT', text: 'Disconnected', connected: false };
+  }
+
+  const portOpen = stats.rtorrent.portOpen;
+  const listenPort = stats.rtorrent.listenPort;
+
+  return {
+    status: portOpen ? 'green' : 'yellow',
+    label: 'BT',
+    text: portOpen ? 'OK' : 'Firewalled',
+    connected: true,
+    listenPort
+  };
+};
+
+/**
  * Get CSS class for status dot color
  * @param {StatusColor} status - Status color
  * @returns {string} Tailwind CSS class

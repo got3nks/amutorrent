@@ -26,8 +26,9 @@ if (!existsSync(distDir)) {
   mkdirSync(distDir, { recursive: true });
 }
 
-// Check for watch mode
+// Check for watch mode and profiling mode
 const isWatch = process.argv.includes('--watch');
+const isProfiling = process.argv.includes('--profile');
 
 // Plugin to rewrite esm.sh imports to npm packages
 const esmShPlugin = {
@@ -70,16 +71,16 @@ const buildOptions = {
   // Use plugin to rewrite esm.sh imports
   plugins: [esmShPlugin],
 
-  // Production optimizations
-  minify: !isWatch,
+  // Production optimizations (disable minification for watch and profiling)
+  minify: !isWatch && !isProfiling,
   sourcemap: true,
 
   // Tree shaking
   treeShaking: true,
 
-  // Define production mode for React
+  // Define production mode for React (use development for watch or profiling)
   define: {
-    'process.env.NODE_ENV': isWatch ? '"development"' : '"production"'
+    'process.env.NODE_ENV': (isWatch || isProfiling) ? '"development"' : '"production"'
   },
 
   // Log level

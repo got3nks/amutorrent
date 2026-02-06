@@ -8,12 +8,9 @@ import React from 'https://esm.sh/react@18.2.0';
 import { Icon } from './index.js';
 import { Select } from './FormControls.js';
 import { calculatePagination, generatePageOptions, shouldShowPagination, getNavigationBounds } from '../../utils/pagination.js';
-import { PAGE_SIZE_DESKTOP, PAGE_SIZE_MOBILE } from '../../utils/index.js';
+import { PAGE_SIZE_DESKTOP, PAGE_SIZE_MOBILE, PAGE_SIZE_OPTIONS } from '../../utils/index.js';
 
 const { createElement: h, Fragment } = React;
-
-// Default page size options
-const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500];
 
 // Default page sizes that don't require showing the selector
 const DEFAULT_PAGE_SIZES = [PAGE_SIZE_DESKTOP, PAGE_SIZE_MOBILE];
@@ -46,7 +43,7 @@ export const PaginationControls = ({
     showFirstLast = true,
     showPageSelector = true,
     showPageSizeSelector = !!onPageSizeChange,
-    pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+    pageSizeOptions = PAGE_SIZE_OPTIONS,
     mobileOnly = false,
     breakpoint = 'md',
     className = ''
@@ -82,7 +79,7 @@ export const PaginationControls = ({
       onChange: handlePageSizeChange,
       options: pageSizeOptions.map(size => ({ value: size, label: `${size} / page` })),
       title: 'Items per page',
-      className: 'h-8 sm:h-9'
+      className: 'h-8 sm:h-9 !text-xs'
     }),
 
     // Separator between page size and page navigation (only if both are shown)
@@ -112,7 +109,7 @@ export const PaginationControls = ({
         onChange: (e) => onPageChange(parseInt(e.target.value)),
         options: generatePageOptions(pagesCount).map(i => ({ value: i, label: `Page ${i + 1}` })),
         title: 'Select page',
-        className: 'h-8 sm:h-9'
+        className: 'h-8 sm:h-9 !text-xs'
       }),
 
       // Page count display

@@ -12,21 +12,22 @@ import {
   ActiveUploadsWidget,
   QuickSearchWidget,
   MobileSpeedWidget,
-  Stats24hWidget
+  StatsWidget
 } from '../dashboard/index.js';
+import { ClientIcon } from '../common/index.js';
 import { STATISTICS_REFRESH_INTERVAL } from '../../utils/index.js';
 import { useAppState } from '../../contexts/AppStateContext.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
-import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useSearch } from '../../contexts/SearchContext.js';
 import { useActions } from '../../contexts/ActionsContext.js';
 import { useTheme } from '../../contexts/ThemeContext.js';
+import { useClientChartConfig } from '../../hooks/useClientChartConfig.js';
 
-const { createElement: h, useState, useEffect, useRef, useCallback, lazy, Suspense } = React;
+const { createElement: h, useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } = React;
 
 // Lazy load chart components for better initial page load performance
-const SpeedChart = lazy(() => import('../common/SpeedChart.js'));
-const TransferChart = lazy(() => import('../common/TransferChart.js'));
+const ClientSpeedChart = lazy(() => import('../common/ClientSpeedChart.js'));
+const ClientTransferChart = lazy(() => import('../common/ClientTransferChart.js'));
 
 /**
  * Home view component - self-contained with its own dashboard state
@@ -34,8 +35,7 @@ const TransferChart = lazy(() => import('../common/TransferChart.js'));
 const HomeView = () => {
   // Get data from contexts
   const { appCurrentView } = useAppState();
-  const { dataStats, dataDownloads, dataUploads, dataLoaded } = useLiveData();
-  const { dataCategories } = useStaticData();
+  const { dataStats, dataItems, dataLoaded } = useLiveData();
   const { searchQuery, searchType, searchLocked, setSearchQuery, setSearchType } = useSearch();
   const actions = useActions();
   const { theme } = useTheme();
@@ -68,15 +68,8 @@ const HomeView = () => {
     }
 
     try {
-      const [speedRes, historyRes, statsRes] = await Promise.all([
-        fetch('/api/metrics/speed-history?range=24h'),
-        fetch('/api/metrics/history?range=24h'),
-        fetch('/api/metrics/stats?range=24h')
-      ]);
-
-      const speedData = await speedRes.json();
-      const historicalData = await historyRes.json();
-      const historicalStats = await statsRes.json();
+      const response = await fetch('/api/metrics/dashboard?range=24h');
+      const { speedData, historicalData, historicalStats } = await response.json();
 
       setDashboardState({
         speedData,
@@ -103,27 +96,24 @@ const HomeView = () => {
     return () => clearInterval(intervalId);
   }, [appCurrentView, fetchDashboardData]);
 
-  // Defer chart rendering until after initial paint
-  const [shouldRenderCharts, setShouldRenderCharts] = useState(false);
-  useEffect(() => {
-    // Use requestIdleCallback for better performance, fallback to setTimeout
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => setShouldRenderCharts(true));
-    } else {
-      setTimeout(() => setShouldRenderCharts(true), 0);
-    }
-  }, []);
+  // Get client chart configuration from hook
+  const {
+    isLoading: clientConfigLoading,
+    showBothCharts,
+    showSingleClient,
+    singleClientType,
+    singleClientName,
+    shouldRenderCharts
+  } = useClientChartConfig();
 
   // Aliases for readability
   const stats = dataStats;
-  const downloads = dataDownloads;
-  const uploads = dataUploads;
-  const categories = dataCategories;
+  const downloads = useMemo(() => dataItems.filter(i => i.downloading), [dataItems]);
   const onSearchQueryChange = setSearchQuery;
   const onSearchTypeChange = setSearchType;
   const onSearch = actions.search.perform;
 
-  return h('div', { className: 'flex-1 flex flex-col py-0 px-2 sm:px-4' },
+  return h('div', { className: 'flex-1 flex flex-col py-0 px-2 sm:px-0' },
     // Desktop: Dashboard layout (shown when sidebar is visible at md+)
     h('div', { className: 'hidden md:block' },
       // Dashboard grid
@@ -140,10 +130,35 @@ const HomeView = () => {
           })
         ),
 
-        // Speed Chart (full width on sm, half width on md+)
-        h('div', { className: 'sm:col-span-6 md:col-span-3' },
+        // Loading skeleton charts (shown while waiting for WebSocket data)
+        clientConfigLoading && h('div', { className: 'sm:col-span-6 md:col-span-3' },
+          h('div', {
+            className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 animate-pulse'
+          },
+            h('div', { className: 'h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-3' }),
+            h('div', { className: 'flex items-center justify-center', style: { height: '200px' } },
+              h('div', { className: 'loader' })
+            )
+          )
+        ),
+        clientConfigLoading && h('div', { className: 'sm:col-span-6 md:col-span-3' },
+          h('div', {
+            className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 animate-pulse'
+          },
+            h('div', { className: 'h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-3' }),
+            h('div', { className: 'flex items-center justify-center', style: { height: '200px' } },
+              h('div', { className: 'loader' })
+            )
+          )
+        ),
+
+        // BOTH CLIENTS: aMule Speed Chart
+        showBothCharts && h('div', { className: 'sm:col-span-6 md:col-span-3' },
           h(DashboardChartWidget, {
-            title: 'Speed Over Time (24h)',
+            title: h('span', { className: 'flex items-center gap-2' },
+              h(ClientIcon, { clientType: 'amule', size: 16 }),
+              'aMule Speed (24h)'
+            ),
             height: '200px'
           },
             shouldRenderCharts && dashboardState.speedData
@@ -154,8 +169,9 @@ const HomeView = () => {
                     h('div', { className: 'loader' })
                   )
                 },
-                  h(SpeedChart, {
+                  h(ClientSpeedChart, {
                     speedData: dashboardState.speedData,
+                    clientType: 'amule',
                     theme,
                     historicalRange: '24h'
                   })
@@ -168,10 +184,77 @@ const HomeView = () => {
           )
         ),
 
-        // Transfer Chart (full width on sm, half width on md+)
-        h('div', { className: 'sm:col-span-6 md:col-span-3' },
+        // BOTH CLIENTS: rTorrent Speed Chart
+        showBothCharts && h('div', { className: 'sm:col-span-6 md:col-span-3' },
           h(DashboardChartWidget, {
-            title: 'Data Transferred (24h)',
+            title: h('span', { className: 'flex items-center gap-2' },
+              h(ClientIcon, { clientType: 'rtorrent', size: 16 }),
+              'rTorrent Speed (24h)'
+            ),
+            height: '200px'
+          },
+            shouldRenderCharts && dashboardState.speedData
+              ? h(Suspense, {
+                  fallback: h('div', {
+                    className: 'h-full flex items-center justify-center'
+                  },
+                    h('div', { className: 'loader' })
+                  )
+                },
+                  h(ClientSpeedChart, {
+                    speedData: dashboardState.speedData,
+                    clientType: 'rtorrent',
+                    theme,
+                    historicalRange: '24h'
+                  })
+                )
+              : h('div', {
+                  className: 'h-full flex items-center justify-center'
+                },
+                  h('div', { className: 'loader' })
+                )
+          )
+        ),
+
+        // SINGLE CLIENT: Speed Chart
+        showSingleClient && h('div', { className: 'sm:col-span-6 md:col-span-3' },
+          h(DashboardChartWidget, {
+            title: h('span', { className: 'flex items-center gap-2' },
+              h(ClientIcon, { clientType: singleClientType, size: 16 }),
+              `${singleClientName} Speed (24h)`
+            ),
+            height: '200px'
+          },
+            shouldRenderCharts && dashboardState.speedData
+              ? h(Suspense, {
+                  fallback: h('div', {
+                    className: 'h-full flex items-center justify-center'
+                  },
+                    h('div', { className: 'loader' })
+                  )
+                },
+                  h(ClientSpeedChart, {
+                    speedData: dashboardState.speedData,
+                    clientType: singleClientType,
+                    theme,
+                    historicalRange: '24h'
+                  })
+                )
+              : h('div', {
+                  className: 'h-full flex items-center justify-center'
+                },
+                  h('div', { className: 'loader' })
+                )
+          )
+        ),
+
+        // SINGLE CLIENT: Data Transferred Chart
+        showSingleClient && h('div', { className: 'sm:col-span-6 md:col-span-3' },
+          h(DashboardChartWidget, {
+            title: h('span', { className: 'flex items-center gap-2' },
+              h(ClientIcon, { clientType: singleClientType, size: 16 }),
+              `${singleClientName} Data Transferred (24h)`
+            ),
             height: '200px'
           },
             shouldRenderCharts && dashboardState.historicalData
@@ -182,8 +265,9 @@ const HomeView = () => {
                     h('div', { className: 'loader' })
                   )
                 },
-                  h(TransferChart, {
+                  h(ClientTransferChart, {
                     historicalData: dashboardState.historicalData,
+                    clientType: singleClientType,
                     theme,
                     historicalRange: '24h'
                   })
@@ -199,7 +283,7 @@ const HomeView = () => {
 
         // 24h Stats Widget (full width)
         h('div', { className: 'sm:col-span-6' },
-          h(Stats24hWidget, {
+          h(StatsWidget, {
             stats: dashboardState.historicalStats,
             showPeakSpeeds: true
           })
@@ -209,18 +293,17 @@ const HomeView = () => {
         h('div', { className: 'sm:col-span-3' },
           h(ActiveDownloadsWidget, {
             downloads,
-            categories,
             maxItems: 50,
-            loading: !dataLoaded.downloads
+            loading: !dataLoaded.items
           })
         ),
 
         // Active Uploads Widget (half width)
         h('div', { className: 'sm:col-span-3' },
           h(ActiveUploadsWidget, {
-            uploads,
+            items: dataItems,
             maxItems: 50,
-            loading: !dataLoaded.uploads
+            loading: !dataLoaded.items
           })
         )
       )
@@ -228,9 +311,19 @@ const HomeView = () => {
 
     // Mobile: Dashboard widgets (similar to desktop but optimized for mobile)
     // Shown below md breakpoint where sidebar is hidden
-    h('div', { className: 'md:hidden flex-1 flex flex-col px-1 overflow-y-auto' },
+    h('div', { className: 'md:hidden flex-1 flex flex-col overflow-y-auto' },
       // Inner wrapper with my-auto to center content vertically when container is larger
       h('div', { className: 'flex flex-col gap-3 my-auto' },
+        // Quick Search Widget
+        h(QuickSearchWidget, {
+          searchType,
+          onSearchTypeChange,
+          searchQuery,
+          onSearchQueryChange,
+          onSearch,
+          searchLocked
+        }),
+
         // Speed chart with network status
         h(MobileSpeedWidget, {
           speedData: dashboardState.speedData,
@@ -239,7 +332,7 @@ const HomeView = () => {
         }),
 
         // 24h Stats (compact, no peak speeds)
-        h(Stats24hWidget, {
+        h(StatsWidget, {
           stats: dashboardState.historicalStats,
           showPeakSpeeds: false,
           compact: true
@@ -248,18 +341,17 @@ const HomeView = () => {
         // Active Downloads
         h(ActiveDownloadsWidget, {
           downloads,
-          categories,
           maxItems: 50,
           compact: true,
-          loading: !dataLoaded.downloads
+          loading: !dataLoaded.items
         }),
 
         // Active Uploads
         h(ActiveUploadsWidget, {
-          uploads,
+          items: dataItems,
           maxItems: 50,
           compact: true,
-          loading: !dataLoaded.uploads
+          loading: !dataLoaded.items
         })
       )
     )

@@ -9,12 +9,13 @@ const QBittorrentHandler = require('../lib/qbittorrent/QBittorrentHandler');
 const config = require('./config');
 const { parseBasicAuth, verifyPassword } = require('../lib/authUtils');
 
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+
 class QBittorrentAPI extends BaseModule {
   constructor() {
     super();
-    this.amuleManager = null;
     this.hashStore = null;
-    this.configManager = null;
     this.handler = new QBittorrentHandler();
   }
 
@@ -64,18 +65,8 @@ class QBittorrentAPI extends BaseModule {
   /**
    * Set dependencies
    */
-  setAmuleManager(manager) {
-    this.amuleManager = manager;
-    this.updateHandler();
-  }
-
   setHashStore(store) {
     this.hashStore = store;
-    this.updateHandler();
-  }
-
-  setConfigManager(manager) {
-    this.configManager = manager;
     this.updateHandler();
   }
 
@@ -83,12 +74,12 @@ class QBittorrentAPI extends BaseModule {
    * Update handler when all dependencies are available
    */
   updateHandler() {
-    if (this.amuleManager && this.hashStore && this.configManager) {
+    if (amuleManager && this.hashStore) {
       this.handler.setDependencies({
-        getAmuleClient: () => this.amuleManager.getClient(),
+        getAmuleClient: () => amuleManager.getClient(),
         hashStore: this.hashStore,
         config: config,
-        isFirstRun: () => this.configManager.isFirstRun()
+        isFirstRun: () => config.isFirstRun()
       });
     }
   }

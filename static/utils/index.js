@@ -10,9 +10,15 @@ export {
   formatSpeed,
   formatStatsValue,
   formatDateTime,
+  formatTimeAgo,
+  formatETA,
+  formatETASeconds,
   formatLastSeenComplete,
   getTimeBasedColor,
-  ipToString
+  ipToString,
+  generateMagnetLink,
+  formatRatio,
+  calculateRatio
 } from './formatters.js';
 
 // Validators
@@ -40,7 +46,9 @@ export {
 export {
   PAGE_SIZE_DESKTOP,
   PAGE_SIZE_MOBILE,
+  PAGE_SIZE_OPTIONS,
   BREAKPOINT_MD,
+  BREAKPOINT_XL,
   AUTO_REFRESH_INTERVAL,
   LOGS_REFRESH_INTERVAL,
   STATISTICS_REFRESH_INTERVAL,
@@ -53,18 +61,29 @@ export {
   VIEWS,
   PRIORITIES,
   PRIORITY_LABELS,
-  DOWNLOAD_STATUS,
+  AMULE_STATUS,
   UI_TIMEOUTS,
   WIDGET_SETTINGS,
   PROGRESS_BAR,
+  TABLE_ROW_STYLES,
+  getTableRowClass,
+  MOBILE_CARD_STYLES,
+  getMobileCardRowClass,
   ICON_SIZES,
   CLIENT_SOFTWARE,
-  CLIENT_SOFTWARE_LABELS
+  CLIENT_SOFTWARE_LABELS,
+  HISTORY_STATUS_CONFIG,
+  DEFAULT_SORT_CONFIG,
+  DEFAULT_SECONDARY_SORT_CONFIG,
+  getRowHighlightClass,
+  VIEW_TITLE_STYLES,
+  PROGRESS_STRIPES_STYLE
 } from './constants.js';
 
 // Pagination
 export {
   calculatePagination,
+  calculateLoadMore,
   generatePageOptions,
   shouldShowPagination,
   getNavigationBounds
@@ -94,3 +113,65 @@ export {
   getStatusBadgeClass,
   getStatusIcon
 } from './networkStatus.js';
+
+// Table Helpers
+export {
+  makeFilterHeaderRender,
+  getSortableColumns
+} from './tableHelpers.js';
+
+// Download Helpers
+export {
+  isItemPaused,
+  isItemStopped,
+  isItemChecking,
+  isItemHashingQueued,
+  isItemDownloading,
+  STATUS_DISPLAY_MAP,
+  STATUS_LABELS,
+  getItemStatusInfo,
+  getStatusBarColor,
+  isActiveStatus,
+  formatSourceDisplay,
+  hasRtorrentItems,
+  hasAmuleItems,
+  filterByClient,
+  filterByUnifiedFilter,
+  buildUnifiedFilterOptions,
+  buildCategoryColumnFilterOptions,
+  formatTitleCount,
+  getSeederColorClass,
+  getSelectedClientTypes,
+  getClientSoftware,
+  getIpString,
+  getExportLink,
+  getExportLinkLabel,
+  extractUniqueTrackers,
+  filterByTracker,
+  buildTrackerFilterOptions
+} from './downloadHelpers.js';
+
+// Column Builders
+export {
+  buildSpeedColumn,
+  buildSizeColumn,
+  buildTransferColumn,
+  buildFileNameColumn,
+  buildStatusColumn,
+  buildCategoryColumn,
+  buildRatioColumn,
+  buildProgressColumn,
+  buildSourcesColumn,
+  buildUploadSpeedColumn,
+  buildUploadTotalColumn,
+  buildClientColumn,
+  buildAddedAtColumn,
+  buildETAColumn
+} from './columnBuilders.js';
+
+// Mobile Filter Helpers
+export {
+  createCategoryLabelFilter,
+  createTrackerFilter,
+  createIndexerFilter
+} from './mobileFilterHelpers.js';

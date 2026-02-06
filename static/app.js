@@ -1,5 +1,5 @@
 /**
- * aMule Web Controller - Main Application Entry Point
+ * aMuTorrent - Main Application Entry Point
  *
  * Minimal bootstrap that sets up React with context providers
  */

@@ -52,11 +52,17 @@ export const useTextFilter = (items = [], field = 'fileName', options = {}) => {
     if (!field || !filterText.trim()) {
       return items;
     }
-    const searchTerm = normalizeText(filterText.trim());
+    // Split by spaces for multiple search terms (AND logic)
+    const searchTerms = filterText.trim().split(/\s+/).map(term => normalizeText(term)).filter(Boolean);
+    if (searchTerms.length === 0) {
+      return items;
+    }
     return items.filter(item => {
       const value = item[field];
       if (typeof value === 'string') {
-        return normalizeText(value).includes(searchTerm);
+        const normalizedValue = normalizeText(value);
+        // All terms must match (AND logic)
+        return searchTerms.every(term => normalizedValue.includes(term));
       }
       return false;
     });

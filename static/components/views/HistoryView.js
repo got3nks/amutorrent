@@ -3,57 +3,38 @@
  *
  * Displays download history with status tracking
  * Shows all downloads that have been started, with their current status
+ * Uses client-side filtering and pagination (same pattern as other views)
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Icon, Table, LoadingSpinner, AlertBox, FilterInput, DeleteModal, MobileOptionsPopover, ExpandableSearch, Button, Select, IconButton } from '../common/index.js';
-import { formatBytes, formatDateTime } from '../../utils/index.js';
-import { useAppState } from '../../contexts/AppStateContext.js';
-import { useDynamicFontSize } from '../../hooks/index.js';
+import { Icon, Table, DeleteModal, Button, Select, Tooltip, TrackerLabel, MobileCardHeader, IconButton, SelectionModeSection, ContextMenu, MoreButton, EmptyState, MobileSortButton, ExpandableSearch, FilterInput, MobileFilterPills, MobileFilterSheet, MobileFilterButton, ItemMobileCard, MobileStatusTabs, SelectionCheckbox } from '../common/index.js';
+import { formatBytes, formatDateTime, formatTimeAgo, formatSpeed, formatRatio, getRowHighlightClass, HISTORY_STATUS_CONFIG, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, buildSpeedColumn, buildTransferColumn, buildSizeColumn, buildRatioColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildAddedAtColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
+import { useLiveData } from '../../contexts/LiveDataContext.js';
+import { useStaticData } from '../../contexts/StaticDataContext.js';
+import { useDataFetch } from '../../contexts/DataFetchContext.js';
+import { useViewFilters, useColumnConfig, getSecondarySortConfig, useFileInfoModal, usePageSelection, useCategoryFilterOptions, useItemContextMenu } from '../../hooks/index.js';
+import { useStickyToolbar } from '../../contexts/StickyHeaderContext.js';
 
 const { createElement: h, useState, useEffect, useMemo, useCallback } = React;
 
 /**
- * Status badge colors and labels
- */
-const STATUS_CONFIG = {
-  downloading: {
-    label: 'Downloading',
-    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
-    textColor: 'text-blue-800 dark:text-blue-300',
-    icon: 'arrowDown'
-  },
-  completed: {
-    label: 'Completed',
-    bgColor: 'bg-green-100 dark:bg-green-900/30',
-    textColor: 'text-green-800 dark:text-green-300',
-    icon: 'check'
-  },
-  missing: {
-    label: 'Missing',
-    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
-    textColor: 'text-yellow-800 dark:text-yellow-300',
-    icon: 'alertTriangle'
-  },
-  deleted: {
-    label: 'Deleted',
-    bgColor: 'bg-red-100 dark:bg-red-900/30',
-    textColor: 'text-red-800 dark:text-red-300',
-    icon: 'trash'
-  }
-};
-
-/**
  * Status Badge Component
  */
-const StatusBadge = ({ status }) => {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.missing;
+const StatusBadge = ({ status, completedTime, startedTime }) => {
+  const config = HISTORY_STATUS_CONFIG[status] || HISTORY_STATUS_CONFIG.missing;
+
+  let label = config.label;
+  if (status === 'completed' && completedTime) {
+    label = completedTime;
+  } else if (status === 'downloading' && startedTime) {
+    label = `Since ${startedTime}`;
+  }
 
   return h('span', {
     className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bgColor} ${config.textColor}`
   },
     h(Icon, { name: config.icon, size: 12 }),
-    config.label
+    label
   );
 };
 
@@ -61,395 +42,586 @@ const StatusBadge = ({ status }) => {
  * History View Component
  */
 const HistoryView = () => {
-  // Shared pagination and sort state from context
-  const { appPageSize, setAppPageSize, appSortConfig, setAppSortConfig } = useAppState();
+  // ============================================================================
+  // CONTEXT DATA
+  // ============================================================================
+  const { dataHistory, historyLoading, dataItems, dataLoaded } = useLiveData();
+  const { dataCategories: categories, historyTrackUsername } = useStaticData();
+  const { startHistoryRefresh, stopHistoryRefresh, fetchHistory } = useDataFetch();
 
-  // Dynamic font size hook for responsive filename sizing
-  const getDynamicFontSize = useDynamicFontSize();
+  // Start/stop history refresh on mount/unmount
+  useEffect(() => {
+    startHistoryRefresh();
+    return () => stopHistoryRefresh();
+  }, [startHistoryRefresh, stopHistoryRefresh]);
 
-  // Get sort config for this view (with default fallback)
-  const sortConfig = appSortConfig['history'] || { sortBy: 'started_at', sortDirection: 'desc' };
+  // ============================================================================
+  // SORT CONFIG
+  // ============================================================================
+  const secondarySortConfig = getSecondarySortConfig('history', DEFAULT_SECONDARY_SORT_CONFIG['history']);
+
+  // ============================================================================
+  // VIEW FILTERS (same pattern as Downloads/Shared/Uploads views)
+  // ============================================================================
+  const {
+    // Data
+    sortedData: sortedHistory,
+    loadedData,
+    // Client filter
+    isRtorrentEnabled,
+    // Category filter (unified)
+    unifiedFilter,
+    setUnifiedFilter,
+    // Tracker filter
+    trackerFilter,
+    setTrackerFilter,
+    showTrackerFilter,
+    trackerOptions,
+    // Status filter
+    statusFilter,
+    setStatusFilter,
+    statusCounts,
+    statusOptions,
+    // Mobile filters
+    mobileFilters,
+    // Text filter
+    filterText,
+    setFilterText,
+    clearFilter,
+    // Sorting
+    sortConfig,
+    onSortChange,
+    // Load-more pagination
+    loadedCount,
+    hasMore,
+    remaining,
+    loadMore,
+    loadAll,
+    resetLoaded,
+    pageSize,
+    onPageSizeChange,
+    // Selection
+    selectionMode,
+    selectedFiles,
+    selectedCount,
+    toggleSelectionMode,
+    enterSelectionWithItem,
+    toggleFileSelection,
+    clearAllSelections,
+    selectAll,
+    selectShown,
+    isShownFullySelected,
+    getSelectedHashes,
+    // Context menu
+    contextMenu,
+    openContextMenu,
+    closeContextMenu
+  } = useViewFilters({
+    data: dataHistory,
+    viewKey: 'history',
+    secondarySort: secondarySortConfig,
+    getStatusKey: (item) => item.status
+  });
+
   const sortBy = sortConfig.sortBy;
-  const sortDir = sortConfig.sortDirection;
+  const sortDirection = sortConfig.sortDirection;
 
-  // State
-  const [history, setHistory] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [page, setPage] = useState(0);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [trackUsername, setTrackUsername] = useState(false);
+  // ============================================================================
+  // PAGE SELECTION
+  // ============================================================================
+  const {
+    shownFullySelected,
+    allItemsSelected,
+    hasMoreToLoad,
+    handleSelectShown,
+    handleSelectAll,
+    shownCount,
+    totalCount: totalFilteredCount
+  } = usePageSelection({
+    shownData: loadedData,
+    allData: sortedHistory,
+    selectedCount,
+    selectShown,
+    selectAll,
+    isShownFullySelected,
+    hashKey: 'hash'
+  });
 
-  // Use shared page size
-  const pageSize = appPageSize;
-  const onPageSizeChange = setAppPageSize;
-
-  // Delete modal state
+  // ============================================================================
+  // MODAL STATE
+  // ============================================================================
   const [itemToDelete, setItemToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [batchDeleteCount, setBatchDeleteCount] = useState(0);
+  const { openFileInfo, FileInfoElement } = useFileInfoModal();
 
-  // Filter text state
-  const [filterText, setFilterText] = useState('');
+  // ============================================================================
+  // HELPER FUNCTIONS
+  // ============================================================================
+  const findFileInLiveData = useCallback((historyItem) => {
+    if (!historyItem?.hash) return false;
+    const hash = historyItem.hash.toLowerCase();
+    return dataItems.some(i => i.hash?.toLowerCase() === hash);
+  }, [dataItems]);
 
-  // Debounced search term for API calls
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const handleShowInfo = useCallback((item) => {
+    openFileInfo(item.hash);
+  }, [openFileInfo]);
 
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(filterText);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [filterText]);
+  // Context menu using shared hook
+  const { handleRowContextMenu, getContextMenuItems } = useItemContextMenu({
+    selectionMode,
+    openContextMenu,
+    closeContextMenu,
+    onShowInfo: handleShowInfo,
+    canShowInfo: findFileInLiveData,
+    onDelete: (item) => setItemToDelete(item),
+    deleteLabel: 'Delete from History',
+    onSelect: enterSelectionWithItem
+  });
 
-  /**
-   * Fetch history data from API
-   */
-  const fetchHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // ============================================================================
+  // DELETE OPERATIONS
+  // ============================================================================
+  const handleBatchDelete = useCallback(() => {
+    const hashes = getSelectedHashes();
+    if (hashes.length === 0) return;
+    setBatchDeleteCount(hashes.length);
+    setItemToDelete({ hash: hashes, name: `${hashes.length} entries`, isBatch: true });
+  }, [getSelectedHashes]);
 
-    try {
-      const params = new URLSearchParams({
-        limit: pageSize.toString(),
-        offset: (page * pageSize).toString(),
-        sortBy,
-        sortDir
-      });
-
-      // Add search filter if present
-      if (debouncedSearch.trim()) {
-        params.set('search', debouncedSearch.trim());
-      }
-
-      // Add status filter if not 'all'
-      if (statusFilter !== 'all') {
-        params.set('status', statusFilter);
-      }
-
-      const response = await fetch(`/api/history?${params}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch history: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setHistory(data.entries || []);
-      setTotal(data.total || 0);
-      setTrackUsername(data.trackUsername || false);
-    } catch (err) {
-      setError(err.message);
-      setHistory([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, sortBy, sortDir, debouncedSearch, statusFilter]);
-
-  // Fetch on mount and when dependencies change
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
-
-  // Reset page when filters or pageSize change
-  useEffect(() => {
-    setPage(0);
-  }, [pageSize, debouncedSearch, statusFilter]);
-
-  // Handle delete
-  const handleDelete = useCallback(async () => {
+  const handleConfirmDelete = useCallback(async () => {
     if (!itemToDelete) return;
 
     setDeleting(true);
     try {
-      const response = await fetch(`/api/history/${itemToDelete.hash}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        // Refresh the list
-        fetchHistory();
+      if (itemToDelete.isBatch) {
+        const hashes = itemToDelete.hash;
+        await Promise.all(
+          hashes.map(hash =>
+            fetch(`/api/history/${hash}`, { method: 'DELETE' })
+              .then(res => res.ok)
+              .catch(() => false)
+          )
+        );
+        clearAllSelections();
+        toggleSelectionMode();
       } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to delete entry');
+        await fetch(`/api/history/${itemToDelete.hash}`, { method: 'DELETE' });
       }
+      // Refresh history data
+      fetchHistory(false);
     } catch (err) {
-      setError('Failed to delete entry: ' + err.message);
+      console.error('Failed to delete:', err);
     } finally {
       setDeleting(false);
       setItemToDelete(null);
+      setBatchDeleteCount(0);
     }
-  }, [itemToDelete, fetchHistory]);
+  }, [itemToDelete, fetchHistory, clearAllSelections, toggleSelectionMode]);
 
-  // Table columns definition - conditionally include username column
-  const columns = useMemo(() => {
-    const baseColumns = [
-      {
-        key: 'filename',
-        label: 'File Name',
-        sortable: true,
-        width: 'auto',
-        render: (item) => h('div', { className: 'break-all' },
-          item.filename || 'Unknown'
-        )
-      },
-      {
-        key: 'size',
-        label: 'Size',
-        sortable: true,
-        width: '100px',
-        render: (item) => item.size ? formatBytes(item.size) : '-'
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        sortable: false,
-        width: '120px',
-        render: (item) => h(StatusBadge, { status: item.status })
-      },
-      {
-        key: 'started_at',
-        label: 'Started',
-        sortable: true,
-        width: '160px',
-        render: (item) => item.started_at ? formatDateTime(item.started_at) : '-'
-      },
-      {
-        key: 'completed_at',
-        label: 'Completed',
-        sortable: true,
-        width: '160px',
-        render: (item) => item.completed_at ? formatDateTime(item.completed_at) : '-'
+  // ============================================================================
+  // FILTER OPTIONS
+  // Category filter options (uses unified category system)
+  const categoryFilterOptions = useCategoryFilterOptions();
+
+  // ============================================================================
+  // COLUMN DEFINITIONS
+  // ============================================================================
+  const columns = useMemo(() => [
+    buildAddedAtColumn({
+      width: '120px',
+      showUsername: historyTrackUsername,
+      selectionMode: () => selectionMode
+    }),
+    buildFileNameColumn({
+      onClick: handleShowInfo,
+      disabled: (item) => selectionMode || !findFileInLiveData(item)
+    }),
+    buildSizeColumn({ showDone: false, width: '100px' }),
+    buildStatusColumn({
+      statusFilter,
+      setStatusFilter,
+      resetLoaded,
+      statusOptions,
+      width: '145px',
+      render: (item) => {
+        const badge = h(StatusBadge, {
+          status: item.status,
+          completedTime: item.status === 'completed' && item.completedAt ? formatTimeAgo(item.completedAt) : null
+        });
+        if (selectionMode) return badge;
+        return item.status === 'completed' && item.completedAt
+          ? h(Tooltip, { content: formatDateTime(item.completedAt) },
+              h('span', { className: 'cursor-help' }, badge)
+            )
+          : badge;
       }
-    ];
+    }),
+    buildSpeedColumn({ compact: true }),
+    buildTransferColumn(),
+    buildRatioColumn(),
+    buildCategoryColumn({
+      unifiedFilter,
+      setUnifiedFilter,
+      resetLoaded,
+      filterOptions: categoryFilterOptions,
+      categories
+    }),
+  ], [historyTrackUsername, findFileInLiveData, handleShowInfo, selectionMode, categories, unifiedFilter, setUnifiedFilter, categoryFilterOptions, resetLoaded, statusFilter, setStatusFilter, statusOptions]);
 
-    // Only include username column if tracking is enabled
-    if (trackUsername) {
-      baseColumns.push({
-        key: 'username',
-        label: 'User',
-        sortable: true,
-        width: '100px',
-        render: (item) => item.username || '-'
+  // ============================================================================
+  // COLUMN CONFIG
+  // ============================================================================
+  const {
+    visibleColumns,
+    setShowConfig,
+    ColumnConfigElement
+  } = useColumnConfig('history', columns, {
+    defaultHidden: ['category'],
+    defaultSecondarySort: DEFAULT_SECONDARY_SORT_CONFIG['history'],
+    defaultPrimarySort: DEFAULT_SORT_CONFIG['history'],
+    onSortChange
+  });
+
+  // ============================================================================
+  // MOBILE CARD RENDERER
+  // ============================================================================
+  const renderMobileCard = useCallback((item, idx, showBadge, categoryStyle) => {
+    const hasLiveData = (item.downloadSpeed || 0) > 0 || (item.uploadSpeed || 0) > 0;
+    const isSelected = selectionMode && selectedFiles.has(item.hash);
+    const isContextTarget = contextMenu.show && contextMenu.item?.hash === item.hash;
+
+    const renderStatusBadge = () => {
+      const badge = h(StatusBadge, {
+        status: item.status,
+        completedTime: item.status === 'completed' && item.completedAt ? formatTimeAgo(item.completedAt) : null,
+        startedTime: item.status === 'downloading' && item.addedAt ? formatTimeAgo(item.addedAt) : null
       });
-    }
+      if (selectionMode) return badge;
+      if (item.status === 'completed' && item.completedAt) {
+        return h(Tooltip, { content: `Completed: ${formatDateTime(item.completedAt)}` },
+          h('span', { className: 'cursor-help' }, badge)
+        );
+      }
+      if (item.status === 'downloading' && item.addedAt) {
+        return h(Tooltip, { content: `Started: ${formatDateTime(item.addedAt)}` },
+          h('span', { className: 'cursor-help' }, badge)
+        );
+      }
+      return badge;
+    };
 
-    return baseColumns;
-  }, [trackUsername]);
-
-  // Actions renderer for Table component
-  const renderActions = useCallback((item) => {
-    return h(IconButton, {
-      variant: 'secondary',
-      icon: 'trash',
-      iconSize: 16,
-      onClick: (e) => {
-        e.stopPropagation();
-        setItemToDelete(item);
-      },
-      title: 'Delete from history',
-      className: 'w-8 h-8 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500'
-    });
-  }, []);
-
-  // Mobile card renderer for Table component
-  const renderMobileCard = useCallback((item, idx) => {
-    return h('div', {
-      className: `p-2 sm:p-3 rounded-lg ${idx % 2 === 0 ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800/50'} border border-gray-200 dark:border-gray-700`
+    return h(ItemMobileCard, {
+      isSelected,
+      isContextTarget,
+      idx,
+      categoryStyle,
+      selectionMode,
+      onSelectionToggle: () => toggleFileSelection(item.hash)
     },
-      // Header row with filename and delete button
-      h('div', { className: 'flex justify-between items-start gap-2 mb-1.5' },
-        h('span', {
-          className: 'font-medium text-gray-900 dark:text-gray-100 flex-1',
-          style: {
-            fontSize: getDynamicFontSize(item.filename || 'Unknown'),
-            wordBreak: 'break-all',
-            overflowWrap: 'anywhere'
-          }
-        }, item.filename || 'Unknown'),
-        h(IconButton, {
-          variant: 'secondary',
-          icon: 'trash',
-          iconSize: 16,
-          onClick: () => setItemToDelete(item),
-          title: 'Delete from history',
-          className: '!w-7 !h-7 !p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500'
+      h(MobileCardHeader, {
+        showBadge,
+        clientType: item.client,
+        fileName: item.name,
+        fileSize: item.size,
+        selectionMode,
+        isSelected,
+        onSelectionToggle: () => toggleFileSelection(item.hash),
+        onNameClick: (e, anchorEl) => openContextMenu(e, item, anchorEl),
+        actions: h(MoreButton, {
+          onClick: (e) => openContextMenu(e, item, e.currentTarget)
         })
-      ),
-
-      // Details
-      h('div', { className: 'space-y-1 text-xs' },
-        // Status + Size + User on same line
-        h('div', { className: 'flex items-center gap-2 text-gray-700 dark:text-gray-300 flex-wrap' },
-          h(StatusBadge, { status: item.status }),
-          item.size && h('span', { className: 'flex items-center gap-1 text-gray-900 dark:text-gray-100' },
-            h(Icon, { name: 'harddrive', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
-            formatBytes(item.size)
+      },
+        h('div', { className: 'space-y-1 text-xs mt-1' },
+          // Row 1: Status, Added time, Tracker, Username
+          h('div', { className: 'flex items-center gap-2 flex-wrap -ml-1' },
+            renderStatusBadge(),
+            item.addedAt && item.status !== 'completed' && item.status !== 'downloading' && (
+              selectionMode
+                ? h('span', {
+                    className: 'px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                  }, 'Added ', formatTimeAgo(item.addedAt))
+                : h(Tooltip, { content: formatDateTime(item.addedAt) },
+                    h('span', {
+                      className: 'px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-help'
+                    }, 'Added ', formatTimeAgo(item.addedAt))
+                  )
+            ),
+            h(TrackerLabel, { tracker: item.trackerDomain }),
+            historyTrackUsername && item.username && h('span', {
+              className: 'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+            },
+              h(Icon, { name: 'user', size: 10, className: 'text-purple-500 dark:text-purple-400' }),
+              item.username
+            )
           ),
-          // User with icon (only show if tracking is enabled)
-          trackUsername && item.username && h('span', { className: 'flex items-center gap-1' },
-            h(Icon, { name: 'user', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
-            h('span', { className: 'text-gray-900 dark:text-gray-100' }, item.username)
+          // Row 2: Total transferred - Ratio
+          (item.downloaded > 0 || item.uploaded > 0 || (item.ratio !== null && item.ratio > 0)) && h('div', { className: 'flex items-center gap-1 text-gray-700 dark:text-gray-300 flex-wrap' },
+            (item.downloaded > 0 || item.uploaded > 0) && h('span', { className: 'flex items-center font-mono gap-1' },
+              h(Icon, { name: 'download', size: 12, className: 'text-blue-600 dark:text-blue-400' }),
+              h('span', null, formatBytes(item.downloaded || 0)),
+              h('span', { className: 'text-gray-400' }, '·'),
+              h(Icon, { name: 'upload', size: 12, className: 'text-green-600 dark:text-green-400' }),
+              h('span', null, formatBytes(item.uploaded || 0))
+            ),
+            (item.downloaded > 0 || item.uploaded > 0) && item.ratio !== null && item.ratio > 0 && h('span', { className: 'text-gray-400' }, '·'),
+            item.ratio !== null && item.ratio > 0 && h('span', { className: 'text-gray-900 dark:text-gray-100' },
+              `R: ${formatRatio(item.ratio)}`
+            )
+          ),
+          // Row 3: Current DL/UP speed (only if > 0)
+          hasLiveData && h('div', { className: 'flex items-center gap-1 text-gray-700 dark:text-gray-300' },
+            h('span', { className: 'flex items-center font-mono gap-1' },
+              h('span', { className: 'text-blue-600 dark:text-blue-400 flex items-center' },
+                item.downloadSpeed > 0
+                  ? h('span', { className: 'arrow-animated' }, h(Icon, { name: 'arrowDown', size: 12 }))
+                  : h(Icon, { name: 'arrowDown', size: 12 }),
+                ' ', item.downloadSpeed > 0 ? formatSpeed(item.downloadSpeed) : '-'
+              ),
+              h('span', { className: 'text-gray-400' }, '·'),
+              h('span', { className: 'text-green-600 dark:text-green-400 flex items-center' },
+                item.uploadSpeed > 0
+                  ? h('span', { className: 'arrow-animated arrow-up' }, h(Icon, { name: 'arrowUp', size: 12 }))
+                  : h(Icon, { name: 'arrowUp', size: 12 }),
+                ' ', item.uploadSpeed > 0 ? formatSpeed(item.uploadSpeed) : '-'
+              )
+            )
           )
-        ),
-        // Started
-        h('div', { className: 'text-gray-700 dark:text-gray-300' },
-          h('span', { className: 'font-medium text-gray-600 dark:text-gray-400' }, 'Started: '),
-          h('span', { className: 'text-gray-900 dark:text-gray-100' }, item.started_at ? formatDateTime(item.started_at) : '-')
-        ),
-        // Completed
-        item.completed_at && h('div', { className: 'text-gray-700 dark:text-gray-300' },
-          h('span', { className: 'font-medium text-gray-600 dark:text-gray-400' }, 'Completed: '),
-          h('span', { className: 'text-gray-900 dark:text-gray-100' }, formatDateTime(item.completed_at))
         )
       )
     );
-  }, [getDynamicFontSize, trackUsername]);
+  }, [selectionMode, selectedFiles, contextMenu.show, contextMenu.item, historyTrackUsername, toggleFileSelection, openContextMenu]);
 
-  // Status filter options
-  const statusOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'downloading', label: 'Downloading' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'missing', label: 'Missing' },
-    { value: 'deleted', label: 'Deleted' }
-  ];
+  // ============================================================================
+  // MOBILE HEADER
+  // ============================================================================
+  const totalCount = sortedHistory.length;
 
-  // Error state
-  if (error) {
-    return h('div', { className: 'p-4' },
-      h(AlertBox, { type: 'error' },
-        h('p', { className: 'font-medium' }, 'Error loading history'),
-        h('p', { className: 'text-sm mt-1' }, error),
-        h(Button, {
-          variant: 'danger',
-          onClick: fetchHistory,
-          className: 'mt-2'
-        }, 'Retry')
-      )
-    );
-  }
-
-  // Columns for MobileOptionsPopover (need sortable columns)
-  const sortableColumns = [
-    { key: 'filename', label: 'File Name', sortable: true },
-    { key: 'size', label: 'Size', sortable: true },
-    { key: 'started_at', label: 'Started', sortable: true },
-    { key: 'completed_at', label: 'Completed', sortable: true }
-  ];
-
-  return h('div', { className: 'space-y-2 sm:space-y-3' },
-    // Mobile header with title + compact controls
-    h('div', { className: 'flex lg:hidden items-center gap-2 pl-1' },
-      h('h2', { className: 'text-base font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap' }, `Download History (${total})`),
+  const mobileHeaderContent = useMemo(() =>
+    h('div', { className: 'flex items-center gap-2' },
+      h('h2', { className: VIEW_TITLE_STYLES.mobile },
+        `History (${totalCount})`
+      ),
       h('div', { className: 'flex-1' }),
       h(ExpandableSearch, {
         value: filterText,
         onChange: setFilterText,
-        placeholder: 'Filter...',
-        hiddenWhenExpanded: [
-          h(MobileOptionsPopover, {
-            key: 'options',
-            columns: sortableColumns,
-            sortBy,
-            sortDirection: sortDir,
-            onSortChange: (newSortBy, newSortDir) => {
-              setAppSortConfig(prev => ({
-                ...prev,
-                'history': { sortBy: newSortBy, sortDirection: newSortDir }
-              }));
-              setPage(0);
-            },
-            statusOptions,
-            statusFilter,
-            onStatusFilterChange: setStatusFilter
-          }),
-          h(IconButton, {
-            key: 'refresh',
-            variant: 'secondary',
-            icon: 'refresh',
-            iconSize: 18,
-            onClick: fetchHistory,
-            disabled: loading,
-            title: 'Refresh',
-            className: loading ? '[&_svg]:animate-spin' : ''
-          })
-        ]
+        placeholder: 'Search...',
+        hiddenBeforeSearch: h(MobileSortButton, {
+          columns: columns,
+          sortBy,
+          sortDirection,
+          onSortChange,
+          defaultSortBy: DEFAULT_SORT_CONFIG.history.sortBy,
+          defaultSortDirection: DEFAULT_SORT_CONFIG.history.sortDirection
+        }),
+        hiddenWhenExpanded: h(IconButton, {
+          variant: selectionMode ? 'danger' : 'secondary',
+          icon: selectionMode ? 'x' : 'fileCheck',
+          iconSize: 18,
+          onClick: toggleSelectionMode,
+          title: selectionMode ? 'Exit Selection Mode' : 'Select Items'
+        })
+      })
+    ),
+  [totalCount, filterText, setFilterText, columns, sortBy, sortDirection, onSortChange, selectionMode, toggleSelectionMode]);
+
+  const mobileHeaderRef = useStickyToolbar(mobileHeaderContent);
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+  return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
+    // Mobile header (xl:hidden)
+    h('div', { className: 'xl:hidden', ref: mobileHeaderRef },
+      h('div', { className: 'pb-2 border-b border-gray-200 dark:border-gray-700' },
+        mobileHeaderContent
+      ),
+      // Status tabs + filter button
+      h(MobileStatusTabs, {
+        activeTab: statusFilter,
+        statusCounts,
+        totalCount,
+        onTabChange: (key) => { setStatusFilter(key); resetLoaded(); },
+        leadingContent: (categories.length > 0 || (isRtorrentEnabled && trackerOptions.length > 1)) && h(MobileFilterButton, {
+          onClick: mobileFilters.handleFilterSheetOpen,
+          activeCount: mobileFilters.mobileCategoryFilters.length
+        })
+      }),
+      // Filter pills
+      mobileFilters.activeFilterPills.length > 0 && h(MobileFilterPills, {
+        filters: mobileFilters.activeFilterPills,
+        onRemove: mobileFilters.handleRemoveFilterPill
       })
     ),
 
-    // Desktop header
-    h('div', { className: 'hidden lg:flex justify-between items-center gap-3 pl-2' },
-      h('h2', { className: 'text-base sm:text-lg font-bold text-gray-800 dark:text-gray-100' }, `Download History (${total})`),
-      h('div', { className: 'flex gap-2' },
+    // Desktop header (hidden xl:flex)
+    h('div', { className: 'hidden xl:flex items-center justify-between gap-4' },
+      h('h2', { className: VIEW_TITLE_STYLES.desktop },
+        `Download History (${totalCount})`
+      ),
+      h('div', { className: 'flex items-center gap-2' },
         h(FilterInput, {
           value: filterText,
           onChange: setFilterText,
-          placeholder: 'Filter...',
-          className: 'w-56'
+          placeholder: 'Filter...'
         }),
-        h(Select, {
-          value: statusFilter,
-          onChange: (e) => setStatusFilter(e.target.value),
-          options: statusOptions
+        showTrackerFilter && h(Select, {
+          value: trackerFilter || 'all',
+          onChange: (e) => {
+            setTrackerFilter(e.target.value);
+            resetLoaded();
+          },
+          options: trackerOptions
         }),
         h(Button, {
-          variant: 'primary',
-          onClick: fetchHistory,
-          disabled: loading,
-          icon: 'refresh',
-          className: loading ? '[&_svg]:animate-spin' : ''
-        }, 'Refresh')
+          variant: selectionMode ? 'danger' : 'purple',
+          onClick: toggleSelectionMode,
+          icon: selectionMode ? 'x' : 'fileCheck'
+        }, selectionMode ? 'Exit Selection Mode' : 'Select Items')
       )
     ),
 
-    // Loading state
-    loading && h('div', { className: 'flex justify-center py-8' },
-      h(LoadingSpinner, { message: 'Loading history...' })
+    // Main content
+    loadedData.length === 0
+      ? h(EmptyState, {
+          loading: !dataLoaded.history,
+          loadingMessage: 'Loading history...',
+          icon: 'history',
+          hasFilters: !!(filterText || statusFilter !== 'all' || unifiedFilter !== 'all' || mobileFilters.mobileCategoryFilters.length > 0),
+          filterMessage: 'No history entries match the current filters',
+          emptyMessage: 'No download history yet',
+          onClearFilters: () => { clearFilter(); setStatusFilter('all'); setUnifiedFilter('all'); mobileFilters.setMobileCategoryFilters([]); }
+        })
+      : h(Table, {
+          data: loadedData,
+          columns: visibleColumns,
+          scrollable: true,
+          showCategoryBorder: true,
+          trackerLabelColumnKey: 'filename',
+          hoverActions: !selectionMode,
+          actionsHeader: h('button', {
+            onClick: () => setShowConfig(true),
+            className: 'p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors',
+            title: 'Configure columns'
+          }, h(Icon, { name: 'tableConfig', size: 16, className: 'text-gray-500 dark:text-gray-400' })),
+          actions: (item) => {
+            if (selectionMode) {
+              return h(SelectionCheckbox, {
+                checked: selectedFiles.has(item.hash),
+                onChange: () => toggleFileSelection(item.hash)
+              });
+            }
+            const hasLiveFile = !!findFileInLiveData(item);
+            return h('div', { className: 'flex items-center gap-1' },
+              hasLiveFile && h('button', {
+                onClick: (e) => { e.stopPropagation(); handleShowInfo(item); },
+                className: 'p-1.5 rounded bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors',
+                title: 'View file details'
+              }, h(Icon, { name: 'info', size: 14, className: 'text-blue-600 dark:text-blue-400' })),
+              h('button', {
+                onClick: (e) => { e.stopPropagation(); setItemToDelete(item); },
+                className: 'p-1.5 rounded bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors',
+                title: 'Delete from history'
+              }, h(Icon, { name: 'trash', size: 14, className: 'text-red-600 dark:text-red-400' }))
+            );
+          },
+          currentSortBy: sortBy,
+          currentSortDirection: sortDirection,
+          onSortChange,
+          // Load-more pagination (client-side)
+          loadedCount,
+          totalCount,
+          hasMore,
+          remaining,
+          onLoadMore: loadMore,
+          onLoadAll: loadAll,
+          resetLoaded,
+          pageSize,
+          onPageSizeChange,
+          skipSort: selectionMode || contextMenu.show,
+          getRowKey: (item) => item.hash,
+          getRowClassName: (item) => getRowHighlightClass(
+            selectionMode && selectedFiles.has(item.hash),
+            contextMenu.show && contextMenu.item?.hash === item.hash
+          ),
+          onRowContextMenu: handleRowContextMenu,
+          onRowClick: selectionMode ? (item) => toggleFileSelection(item.hash) : null,
+          breakpoint: 'xl',
+          mobileCardRender: renderMobileCard,
+          mobileCardStyle: 'card',
+          beforePagination: null
+        }),
+
+    // Selection mode section
+    h(SelectionModeSection, {
+      active: selectionMode,
+      selectedCount,
+      shownFullySelected,
+      allItemsSelected,
+      hasMoreToLoad,
+      shownCount,
+      totalCount: totalFilteredCount,
+      onSelectShown: handleSelectShown,
+      onSelectAll: handleSelectAll,
+      onClearAll: clearAllSelections,
+      onExit: toggleSelectionMode
+    },
+      h(Button, { variant: 'danger', onClick: handleBatchDelete, icon: 'trash', iconSize: 14, disabled: selectedCount === 0 }, 'Delete')
     ),
 
-    // Content
-    !loading && (
-      history.length === 0
-        ? h('div', { className: 'text-center py-12' },
-            h(Icon, { name: 'history', size: 48, className: 'mx-auto text-gray-400 mb-4' }),
-            h('p', { className: 'text-gray-500 dark:text-gray-400' },
-              'No download history yet'
-            )
-          )
-        : h(Table, {
-            data: history,
-            columns,
-            actions: renderActions,
-            currentSortBy: sortBy,
-            currentSortDirection: sortDir,
-            onSortChange: (newSortBy, newSortDir) => {
-              setAppSortConfig(prev => ({
-                ...prev,
-                'history': { sortBy: newSortBy, sortDirection: newSortDir }
-              }));
-              setPage(0);
-            },
-            page,
-            onPageChange: setPage,
-            pageSize,
-            onPageSizeChange,
-            serverSide: true,
-            totalCount: total,
-            getRowKey: (item) => item.hash,
-            breakpoint: 'lg',
-            mobileCardRender: renderMobileCard
-          })
-    ),
-
-    // Delete confirmation modal
+    // ========================================================================
+    // MODALS & OVERLAYS
+    // ========================================================================
     h(DeleteModal, {
       show: !!itemToDelete,
-      onCancel: () => setItemToDelete(null),
-      onConfirm: handleDelete,
-      title: 'Delete History Entry',
-      message: `Are you sure you want to delete "${itemToDelete?.filename}" from history?`
-    })
+      onCancel: () => {
+        setItemToDelete(null);
+        setBatchDeleteCount(0);
+      },
+      onConfirm: handleConfirmDelete,
+      title: itemToDelete?.isBatch ? 'Delete History Entries' : 'Delete History Entry',
+      itemName: !itemToDelete?.isBatch ? itemToDelete?.name : null,
+      itemCount: itemToDelete?.isBatch ? batchDeleteCount : null,
+      isBatch: itemToDelete?.isBatch,
+      message: 'Are you sure you want to delete ',
+      skipFileMessages: true
+    }),
+
+    FileInfoElement,
+
+    h(ContextMenu, {
+      show: contextMenu.show,
+      x: contextMenu.x,
+      y: contextMenu.y,
+      items: getContextMenuItems(contextMenu.item),
+      onClose: closeContextMenu,
+      anchorEl: contextMenu.anchorEl
+    }),
+
+    h(MobileFilterSheet, {
+      show: mobileFilters.showFilterSheet,
+      onClose: () => mobileFilters.setShowFilterSheet(false),
+      onApply: mobileFilters.handleFilterSheetApply,
+      onClear: mobileFilters.handleFilterSheetClear,
+      filterGroups: [
+        createCategoryLabelFilter({
+          categories,
+          selectedValues: mobileFilters.pendingCategoryFilters,
+          onToggle: mobileFilters.togglePendingFilter
+        }),
+        createTrackerFilter({
+          trackerOptions,
+          selectedValues: mobileFilters.pendingCategoryFilters,
+          onToggle: mobileFilters.togglePendingFilter,
+          show: showTrackerFilter
+        })
+      ]
+    }),
+
+    // Column config modal
+    ColumnConfigElement
   );
 };
 

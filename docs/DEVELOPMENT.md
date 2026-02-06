@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers building, developing, and contributing to aMule Web Controller.
+This guide covers building, developing, and contributing to aMuTorrent.
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ This guide covers building, developing, and contributing to aMule Web Controller
 ## Project Structure
 
 ```
-amule-web-controller/
+amutorrent/
 ├── server/                    # Backend (Node.js/Express)
 │   ├── server.js              # Main entry point
 │   ├── database.js            # SQLite database setup
@@ -80,8 +80,8 @@ amule-web-controller/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/got3nks/amule-web-controller.git
-cd amule-web-controller
+git clone https://github.com/got3nks/amutorrent.git
+cd amutorrent
 ```
 
 ### 2. Install Dependencies
@@ -147,10 +147,10 @@ npm run watch:js
 
 ```bash
 # Build Docker image
-docker build -t amule-web-controller .
+docker build -t amutorrent .
 
 # Run container
-docker run -p 4000:4000 amule-web-controller
+docker run -p 4000:4000 amutorrent
 ```
 
 ---

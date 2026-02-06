@@ -23,7 +23,7 @@ const StatCard = ({ label, value, icon, iconColor, compact = false }) => {
   },
     h('div', { className: `flex items-center gap-1.5 ${compact ? 'mb-0.5' : 'mb-1'}` },
       h(Icon, { name: icon, size: compact ? 14 : 16, className: iconColor }),
-      h('div', { className: `text-gray-500 dark:text-gray-400 ${compact ? 'text-[10px]' : 'text-xs'}` }, label)
+      h('div', { className: 'text-xs text-gray-500 dark:text-gray-400' }, label)
     ),
     h('div', { className: `font-bold text-gray-800 dark:text-gray-100 ${compact ? 'text-sm' : 'text-lg'}` }, value)
   );

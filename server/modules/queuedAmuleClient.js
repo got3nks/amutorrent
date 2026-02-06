@@ -10,8 +10,8 @@ const config = require('./config');
 const logger = require('../lib/logger');
 
 class QueuedAmuleClient {
-  constructor(host, port, password) {
-    this.client = new AmuleClient(host, port, password);
+  constructor(host, port, password, options = {}) {
+    this.client = new AmuleClient(host, port, password, options);
     this.requestQueue = Promise.resolve();
     this.pendingRequests = 0;
     this.connectionLost = false;
@@ -107,14 +107,9 @@ class QueuedAmuleClient {
   queueRequest(fn, methodName) {
     const previous = this.requestQueue;
     this.pendingRequests++;
-    const queueLength = this.pendingRequests;
 
     const current = previous
-      .then(() => {
-        const name = methodName || fn.name || 'anonymous';
-        //if(queueLength>1) console.debug(`[QueuedAmuleClient] Previous request finished. Processing next: ${name} | Pending requests: ${queueLength}`);
-        return fn();
-      })
+      .then(() => fn())
       .catch(err => {
         logger.warn(`QueuedAmuleClient request failed (${methodName}):`, err.message);
         return null;
@@ -300,13 +295,29 @@ class QueuedAmuleClient {
     const clientArgs = args.slice(0, 2); // Only pass hash/link and categoryId to aMule
 
     // Execute the actual download request
-    const result = await this.queueRequest(
-      () => this.client[method](...clientArgs),
-      method
-    );
+    // Use direct execution with try/catch to know if it succeeded
+    // (queueRequest swallows errors and returns null, so we can't distinguish success from failure)
+    const previous = this.requestQueue;
+    this.pendingRequests++;
 
-    // Track download in history (result may be undefined for successful downloads)
-    if (this.isHistoryEnabled() && this.downloadHistoryDB) {
+    let result = null;
+    let success = false;
+
+    try {
+      await previous; // Wait for queue
+      result = await this.client[method](...clientArgs);
+      success = true;
+    } catch (err) {
+      logger.warn(`QueuedAmuleClient ${method} failed:`, err.message);
+      // Don't rethrow - maintain backward compatibility (return null on error)
+    } finally {
+      this.pendingRequests--;
+      // Update queue to resolve
+      this.requestQueue = Promise.resolve();
+    }
+
+    // Track download in history only on success
+    if (success && this.isHistoryEnabled() && this.downloadHistoryDB) {
       try {
         await this.trackDownloadStart(method, args, username);
       } catch (err) {
@@ -352,7 +363,7 @@ class QueuedAmuleClient {
     }
 
     if (hash) {
-      this.downloadHistoryDB.addDownload(hash, filename, size, username);
+      this.downloadHistoryDB.addDownload(hash, filename, size, username, 'amule');
     } else {
       logger.warn(`[QueuedAmuleClient] No hash found for ${method}, cannot track in history`);
     }

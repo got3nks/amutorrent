@@ -29,6 +29,12 @@ export const useSelectionMode = () => {
     setSelectedFiles(new Set());
   }, []);
 
+  // Enter selection mode with an item already selected
+  const enterSelectionWithItem = useCallback((fileHash) => {
+    setSelectionMode(true);
+    setSelectedFiles(new Set([fileHash]));
+  }, []);
+
   // Toggle a single file's selection
   const toggleFileSelection = useCallback((fileHash) => {
     setSelectedFiles(prev => {
@@ -47,6 +53,22 @@ export const useSelectionMode = () => {
     setSelectedFiles(new Set());
   }, []);
 
+  // Select all files from provided array of hashes (all pages)
+  const selectAll = useCallback((fileHashes) => {
+    setSelectedFiles(new Set(fileHashes));
+  }, []);
+
+  // Select only shown items (replaces current selection)
+  const selectShown = useCallback((shownHashes) => {
+    setSelectedFiles(new Set(shownHashes));
+  }, []);
+
+  // Check if all shown items are selected
+  const isShownFullySelected = useCallback((shownHashes) => {
+    if (!shownHashes || shownHashes.length === 0) return false;
+    return shownHashes.every(hash => selectedFiles.has(hash));
+  }, [selectedFiles]);
+
   // Get array of selected file hashes
   const getSelectedHashes = useCallback(() => {
     return Array.from(selectedFiles);
@@ -63,8 +85,12 @@ export const useSelectionMode = () => {
     selectedCount: selectedFiles.size,
     toggleSelectionMode,
     exitSelectionMode,
+    enterSelectionWithItem,
     toggleFileSelection,
     clearAllSelections,
+    selectAll,
+    selectShown,
+    isShownFullySelected,
     getSelectedHashes,
     isSelected
   };

@@ -5,6 +5,7 @@
  * - Stats (speeds, connection status)
  * - Downloads queue
  * - Uploads queue
+ * - Shared files (pushed via WebSocket)
  *
  * Separated from StaticDataContext to prevent unnecessary re-renders
  * of components that only need rarely-changing data like categories.
@@ -19,13 +20,18 @@ const LiveDataContext = createContext(null);
 export const LiveDataProvider = ({ children }) => {
   // Live data state (changes frequently)
   const [dataStats, setDataStats] = useState(null);
-  const [dataDownloads, setDataDownloads] = useState([]);
-  const [dataUploads, setDataUploads] = useState([]);
+
+  // Unified items array (replaces separate downloads/shared/uploads)
+  const [dataItems, setDataItems] = useState([]);
+
+  // History data (fetched from /api/history/all, refreshes every 5 seconds)
+  const [dataHistory, setDataHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Loaded flags for live data
   const [dataLoaded, setDataLoaded] = useState({
-    downloads: false,
-    uploads: false
+    items: false,
+    history: false
   });
 
   // Helper to mark a data type as loaded
@@ -48,17 +54,19 @@ export const LiveDataProvider = ({ children }) => {
   const value = useMemo(() => ({
     // State
     dataStats,
-    dataDownloads,
-    dataUploads,
+    dataItems,
+    dataHistory,
+    historyLoading,
     dataLoaded,
 
     // Setters
     setDataStats,
-    setDataDownloads,
-    setDataUploads,
+    setDataItems,
+    setDataHistory,
+    setHistoryLoading,
     markDataLoaded,
     resetDataLoaded
-  }), [dataStats, dataDownloads, dataUploads, dataLoaded, markDataLoaded, resetDataLoaded]);
+  }), [dataStats, dataItems, dataHistory, historyLoading, dataLoaded, markDataLoaded, resetDataLoaded]);
 
   return h(LiveDataContext.Provider, { value }, children);
 };

@@ -21,8 +21,9 @@ const useSearchState = () => {
   const [searchLocked, setSearchLocked] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [searchPreviousResults, setSearchPreviousResults] = useState([]);
+  const [searchPreviousResultsLoaded, setSearchPreviousResultsLoaded] = useState(false);
   const [searchError, setSearchError] = useState('');
-  const [searchDownloadCategoryId, setSearchDownloadCategoryId] = useState(0);
+  const [searchDownloadCategory, setSearchDownloadCategory] = useState('Default');
 
   // Clear error
   const clearSearchError = useCallback(() => {
@@ -49,8 +50,9 @@ const useSearchState = () => {
     searchLocked,
     searchResults,
     searchPreviousResults,
+    searchPreviousResultsLoaded,
     searchError,
-    searchDownloadCategoryId,
+    searchDownloadCategory,
 
     // Setters
     setSearchQuery,
@@ -58,13 +60,14 @@ const useSearchState = () => {
     setSearchLocked,
     setSearchResults: setSearchResultsWithClear,
     setSearchPreviousResults,
+    setSearchPreviousResultsLoaded,
     setSearchError,
-    setSearchDownloadCategoryId,
+    setSearchDownloadCategory,
     clearSearchError,
     setSearchNoResultsError
   }), [
     searchQuery, searchType, searchLocked, searchResults, searchPreviousResults,
-    searchError, searchDownloadCategoryId, setSearchResultsWithClear,
+    searchPreviousResultsLoaded, searchError, searchDownloadCategory, setSearchResultsWithClear,
     clearSearchError, setSearchNoResultsError
     // Note: React useState setters are stable
   ]);

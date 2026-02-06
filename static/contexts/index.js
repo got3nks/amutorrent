@@ -18,3 +18,5 @@ export { ThemeProvider, useTheme } from './ThemeContext.js';
 export { FontSizeProvider, useFontSize, FONT_SIZES } from './FontSizeContext.js';
 export { WebSocketProvider, useWebSocketConnection } from './WebSocketContext.js';
 export { VersionProvider, useVersion } from './VersionContext.js';
+export { ClientFilterProvider, useClientFilter } from './ClientFilterContext.js';
+export { StickyHeaderProvider, useStickyHeader, useStickyToolbar } from './StickyHeaderContext.js';

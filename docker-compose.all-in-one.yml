@@ -7,9 +7,9 @@ services:
       - "4665:4665/udp"   # ED2K UDP (global search)
       - "4672:4672/udp"   # ED2K UDP
     volumes:
-      - ./data/.aMule:/home/amule/.aMule
-      - ./data/incoming:/incoming
-      - ./data/temp:/temp
+      - ./data/aMule/config:/home/amule/.aMule
+      - ./data/aMule/incoming:/incoming
+      - ./data/aMule/temp:/temp
     environment:
       - PUID=1000
       - PGID=1000
@@ -19,12 +19,30 @@ services:
     stop_grace_period: 30s
     restart: unless-stopped
 
-  amule-web:
-    image: g0t3nks/amule-web-controller:latest
+  rtorrent:
+    image: crazymax/rtorrent-rutorrent:latest
+    container_name: rtorrent
+    ports:
+      - "127.0.0.1:8000:8000"  # XML-RPC (localhost only)
+      - "6881:6881"            # BitTorrent
+      - "6881:6881/udp"        # BitTorrent DHT
+      - "50000:50000"          # Incoming connections
+    volumes:
+      - ./data/rTorrent/config:/data
+      - ./data/rTorrent/downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    restart: unless-stopped
+
+  amutorrent:
+    image: g0t3nks/amutorrent:latest
     user: "1000:1000"
-    container_name: amule-web-controller
+    container_name: amutorrent
     depends_on:
       - amule
+      - rtorrent
     ports:
       - "${PORT:-4000}:${PORT:-4000}"
     environment:
@@ -35,10 +53,20 @@ services:
       # - WEB_AUTH_ENABLED=true
       # - WEB_AUTH_PASSWORD=your_secure_password
       # aMule Connection
+      - AMULE_ENABLED=true
       - AMULE_HOST=amule  # aMule container service name
       - AMULE_PORT=4712
       - AMULE_PASSWORD=${AMULE_PASSWORD:-admin}  # Must match GUI_PWD in amule container
-      # Sonarr/Radarr Integration
+      # rTorrent Connection
+      - RTORRENT_ENABLED=true
+      - RTORRENT_HOST=rtorrent  # rTorrent container service name
+      - RTORRENT_PORT=8000
+      - RTORRENT_PATH=/RPC2
+      # Prowlarr Integration (requires rTorrent)
+      - PROWLARR_ENABLED=true
+      - PROWLARR_URL=http://prowlarr:9696
+      # - PROWLARR_API_KEY=your_api_key  # Get from Prowlarr Settings → General
+      # Sonarr/Radarr Integration (optional)
       # - SONARR_URL=http://sonarr:8989
       # - SONARR_API_KEY=your_api_key
       # - RADARR_URL=http://radarr:7878
@@ -46,6 +74,30 @@ services:
     volumes:
       - ./logs:/usr/src/app/server/logs
       - ./data:/usr/src/app/server/data
+      # Event Scripting: Edit scripts/custom.sh to run your own scripts on events
+      - ./scripts:/usr/src/app/scripts
+      # Download directories (optional): Required for moving/deleting files
+      - ./data/aMule/incoming:/incoming
+      - ./data/rTorrent/downloads:/downloads
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:' + (process.env.PORT || 4000) + '/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Optional: Prowlarr for torrent search (results go to rTorrent)
+  prowlarr:
+    image: linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - ./data/prowlarr/config:/config
+    ports:
+      - "9696:9696"
     restart: unless-stopped
 
   # Optional: GeoIP database updater

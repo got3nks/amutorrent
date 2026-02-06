@@ -7,7 +7,7 @@
 import React from 'https://esm.sh/react@18.2.0';
 import Icon from './Icon.js';
 import { Button } from './FormControls.js';
-import { formatStatsValue } from '../../utils/index.js';
+import { formatStatsValue, VIEW_TITLE_STYLES } from '../../utils/index.js';
 
 const { createElement: h, useState, useEffect, useRef } = React;
 
@@ -33,15 +33,31 @@ const formatNodeLabel = (label, value) => {
  * StatsTree component
  * @param {object} statsTree - Statistics tree data
  * @param {boolean} loading - Loading state
+ * @param {boolean} showHeader - Whether to show the header (default: true)
+ * @param {object} expandedNodes - Controlled expanded nodes state (optional)
+ * @param {function} onExpandedNodesChange - Handler for expanded nodes changes (optional)
  */
-const StatsTree = ({ statsTree, loading }) => {
-  const [expandedNodes, setExpandedNodes] = useState({});
+const StatsTree = ({
+  statsTree,
+  loading,
+  showHeader = true,
+  expandedNodes: controlledExpandedNodes,
+  onExpandedNodesChange
+}) => {
+  // Support both controlled and uncontrolled modes
+  const [internalExpandedNodes, setInternalExpandedNodes] = useState({});
+  const isControlled = controlledExpandedNodes !== undefined;
+  const expandedNodes = isControlled ? controlledExpandedNodes : internalExpandedNodes;
+  const setExpandedNodes = isControlled ? onExpandedNodesChange : setInternalExpandedNodes;
+
   const hasUserInteracted = useRef(false);
 
-  // Auto-expand first level of stats tree when loaded
+  // Auto-expand first level of stats tree when loaded (only in uncontrolled mode or when controlled state is empty)
   useEffect(() => {
     if (hasUserInteracted.current) return;
     if (!statsTree || !statsTree.EC_TAG_STATTREE_NODE) return;
+    // Skip auto-expand if controlled and already has expanded nodes
+    if (isControlled && Object.keys(controlledExpandedNodes).length > 0) return;
 
     const firstLevelKeys = {};
 
@@ -69,14 +85,21 @@ const StatsTree = ({ statsTree, loading }) => {
 
     collectFirstLevel(statsTree.EC_TAG_STATTREE_NODE);
     setExpandedNodes(firstLevelKeys);
-  }, [statsTree]);
+  }, [statsTree, isControlled, controlledExpandedNodes, setExpandedNodes]);
 
   const toggleNode = (nodeKey) => {
     hasUserInteracted.current = true;
-    setExpandedNodes(prev => ({
-      ...prev,
-      [nodeKey]: !prev[nodeKey]
-    }));
+    if (isControlled) {
+      onExpandedNodesChange({
+        ...expandedNodes,
+        [nodeKey]: !expandedNodes[nodeKey]
+      });
+    } else {
+      setExpandedNodes(prev => ({
+        ...prev,
+        [nodeKey]: !prev[nodeKey]
+      }));
+    }
   };
 
   const expandAll = () => {
@@ -145,9 +168,9 @@ const StatsTree = ({ statsTree, loading }) => {
   };
 
   return h('div', { className: 'space-y-3' },
-    // Header
-    h('div', { className: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3' },
-      h('h2', { className: 'text-base sm:text-lg font-bold text-gray-800 dark:text-gray-100' }, 'Statistics Tree'),
+    // Header (optional)
+    showHeader && h('div', { className: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3' },
+      h('h2', { className: VIEW_TITLE_STYLES.desktop }, 'Statistics Tree'),
       h('div', { className: 'flex gap-2 w-full sm:w-auto' },
         h(Button, {
           variant: 'secondary',
@@ -162,7 +185,21 @@ const StatsTree = ({ statsTree, loading }) => {
       )
     ),
 
-    h('div', { className: 'bg-gray-50 dark:bg-gray-700 rounded-lg p-3 max-h-[calc(100vh-200px)] overflow-y-auto' },
+    // Expand/Collapse buttons when header is hidden
+    !showHeader && h('div', { className: 'flex gap-2 justify-end' },
+      h(Button, {
+        variant: 'secondary',
+        onClick: expandAll,
+        size: 'sm'
+      }, 'Expand All'),
+      h(Button, {
+        variant: 'secondary',
+        onClick: collapseAll,
+        size: 'sm'
+      }, 'Collapse All')
+    ),
+
+    h('div', { className: `bg-gray-50 dark:bg-gray-700 rounded-lg p-3 ${showHeader ? 'max-h-[calc(100vh-200px)]' : 'max-h-[calc(100vh-280px)]'} overflow-y-auto` },
       statsTree && statsTree.EC_TAG_STATTREE_NODE
         ? renderNode(statsTree.EC_TAG_STATTREE_NODE)
         : h('div', { className: 'text-center py-6 text-xs sm:text-sm text-gray-500 dark:text-gray-400' },

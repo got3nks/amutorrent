@@ -31,6 +31,33 @@ html, body {
   100% { transform: rotate(360deg); }
 }
 
+/* Progress bar animated stripes for active downloads */
+@keyframes progress-stripes {
+  from { background-position: 0 0; }
+  to { background-position: 1rem 0; }
+}
+
+/* Speed arrow animations for active transfers - flowing effect */
+@keyframes arrow-flow {
+  0% { transform: translateY(-2px); opacity: 0; }
+  20% { transform: translateY(-1px); opacity: 1; }
+  80% { transform: translateY(1px); opacity: 1; }
+  100% { transform: translateY(2px); opacity: 0; }
+}
+
+.arrow-animated {
+  animation: arrow-flow 1s ease-in-out infinite;
+}
+
+.arrow-animated.arrow-up {
+  animation-direction: reverse;
+}
+
+/* Pause animations when parent has animations-paused class (used for sync reset) */
+.animations-paused .arrow-animated {
+  animation: none;
+}
+
 /* Context menu animation */
 @keyframes fadeIn {
   from {
@@ -45,6 +72,20 @@ html, body {
 
 .animate-fadeIn {
   animation: fadeIn 0.15s ease-out forwards;
+}
+
+/* Bottom sheet slide-up animation */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slideUp {
+  animation: slideUp 0.2s ease-out forwards;
 }
 
 /* Safe area for iPhone notch/home indicator */

@@ -216,20 +216,23 @@ class GeoIPManager extends BaseModule {
     }
   }
 
-  // Helper function to enrich uploads with GeoIP data
-  enrichUploadsWithGeo(uploads) {
-    if (!Array.isArray(uploads)) return uploads;
+  /**
+   * Enrich peers/uploads array with GeoIP data
+   * Reads the `address` string field from each entry
+   * @param {Array} peers - Array of peer/upload objects with address field
+   * @returns {Array} - Enriched entries with geoData field
+   */
+  enrichPeersWithGeo(peers) {
+    if (!Array.isArray(peers)) return peers;
 
-    return uploads.map(upload => {
-      const ipInt = upload.EC_TAG_CLIENT_USER_IP;
-      if (!ipInt) return upload;
+    return peers.map(peer => {
+      const ip = peer.address;
+      if (!ip) return peer;
 
-      const ipStr = ipToString(ipInt);
-      const geoData = this.getGeoIPData(ipStr);
+      const geoData = this.getGeoIPData(ip);
 
       return {
-        ...upload,
-        clientIp: ipStr,
+        ...peer,
         geoData: geoData
       };
     });

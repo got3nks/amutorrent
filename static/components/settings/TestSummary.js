@@ -26,12 +26,22 @@ const TestSummary = ({ testResults, formData, showDetails = false }) => {
     total: 0
   };
 
-  // Count aMule
-  if (results.amule) {
+  // Count aMule (only if enabled)
+  if (formData?.amule?.enabled !== false && results.amule) {
     summary.total++;
     if (results.amule.success === false) {
       summary.failed++;
     } else if (results.amule.success) {
+      summary.passed++;
+    }
+  }
+
+  // Count rtorrent (only if enabled)
+  if (formData?.rtorrent?.enabled && results.rtorrent) {
+    summary.total++;
+    if (results.rtorrent.success === false) {
+      summary.failed++;
+    } else if (results.rtorrent.success) {
       summary.passed++;
     }
   }
@@ -84,6 +94,16 @@ const TestSummary = ({ testResults, formData, showDetails = false }) => {
     }
   }
 
+  // Count Prowlarr (only if enabled)
+  if (formData?.integrations?.prowlarr?.enabled && results.prowlarr) {
+    summary.total++;
+    if (results.prowlarr.success === false) {
+      summary.failed++;
+    } else if (results.prowlarr.success) {
+      summary.passed++;
+    }
+  }
+
   const allPassed = summary.failed === 0 && summary.total > 0;
   const hasWarnings = summary.warnings > 0;
 
@@ -100,12 +120,22 @@ const TestSummary = ({ testResults, formData, showDetails = false }) => {
   // Build detailed results if requested
   const detailedResults = [];
   if (showDetails) {
-    // aMule result
-    if (results.amule && !results.amule.success) {
+    // aMule result (only if enabled)
+    if (formData?.amule?.enabled !== false && results.amule && !results.amule.success) {
       detailedResults.push({
         label: 'aMule Connection',
         success: false,
         message: results.amule.message || results.amule.error,
+        warning: false
+      });
+    }
+
+    // rtorrent result
+    if (formData?.rtorrent?.enabled && results.rtorrent && !results.rtorrent.success) {
+      detailedResults.push({
+        label: 'rtorrent Connection',
+        success: false,
+        message: results.rtorrent.message || results.rtorrent.error,
         warning: false
       });
     }
@@ -154,6 +184,16 @@ const TestSummary = ({ testResults, formData, showDetails = false }) => {
         label: 'Radarr API',
         success: false,
         message: results.radarr.message || results.radarr.error,
+        warning: false
+      });
+    }
+
+    // Prowlarr result
+    if (formData?.integrations?.prowlarr?.enabled && results.prowlarr && !results.prowlarr.success) {
+      detailedResults.push({
+        label: 'Prowlarr API',
+        success: false,
+        message: results.prowlarr.message || results.prowlarr.error,
         warning: false
       });
     }

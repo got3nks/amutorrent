@@ -9,6 +9,11 @@ const config = require('./config');
 const BaseModule = require('../lib/BaseModule');
 const { getClientIP } = require('../lib/authUtils');
 
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+const rtorrentManager = require('./rtorrentManager');
+const geoIPManager = require('./geoIPManager');
+
 class BasicRoutes extends BaseModule {
   constructor() {
     super();
@@ -18,11 +23,12 @@ class BasicRoutes extends BaseModule {
   healthCheck(req, res) {
     res.json({
       status: 'ok',
-      amuleConnected: !!this.amuleManager?.isConnected(),
+      amuleConnected: !!amuleManager?.isConnected(),
+      rtorrentConnected: !!rtorrentManager?.isConnected(),
       connections: this.wss.clients.size,
       geoip: {
-        cityLoaded: !!this.geoIPManager.cityReader,
-        countryLoaded: !!this.geoIPManager.countryReader
+        cityLoaded: !!geoIPManager.cityReader,
+        countryLoaded: !!geoIPManager.countryReader
       }
     });
   }
@@ -31,8 +37,8 @@ class BasicRoutes extends BaseModule {
   requestLogger(req, res, next) {
     const userAgent = req.get('User-Agent') || 'Unknown';
     const clientIp = getClientIP(req);
-    const geoData = this.geoIPManager.getGeoIPData(clientIp);
-    const locationInfo = this.geoIPManager.formatLocationInfo(geoData);
+    const geoData = geoIPManager.getGeoIPData(clientIp);
+    const locationInfo = geoIPManager.formatLocationInfo(geoData);
 
     this.log(`[HTTP] ${req.method} ${req.url} from ${clientIp}${locationInfo} (${userAgent})`);
 
@@ -50,10 +56,32 @@ class BasicRoutes extends BaseModule {
     // Request logging middleware
     app.use((req, res, next) => this.requestLogger(req, res, next));
 
-    // Serve static files
+    // Serve static files with smart caching:
+    // - Images: long cache (1 week)
+    // - JS/CSS: no-cache but with ETag for validation
+    // - HTML: no-cache
     const appRoot = config.getAppRoot();
-    app.use(express.static(appRoot));
-    app.use('/static', express.static(path.join(appRoot, 'static')));
+    const staticOptions = {
+      etag: true,
+      lastModified: true,
+      setHeaders: (res, filePath) => {
+        const ext = path.extname(filePath).toLowerCase();
+        // Images: cache for 1 week
+        if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'].includes(ext)) {
+          res.setHeader('Cache-Control', 'public, max-age=604800'); // 1 week
+        }
+        // JS/CSS: validate with server on each request (ETag)
+        else if (['.js', '.css', '.map'].includes(ext)) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+        // HTML and others: no cache
+        else {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      }
+    };
+    app.use(express.static(appRoot, staticOptions));
+    app.use('/static', express.static(path.join(appRoot, 'static'), staticOptions));
 
     // Health check (public)
     app.get('/health', (req, res) => this.healthCheck(req, res));

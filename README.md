@@ -1,34 +1,57 @@
-# aMule Web Controller
+<p align="center">
+  <img src="./static/logo-amutorrent.png" alt="aMuTorrent" width="128" height="128">
+</p>
 
-A modern, real-time web interface for controlling aMule via the EC (External Connection) protocol. Features Sonarr/Radarr integration (Torznab indexer + qBittorrent-compatible API) and GeoIP peer location display. Built with Node.js, WebSockets, and React.
+<h1 align="center">aMuTorrent</h1>
 
-![aMule Web Controller](./docs/screenshots/home-desktop.png)
+A unified download manager for aMule and rTorrent. Manage both ED2K and BitTorrent downloads from a single modern web interface. Features Prowlarr integration for torrent search, Torznab indexer and qBittorrent-compatible API for aMule (Sonarr/Radarr integration), push notifications via Apprise, and GeoIP peer location display. Built with Node.js, WebSockets, and React.
+
+![aMuTorrent](./docs/screenshots/home-desktop.png)
 
 ## Features
 
-- **Real-time Search** - Search the ED2K/Kad network with live results
-- **Download Management** - Monitor and control downloads with pause/resume support
-- **Category Management** - Organize downloads into categories with color coding
-- **Upload Monitoring** - Track active uploads with GeoIP location display
+### Multi-Client Support
+- **aMule Integration** - Control aMule via the EC (External Connection) protocol
+- **rTorrent Integration** - Connect to rTorrent via XML-RPC over HTTP
+- **Unified Interface** - Manage both clients from a single dashboard
+
+### Download Management
+- **Real-time Search** - Search ED2K/Kad network and Prowlarr indexers
+- **Download Control** - Pause, resume, and delete downloads
+- **Category Management** - Organize downloads with color-coded categories and path mapping
+- **Batch Operations** - Select multiple items for bulk actions
+- **File Operations** - Move downloads to category paths
+
+### Integrations
+- **Prowlarr Search** - Search torrents across multiple indexers (results go to rTorrent)
+- **Sonarr/Radarr** - Torznab indexer and qBittorrent-compatible API for aMule
+- **Push Notifications** - Apprise integration for 80+ notification services
+- **Custom Event Scripts** - Run your own scripts on download events
+
+### Monitoring
+- **Upload Tracking** - Monitor active uploads with GeoIP location display
 - **Shared Files** - View and manage shared files
 - **Historical Statistics** - Interactive charts for speed and transfer history (24h/7d/30d)
-- **Sonarr/Radarr Integration** - Works as Torznab indexer and qBittorrent-compatible download client
+- **Download History** - Track completed downloads with filtering
+
+### User Experience
 - **Dark Mode** - Automatic theme switching based on system preference
 - **Responsive Design** - Works on desktop, tablet, and mobile
+- **Configurable Tables** - Show/hide and reorder columns per view
 - **WebSocket Updates** - Real-time updates without polling
 
 ---
 
 ## Quick Start (Docker)
 
-**Prerequisites:** aMule running with External Connections (EC) enabled.
+**Prerequisites:** At least one of: aMule with External Connections enabled, or rTorrent with XML-RPC over HTTP.
 
 ### 1. Pull the image
 
-Available on [Docker Hub](https://hub.docker.com/r/g0t3nks/amule-web-controller).
+Available on [Docker Hub](https://hub.docker.com/r/g0t3nks/amutorrent). Supports `linux/amd64` and `linux/arm64`.
 
 ```bash
-docker pull g0t3nks/amule-web-controller:latest
+docker pull g0t3nks/amutorrent:latest
 ```
 
 ### 2. Create directories
@@ -42,10 +65,10 @@ sudo chown -R 1000:1000 data logs
 
 ```yaml
 services:
-  amule-web:
-    image: g0t3nks/amule-web-controller:latest
+  amutorrent:
+    image: g0t3nks/amutorrent:latest
     user: "1000:1000"
-    container_name: amule-web-controller
+    container_name: amutorrent
     ports:
       - "4000:4000"
     environment:
@@ -65,12 +88,9 @@ services:
 docker compose up -d
 ```
 
-Open `http://localhost:4000` and follow the setup wizard:
-- **aMule Host:** `host.docker.internal` (for aMule on host machine)
-- **aMule Port:** `4712` (default EC port)
-- **aMule Password:** Your EC password
+Open `http://localhost:4000` and follow the setup wizard to configure your download clients.
 
-> **All-in-One Setup:** If you need aMule in Docker too, see [docker-compose.all-in-one.yml](docker-compose.all-in-one.yml)
+> **All-in-One Setup:** For a complete setup with aMule and rTorrent in Docker, see [docker-compose.all-in-one.yml](docker-compose.all-in-one.yml)
 
 ---
 
@@ -78,8 +98,8 @@ Open `http://localhost:4000` and follow the setup wizard:
 
 ```bash
 # Clone repository
-git clone https://github.com/got3nks/amule-web-controller.git
-cd amule-web-controller
+git clone https://github.com/got3nks/amutorrent.git
+cd amutorrent
 
 # Install and build
 cd server && npm install && cd ..
@@ -98,6 +118,11 @@ Open `http://localhost:4000` and complete the setup wizard.
 | Document | Description |
 |----------|-------------|
 | [Configuration Guide](./docs/CONFIGURATION.md) | Setup wizard, settings, environment variables |
+| [aMule Integration](./docs/AMULE.md) | Connect to aMule via EC protocol |
+| [rTorrent Integration](./docs/RTORRENT.md) | Connect to rTorrent via XML-RPC |
+| [Prowlarr Integration](./docs/PROWLARR.md) | Search torrents via Prowlarr indexers |
+| [Notifications](./docs/NOTIFICATIONS.md) | Push notifications via Apprise (80+ services) |
+| [Custom Scripting](./scripts/README.md) | Run custom scripts on download events |
 | [GeoIP Setup](./docs/GEOIP.md) | Display peer locations with MaxMind databases |
 | [Sonarr/Radarr Integration](./docs/INTEGRATIONS.md) | Complete guide for *arr applications setup |
 | [API Reference](./docs/API.md) | REST API and WebSocket protocol |
@@ -136,16 +161,26 @@ Open `http://localhost:4000` and complete the setup wizard.
 - Check the EC password is correct
 - Ensure firewall allows port 4712
 
-**Docker: Can't reach aMule on host?**
+**Can't connect to rTorrent?**
+- Ensure XML-RPC is exposed over HTTP (nginx/lighttpd proxy or ruTorrent)
+- Test with: `curl http://host:port/RPC2`
+- See [rTorrent Integration](./docs/RTORRENT.md) for setup details
+
+**Docker: Can't reach services on host?**
 - Ensure `extra_hosts` is set in docker-compose.yml
-- Use `host.docker.internal` as the aMule host
+- Use `host.docker.internal` as the hostname
+
+**Notifications not working?**
+- Verify Apprise is installed: `apprise --version`
+- Test your service configuration via the Notifications page
+- See [Notifications Guide](./docs/NOTIFICATIONS.md) for setup details
 
 **Sonarr/Radarr can't find downloaded files?**
 - Configure categories with correct download paths
 - Set up Remote Path Mappings if using Docker
 - See [Integration Guide](./docs/INTEGRATIONS.md) for details
 
-**More help:** Check server logs or open an [issue](https://github.com/got3nks/amule-web-controller/issues).
+**More help:** Check server logs or open an [issue](https://github.com/got3nks/amutorrent/issues).
 
 ---
 

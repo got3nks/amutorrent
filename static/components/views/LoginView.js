@@ -43,7 +43,7 @@ export default function LoginView() {
             h(Icon, { name: 'lock', size: 40, className: 'text-white' })
           )
         ),
-        h('h2', { className: 'text-3xl font-bold text-gray-900 dark:text-white' }, 'aMule Web Controller'),
+        h('h2', { className: 'text-3xl font-bold text-gray-900 dark:text-white' }, 'aMuTorrent'),
         h('p', { className: 'mt-2 text-sm text-gray-600 dark:text-gray-400' }, 'Enter your password to continue')
       ),
 
@@ -142,7 +142,7 @@ export default function LoginView() {
       ),
 
       // Footer
-      // h('p', { className: 'text-center text-xs text-gray-500 dark:text-gray-400' }, 'Powered by aMule Web Controller')
+      // h('p', { className: 'text-center text-xs text-gray-500 dark:text-gray-400' }, 'Powered by aMuTorrent')
     )
   );
 }

@@ -17,7 +17,8 @@ import {
   DownloadsView,
   StatisticsView,
   SettingsView,
-  HistoryView
+  HistoryView,
+  NotificationsView
 } from '../components/views/index.js';
 
 /**
@@ -35,5 +36,6 @@ export const VIEW_COMPONENTS = {
   'servers': ServersView,
   'logs': LogsView,
   'statistics': StatisticsView,
+  'notifications': NotificationsView,
   'settings': SettingsView
 };

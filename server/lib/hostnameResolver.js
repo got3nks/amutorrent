@@ -127,26 +127,26 @@ class HostnameResolver {
   }
 
   /**
-   * Enrich an array of upload clients with hostnames
-   * @param {Array} uploads - Array of upload client objects
-   * @returns {Array} - Enriched uploads with hostname field
+   * Enrich an array of peers/uploads with hostnames
+   * Reads the `address` string field from each entry
+   * @param {Array} peers - Array of peer objects with address field
+   * @returns {Array} - Enriched peers with hostname field
    */
-  enrichUploadsWithHostnames(uploads) {
-    if (!Array.isArray(uploads)) {
-      return uploads;
+  enrichPeersWithHostnames(peers) {
+    if (!Array.isArray(peers)) {
+      return peers;
     }
 
-    return uploads.map(client => {
-      const rawIp = client.EC_TAG_CLIENT_USER_IP || client.raw?.EC_TAG_CLIENT_USER_IP;
-      const ip = ipToString(rawIp);
+    return peers.map(peer => {
+      const ip = peer.address;
       if (ip) {
         const hostname = this.getHostname(ip);
         return {
-          ...client,
+          ...peer,
           hostname: hostname || null
         };
       }
-      return client;
+      return peer;
     });
   }
 
@@ -185,4 +185,10 @@ class HostnameResolver {
   }
 }
 
-module.exports = HostnameResolver;
+// Export singleton instance with default configuration
+module.exports = new HostnameResolver({
+  ttl: 60 * 60 * 1000,        // 1 hour cache TTL
+  failedTtl: 10 * 60 * 1000,  // 10 minutes for failed lookups
+  maxCacheSize: 5000,         // Max cached entries
+  timeout: 3000               // 3 second DNS timeout
+});

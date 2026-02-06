@@ -6,8 +6,10 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Table, DeleteModal, MobileOptionsPopover, Button, Input, IconButton } from '../common/index.js';
+import { Table, DeleteModal, MobileSortButton, Button, Input, IconButton } from '../common/index.js';
+import { DEFAULT_SORT_CONFIG, VIEW_TITLE_STYLES } from '../../utils/index.js';
 import { useModal, useTableState } from '../../hooks/index.js';
+import { useStickyToolbar } from '../../contexts/StickyHeaderContext.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
@@ -33,18 +35,20 @@ const ServersView = () => {
   // Use table state hook for sorting and pagination (no text filtering)
   const {
     sortedData: sortedServers,
-    paginatedData,
+    loadedData,
     sortConfig,
     onSortChange,
-    page,
+    loadedCount,
+    hasMore,
+    remaining,
+    loadMore,
+    loadAll,
+    resetLoaded,
     pageSize,
-    pagesCount,
-    onPageChange,
     onPageSizeChange
   } = useTableState({
     data: dataServers,
-    viewKey: 'servers',
-    defaultSort: { sortBy: 'EC_TAG_SERVER_NAME', sortDirection: 'asc' }
+    viewKey: 'servers'
   });
 
   // Aliases for readability
@@ -257,43 +261,76 @@ const ServersView = () => {
     );
   }, [isConnectedServer, handleServerAction]);
 
-  return h('div', { className: 'space-y-2 sm:space-y-3' },
+  // ============================================================================
+  // MOBILE HEADER CONTENT (shared between sticky toolbar and in-page header)
+  // ============================================================================
+  const mobileSortButton = useMemo(() =>
+    servers.length > 0 && h(MobileSortButton, {
+      columns,
+      sortBy: sortConfig.sortBy,
+      sortDirection: sortConfig.sortDirection,
+      onSortChange,
+      defaultSortBy: DEFAULT_SORT_CONFIG['servers'].sortBy,
+      defaultSortDirection: DEFAULT_SORT_CONFIG['servers'].sortDirection
+    }),
+  [servers.length, columns, sortConfig, onSortChange]);
+
+  const refreshButton = useMemo(() =>
+    h(Button, {
+      variant: 'primary',
+      onClick: onRefresh,
+      disabled: !dataLoaded.servers,
+      icon: dataLoaded.servers ? 'refresh' : null
+    }, dataLoaded.servers ? 'Refresh' : h('span', { className: 'flex items-center gap-2' }, h('div', { className: 'loader' }), 'Loading...')),
+  [onRefresh, dataLoaded.servers]);
+
+  const mobileHeaderContent = useMemo(() =>
+    h('div', { className: 'flex items-center gap-2' },
+      h('h2', { className: VIEW_TITLE_STYLES.desktop }, `Servers (${servers.length})`),
+      h('div', { className: 'flex-1' }),
+      mobileSortButton,
+      refreshButton
+    ),
+  [servers.length, mobileSortButton, refreshButton]);
+
+  // Register sticky toolbar for mobile scroll behavior
+  const mobileHeaderRef = useStickyToolbar(mobileHeaderContent);
+
+  return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Header with title + compact controls
-    h('div', { className: 'flex items-center gap-2 pl-1 lg:pl-2' },
-      h('h2', { className: 'text-base sm:text-lg font-bold text-gray-800 dark:text-gray-100' }, `Servers (${servers.length})`),
-      h('div', { className: 'flex-1' }), // Spacer
-      servers.length > 0 && h('div', { className: 'lg:hidden' },
-        h(MobileOptionsPopover, {
-          columns,
-          sortBy: sortConfig.sortBy,
-          sortDirection: sortConfig.sortDirection,
-          onSortChange
-        })
-      ),
-      h(Button, {
-        variant: 'primary',
-        onClick: onRefresh,
-        disabled: !dataLoaded.servers,
-        icon: dataLoaded.servers ? 'refresh' : null
-      }, dataLoaded.servers ? 'Refresh' : h('span', { className: 'flex items-center gap-2' }, h('div', { className: 'loader' }), 'Loading...'))
+    h('div', { className: 'flex items-center gap-2', ref: mobileHeaderRef },
+      h('h2', { className: VIEW_TITLE_STYLES.desktop }, `Servers (${servers.length})`),
+      h('div', { className: 'flex-1' }),
+      h('div', { className: 'xl:hidden' }, mobileSortButton),
+      refreshButton
     ),
 
     servers.length === 0 ? h('div', { className: 'text-center py-6 text-xs sm:text-sm text-gray-500 dark:text-gray-400' },
       !dataLoaded.servers ? 'Loading servers...' : 'No servers available'
+    // Hybrid scrollable mode: desktop shows all items in scrollable table,
+    // mobile uses load-more pagination for natural page scrolling
     ) : h(Table, {
       data: sortedServers,
       columns,
+      scrollable: true,
       actions: renderTableActions,
       currentSortBy: sortConfig.sortBy,
       currentSortDirection: sortConfig.sortDirection,
       onSortChange,
-      page,
-      onPageChange,
+      // Load-more props for mobile in hybrid scrollable mode
+      loadedCount,
+      totalCount: sortedServers.length,
+      hasMore,
+      remaining,
+      onLoadMore: loadMore,
+      onLoadAll: loadAll,
+      resetLoaded,
       pageSize,
       onPageSizeChange,
       getRowKey: (item) => item._value,
-      breakpoint: 'lg',
-      mobileCardRender: renderMobileCard
+      breakpoint: 'xl',
+      mobileCardRender: renderMobileCard,
+      mobileCardStyle: 'card'
     }),
 
     // ED2K server.met form

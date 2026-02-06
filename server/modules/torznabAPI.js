@@ -9,20 +9,16 @@ const config = require('./config');
 const { verifyPassword } = require('../lib/authUtils');
 const response = require('../lib/responseFormatter');
 
+// Singleton managers - imported directly instead of injected
+const amuleManager = require('./amuleManager');
+
 class TorznabAPI extends BaseModule {
   constructor() {
     super();
-    this.amuleManager = null;
     this.handler = new TorznabHandler();
-  }
-
-  /**
-   * Set aMule manager dependency
-   */
-  setAmuleManager(manager) {
-    this.amuleManager = manager;
+    // Initialize handler dependencies
     this.handler.setDependencies({
-      getAmuleClient: () => this.amuleManager.getClient()
+      getAmuleClient: () => amuleManager.getClient()
     });
   }
 

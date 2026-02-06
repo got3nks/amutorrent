@@ -1,22 +1,26 @@
 /**
- * SpeedChart Component
+ * ClientTransferChart Component
  *
- * Displays upload and download speed over time using Chart.js
+ * Shows data transferred (uploaded/downloaded) for a single client (aMule or rTorrent)
+ * - Uploaded bar (green)
+ * - Downloaded bar (blue)
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { formatSpeed } from '../../utils/index.js';
+import { formatBytes } from '../../utils/index.js';
 import { loadChartJs } from '../../utils/chartLoader.js';
 
 const { createElement: h, useEffect, useRef, useState } = React;
 
 /**
- * SpeedChart component
- * @param {object} speedData - Speed history data
+ * ClientTransferChart component
+ * @param {object} historicalData - Historical data from API
+ * @param {string} clientType - 'amule' or 'rtorrent'
  * @param {string} theme - Current theme (dark/light)
  * @param {string} historicalRange - Time range (24h/7d/30d)
  */
-const SpeedChart = ({ speedData, theme, historicalRange }) => {
+const ClientTransferChart = ({ historicalData, clientType, theme, historicalRange }) => {
+  const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const chartInstance = useRef(null);
   const [chartReady, setChartReady] = useState(false);
@@ -38,29 +42,23 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
     const isDark = theme === 'dark';
 
     chartInstance.current = new Chart(ctx, {
-      type: 'line',
+      type: 'bar',
       data: {
         labels: [],
         datasets: [
           {
-            label: 'Upload Speed',
+            label: 'Uploaded',
             data: [],
+            backgroundColor: 'rgba(16, 185, 129, 0.7)',
             borderColor: '#10b981',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            borderWidth: 2,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 0
+            borderWidth: 1
           },
           {
-            label: 'Download Speed',
+            label: 'Downloaded',
             data: [],
+            backgroundColor: 'rgba(59, 130, 246, 0.7)',
             borderColor: '#3b82f6',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-            borderWidth: 2,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 0
+            borderWidth: 1
           }
         ]
       },
@@ -83,13 +81,14 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
             borderWidth: 1,
             callbacks: {
               label: function(context) {
-                return context.dataset.label + ': ' + formatSpeed(context.parsed.y);
+                return context.dataset.label + ': ' + formatBytes(context.parsed.y);
               }
             }
           }
         },
         scales: {
           x: {
+            stacked: false,
             ticks: {
               color: isDark ? '#9ca3af' : '#6b7280',
               maxTicksLimit: 12
@@ -97,10 +96,11 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
             grid: { color: isDark ? '#374151' : '#e5e7eb' }
           },
           y: {
+            stacked: false,
             ticks: {
               color: isDark ? '#9ca3af' : '#6b7280',
               callback: function(value) {
-                return formatSpeed(value);
+                return formatBytes(value);
               }
             },
             grid: { color: isDark ? '#374151' : '#e5e7eb' }
@@ -116,14 +116,30 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
         chartInstance.current = null;
       }
     };
-  }, [chartReady]); // Run when Chart.js is loaded
+  }, [chartReady]);
 
-  // Effect 2: Update chart data when speedData, theme, or range changes
+  // Effect: ResizeObserver to handle container size changes
   useEffect(() => {
-    if (!chartInstance.current || !speedData || !speedData.data) return;
+    if (!containerRef.current || !chartInstance.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (chartInstance.current) {
+        chartInstance.current.resize();
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, [chartReady]);
+
+  // Effect 2: Update chart data when historicalData, theme, or range changes
+  useEffect(() => {
+    if (!chartInstance.current || !historicalData || !historicalData.data) return;
 
     const isDark = theme === 'dark';
-    const labels = speedData.data.map(d => {
+
+    const labels = historicalData.data.map(d => {
       const date = new Date(d.timestamp);
       if (historicalRange === '24h') {
         return date.toLocaleTimeString('en-US', {
@@ -132,21 +148,25 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
           hour12: false
         });
       } else {
-        // For 7d and 30d, show day-month and time
-        return date.toLocaleString('en-US', {
-          month: '2-digit',
+        return date.toLocaleDateString('en-GB', {
           day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }).replace(',', '');
+          month: '2-digit'
+        });
       }
     });
 
+    // Get client-specific data
+    const isAmule = clientType === 'amule';
+    const uploadedKey = isAmule ? 'amuleUploadedDelta' : 'rtorrentUploadedDelta';
+    const downloadedKey = isAmule ? 'amuleDownloadedDelta' : 'rtorrentDownloadedDelta';
+
+    const uploadedData = historicalData.data.map(d => d[uploadedKey] || 0);
+    const downloadedData = historicalData.data.map(d => d[downloadedKey] || 0);
+
     // Update data
     chartInstance.current.data.labels = labels;
-    chartInstance.current.data.datasets[0].data = speedData.data.map(d => d.uploadSpeed);
-    chartInstance.current.data.datasets[1].data = speedData.data.map(d => d.downloadSpeed);
+    chartInstance.current.data.datasets[0].data = uploadedData;
+    chartInstance.current.data.datasets[1].data = downloadedData;
 
     // Update colors for theme changes
     const legendColor = isDark ? '#e5e7eb' : '#1f2937';
@@ -165,13 +185,15 @@ const SpeedChart = ({ speedData, theme, historicalRange }) => {
 
     // Update without animation to prevent bounce
     chartInstance.current.update('none');
-  }, [chartReady, speedData, theme, historicalRange]); // Include chartReady so this runs when chart is created
+  }, [chartReady, historicalData, theme, historicalRange, clientType]);
 
-  if (!speedData || !speedData.data || speedData.data.length === 0) {
+  if (!historicalData || !historicalData.data || historicalData.data.length === 0) {
     return h('p', { className: 'text-center text-gray-500 dark:text-gray-400 text-sm py-8' }, 'No data available');
   }
 
-  return h('canvas', { ref: canvasRef });
+  return h('div', { ref: containerRef, className: 'w-full h-full overflow-hidden' },
+    h('canvas', { ref: canvasRef, style: { maxWidth: '100%' } })
+  );
 };
 
-export default SpeedChart;
+export default ClientTransferChart;

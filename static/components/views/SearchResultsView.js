@@ -25,10 +25,9 @@ const SearchResultsView = () => {
     setAppCurrentView('search');
   };
 
-  // Mobile New Search button
+  // Mobile New Search button (no icon to save space)
   const mobileNewSearchButton = h(Button, {
     variant: 'primary',
-    icon: 'search',
     onClick: handleNewSearch
   }, 'New Search');
 
@@ -39,15 +38,18 @@ const SearchResultsView = () => {
     onClick: handleNewSearch
   }, 'New Search');
 
-  return h(SearchResultsSection, {
-    title: 'Search Results',
-    mobileTitle: 'Search Results',
-    results: searchResults,
-    extraMobileButtons: mobileNewSearchButton,
-    extraDesktopButtons: desktopNewSearchButton,
-    emptyMessage: 'No results found',
-    filterEmptyMessage: 'No results match the filter'
-  });
+  return h('div', { className: 'px-2 sm:px-0' },
+    h(SearchResultsSection, {
+      title: 'Search Results',
+      mobileTitle: 'Search Results',
+      results: searchResults,
+      extraMobileButtons: mobileNewSearchButton,
+      extraDesktopButtons: desktopNewSearchButton,
+      emptyMessage: 'No results found',
+      filterEmptyMessage: 'No results match the filter',
+      scrollHeight: 'calc(100vh - 220px)'
+    })
+  );
 };
 
 export default SearchResultsView;

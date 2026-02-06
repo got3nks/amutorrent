@@ -27,21 +27,10 @@ Add the `geoip` service to your `docker-compose.yml`:
 
 ```yaml
 services:
-  amule-web:
-    image: g0t3nks/amule-web-controller:latest
-    user: "1000:1000"
-    container_name: amule-web-controller
-    ports:
-      - "4000:4000"
-    environment:
-      - NODE_ENV=production
-      - PORT=4000
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  amutorrent:
     volumes:
-      - ./logs:/usr/src/app/server/logs
       - ./data:/usr/src/app/server/data    # GeoIP files go in ./data/geoip
-    restart: unless-stopped
+      # ... other volumes ...
 
   geoip:
     image: crazymax/geoip-updater:latest
@@ -62,7 +51,7 @@ services:
 
 | Container | Host Path | Mount | Purpose |
 |-----------|-----------|-------|---------|
-| amule-web | `./data` | `/usr/src/app/server/data` | App data directory |
+| amutorrent | `./data` | `/usr/src/app/server/data` | App data directory |
 | geoip | `./data/geoip` | `/data` | GeoIP database downloads |
 
 The web controller expects GeoIP files in `server/data/geoip/` by default. With the above configuration:

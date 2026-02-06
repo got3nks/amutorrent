@@ -1,6 +1,6 @@
 # Sonarr/Radarr Integration Guide
 
-This guide provides complete instructions for integrating aMule Web Controller with Sonarr and Radarr.
+This guide provides complete instructions for integrating aMuTorrent with Sonarr and Radarr.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This guide provides complete instructions for integrating aMule Web Controller w
 
 ## Overview
 
-aMule Web Controller provides two APIs for *arr integration:
+aMuTorrent provides two APIs for *arr integration:
 
 1. **Torznab Indexer API** - Allows Sonarr/Radarr to search the ED2K network
 2. **qBittorrent-Compatible Download Client API** - Allows Sonarr/Radarr to manage downloads and import completed files
@@ -38,7 +38,7 @@ aMule Web Controller provides two APIs for *arr integration:
 
 **This step is critical!** Categories determine where files are downloaded, and Sonarr/Radarr need to know these paths.
 
-### In aMule Web Controller:
+### In aMuTorrent:
 
 1. Go to **Categories** page
 2. Click **New Category**
@@ -232,7 +232,7 @@ If aMule and *arr applications all run on the same machine without Docker:
 
 You can configure automatic searches to periodically check for missing content.
 
-### In aMule Web Controller:
+### In aMuTorrent:
 
 1. Go to **Settings**
 2. Enable **Sonarr Integration** and/or **Radarr Integration**

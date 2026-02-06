@@ -16,7 +16,7 @@ class VersionManager {
       timestamp: 0,
       ttl: 6 * 60 * 60 * 1000 // 6 hours default
     };
-    this.githubRepo = 'got3nks/amule-web-controller';
+    this.githubRepo = 'got3nks/amutorrent';
   }
 
   /**
@@ -133,7 +133,7 @@ class VersionManager {
         path: `/repos/${this.githubRepo}/releases/latest`,
         method: 'GET',
         headers: {
-          'User-Agent': 'amule-web-controller',
+          'User-Agent': 'amutorrent',
           'Accept': 'application/vnd.github.v3+json'
         },
         timeout: 10000
@@ -223,7 +223,7 @@ class VersionManager {
     }
 
     return {
-      appName: 'aMule Web Controller',
+      appName: 'aMuTorrent',
       version,
       releaseDate: currentRelease?.releaseDate || null,
       changelog: changelog.slice(0, 5), // Last 5 releases
@@ -232,7 +232,7 @@ class VersionManager {
       releaseUrl,
       links: {
         github: `https://github.com/${this.githubRepo}`,
-        dockerHub: 'https://hub.docker.com/r/g0t3nks/amule-web-controller',
+        dockerHub: 'https://hub.docker.com/r/g0t3nks/amutorrent',
         releases: `https://github.com/${this.githubRepo}/releases`
       }
     };

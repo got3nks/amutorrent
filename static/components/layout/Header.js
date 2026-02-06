@@ -1,12 +1,16 @@
 /**
  * Header Component
  *
- * Displays the app logo, title, theme toggle, and font size control
+ * Displays the app logo, title, theme toggle, font size control, and client filter toggles
+ * On mobile, hides when scrolled to make room for the view's sticky toolbar
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Icon, Tooltip, VersionBadge } from '../common/index.js';
+import { Icon, Tooltip, VersionBadge, ClientIcon } from '../common/index.js';
 import { useFontSize } from '../../contexts/FontSizeContext.js';
+import { useClientFilter } from '../../contexts/ClientFilterContext.js';
+import { useStaticData } from '../../contexts/StaticDataContext.js';
+import { useStickyHeader } from '../../contexts/StickyHeaderContext.js';
 
 const { createElement: h } = React;
 
@@ -22,26 +26,79 @@ const { createElement: h } = React;
  */
 const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout, authEnabled = false, onLogout }) => {
   const { fontSize, fontSizeConfig, cycleFontSize } = useFontSize();
+  const { isAmuleEnabled, isRtorrentEnabled, toggleClient } = useClientFilter();
+  const { bothClientsConnected } = useStaticData();
+  const { headerHidden } = useStickyHeader();
 
-  return h('header', { className: 'bg-white dark:bg-gray-800 shadow-md sticky top-0 z-50 border-b border-gray-200 dark:border-gray-700' },
+  return h('header', {
+    className: 'bg-white dark:bg-gray-800 shadow-md sticky top-0 z-50 border-b border-gray-200 dark:border-gray-700 transition-transform duration-200',
+    style: headerHidden ? { transform: 'translateY(-100%)' } : undefined
+  },
     h('div', { className: 'mx-auto px-2 sm:px-3 py-1.5 sm:py-2 flex items-center justify-between' },
-      h('div', { className: 'flex items-center gap-1.5 sm:gap-3' },
-        h('img', { src: '/static/logo-brax.png', alt: 'aMule', className: 'w-6 h-6 sm:w-10 sm:h-10 object-contain' }),
-        h('h1', { className: 'font-bold text-gray-800 dark:text-gray-100', style: { fontSize: '16px' } }, 'aMule Controller'),
+      // Left column: Logo, title, version badge
+      h('div', { className: 'flex items-center gap-1.5 sm:gap-3 flex-shrink-0' },
+        h('img', { src: '/static/logo-amutorrent.png', alt: 'aMuTorrent', className: 'w-6 h-6 sm:w-10 sm:h-10 object-contain' }),
+        h('h1', { className: 'font-bold text-gray-800 dark:text-gray-100', style: { fontSize: '16px' } }, 'aMuTorrent'),
         // Version badge
         onOpenAbout && h(VersionBadge, { onClick: onOpenAbout })
       ),
-      h('div', { className: 'flex items-center gap-1' },
+
+      // Middle column: Client filter toggles (centered) - only show when both clients are connected
+      h('div', { className: 'flex-1 flex justify-center' },
+        bothClientsConnected && h('div', { className: 'flex items-center' },
+          // aMule/ED2K toggle
+          h(Tooltip, {
+            content: isAmuleEnabled ? 'Hide ED2K data' : 'Show ED2K data',
+            position: 'bottom',
+            showOnMobile: false
+          },
+            h('button', {
+              onClick: () => toggleClient('amule'),
+              className: `px-1.5 sm:px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold rounded-l transition-all flex items-center gap-1 ${
+                isAmuleEnabled
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+              }`,
+              title: isAmuleEnabled ? 'ED2K enabled' : 'ED2K disabled'
+            },
+              h(ClientIcon, { client: 'amule', size: 14, title: '' }),
+              'ED2K'
+            )
+          ),
+          // rtorrent/BT toggle
+          h(Tooltip, {
+            content: isRtorrentEnabled ? 'Hide BT data' : 'Show BT data',
+            position: 'bottom',
+            showOnMobile: false
+          },
+            h('button', {
+              onClick: () => toggleClient('rtorrent'),
+              className: `px-1.5 sm:px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs font-bold rounded-r transition-all flex items-center gap-1 ${
+                isRtorrentEnabled
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+              }`,
+              title: isRtorrentEnabled ? 'BT enabled' : 'BT disabled'
+            },
+              h(ClientIcon, { client: 'rtorrent', size: 14, title: '' }),
+              'BT'
+            )
+          )
+        )
+      ),
+
+      // Right column: Controls
+      h('div', { className: 'flex items-center gap-1 flex-shrink-0' },
         // Logout button (only show if authentication is enabled)
         authEnabled && onLogout && h(Tooltip, {
-                content: 'Logout',
-                position: 'left',
-                showOnMobile: false
-            },
-            h('button', {
-                onClick: onLogout,
-                className: 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors'
-            }, h(Icon, { name: 'logOut', size: 18, className: 'text-gray-600 dark:text-gray-300' }))
+          content: 'Logout',
+          position: 'left',
+          showOnMobile: false
+        },
+          h('button', {
+            onClick: onLogout,
+            className: 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors'
+          }, h(Icon, { name: 'logOut', size: 18, className: 'text-gray-600 dark:text-gray-300' }))
         ),
         // Font size toggle button
         h(Tooltip, {
@@ -54,7 +111,7 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
             className: 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-center min-w-[30px]'
           },
             h('span', {
-              className: `font-bold text-gray-600 dark:text-gray-300 ${fontSize === 'small' ? 'text-xs' : fontSize === 'large' ? 'text-base' : 'text-sm'}`
+              className: `font-bold text-gray-600 dark:text-gray-300 ${fontSize === 'large' ? 'text-base' : 'text-sm'}`
             }, 'Aa')
           )
         ),

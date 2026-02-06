@@ -6,6 +6,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { Icon, Button, Input } from '../common/index.js';
+import { useStaticData } from '../../contexts/StaticDataContext.js';
 
 const { createElement: h } = React;
 
@@ -28,6 +29,13 @@ const QuickSearchWidget = ({
   searchLocked,
   noBorder = false
 }) => {
+  const { clientsConnected, clientsEnabled } = useStaticData();
+
+  // Check client connection and configuration status
+  const amuleConnected = clientsConnected?.amule === true;
+  const rtorrentConnected = clientsConnected?.rtorrent === true;
+  const prowlarrEnabled = clientsEnabled?.prowlarr === true;
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!searchLocked && searchQuery.trim()) {
@@ -35,10 +43,15 @@ const QuickSearchWidget = ({
     }
   };
 
+  // Search types with availability based on client status
+  // - ED2K and Kad require aMule to be connected
+  // - Prowlarr requires both prowlarr enabled AND rtorrent connected
+  // Emoji alternatives: ED2K: '🌐', Local: '🗄️', Kad: '☁️'
   const searchTypes = [
-    { value: 'global', label: 'Global', emoji: '🌐' },
-    { value: 'local', label: 'Local', emoji: '🗄️' },
-    { value: 'kad', label: 'Kad', emoji: '☁️' }
+    { value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png', disabled: !amuleConnected },
+    // { value: 'local', label: 'Local', icon: '/static/logo-brax.png', disabled: !amuleConnected }, // Hidden temporarily
+    { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png', disabled: !amuleConnected },
+    { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !rtorrentConnected }
   ];
 
   return h('div', {
@@ -58,10 +71,16 @@ const QuickSearchWidget = ({
             type: 'button',
             variant: searchType === type.value ? 'primary' : 'secondary',
             onClick: () => onSearchTypeChange(type.value),
-            disabled: searchLocked,
-            className: 'flex-1 justify-center'
+            disabled: searchLocked || type.disabled,
+            className: 'flex-1 justify-center',
+            title: type.disabled ? `${type.label} is not available` : undefined
           },
-            `${type.emoji} ${type.label}`
+            type.icon
+              ? h('span', { className: 'flex items-center gap-1' },
+                  h('img', { src: type.icon, alt: type.label, className: 'w-4 h-4' }),
+                  type.label
+                )
+              : `${type.emoji} ${type.label}`
           )
         )
       ),

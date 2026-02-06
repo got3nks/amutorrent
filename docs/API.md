@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the REST API and WebSocket protocol used by aMule Web Controller.
+This document describes the REST API and WebSocket protocol used by aMuTorrent.
 
 ## Table of Contents
 

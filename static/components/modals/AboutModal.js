@@ -79,8 +79,8 @@ const AboutModal = ({ show, onClose }) => {
   };
 
   const links = versionInfo?.links || {
-    github: 'https://github.com/got3nks/amule-web-controller',
-    dockerHub: 'https://hub.docker.com/r/g0t3nks/amule-web-controller',
+    github: 'https://github.com/got3nks/amutorrent',
+    dockerHub: 'https://hub.docker.com/r/g0t3nks/amutorrent',
   };
 
   return h(Portal, null,
@@ -96,13 +96,13 @@ const AboutModal = ({ show, onClose }) => {
         h('div', { className: 'flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700' },
           h('div', { className: 'flex items-center gap-3' },
             h('img', {
-              src: '/static/logo-brax.png',
-              alt: 'aMule',
+              src: '/static/logo-amutorrent.png',
+              alt: 'aMuTorrent',
               className: 'w-10 h-10 object-contain'
             }),
             h('div', null,
               h('h2', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100' },
-                versionInfo?.appName || 'aMule Web Controller'
+                versionInfo?.appName || 'aMuTorrent'
               ),
               h('div', { className: 'flex items-center gap-2' },
                 h('span', { className: 'text-sm text-gray-500 dark:text-gray-400' },

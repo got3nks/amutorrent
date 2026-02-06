@@ -25,28 +25,33 @@ const SearchView = () => {
     searchLocked,
     searchError,
     searchPreviousResults,
+    searchPreviousResultsLoaded,
+    setSearchPreviousResultsLoaded,
     setSearchQuery,
     setSearchType
   } = useSearch();
   const actions = useActions();
   const { fetchPreviousSearchResults } = useDataFetch();
 
-  // Fetch previous search results on mount
+  // Fetch previous search results on mount (always fetch fresh from backend)
   useEffect(() => {
+    setSearchPreviousResultsLoaded(false);
     fetchPreviousSearchResults();
-  }, [fetchPreviousSearchResults]);
+  }, [fetchPreviousSearchResults, setSearchPreviousResultsLoaded]);
 
-  return h('div', { className: 'space-y-2 sm:space-y-3' },
+  return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Search form (reusing QuickSearchWidget without border)
-    h(QuickSearchWidget, {
-      searchType,
-      onSearchTypeChange: setSearchType,
-      searchQuery,
-      onSearchQueryChange: setSearchQuery,
-      onSearch: actions.search.perform,
-      searchLocked,
-      noBorder: true
-    }),
+    h('div', null,
+      h(QuickSearchWidget, {
+        searchType,
+        onSearchTypeChange: setSearchType,
+        searchQuery,
+        onSearchQueryChange: setSearchQuery,
+        onSearch: actions.search.perform,
+        searchLocked,
+        noBorder: true
+      })
+    ),
 
     // Search error message
     searchError && h('div', { className: 'p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-200 text-sm' }, searchError),
@@ -61,13 +66,14 @@ const SearchView = () => {
           mobileTitle: 'Previous Search Results',
           results: searchPreviousResults,
           emptyMessage: null,
-          filterEmptyMessage: 'No cached results match the filter'
+          filterEmptyMessage: 'No cached results match the filter',
+          scrollHeight: 'calc(100vh - 310px)'
         })
       : h('div', { className: 'text-center py-12' },
-          searchLocked
+          searchLocked || !searchPreviousResultsLoaded
             ? h('div', null,
                 h('div', { className: 'loader mx-auto mb-4', style: { width: '32px', height: '32px' } }),
-                h('p', { className: 'text-gray-500 dark:text-gray-400' }, 'Searching...')
+                h('p', { className: 'text-gray-500 dark:text-gray-400' }, searchLocked ? 'Searching...' : 'Loading cached results...')
               )
             : h('div', null,
                 h(Icon, { name: 'search', size: 48, className: 'mx-auto text-gray-400 mb-4' }),

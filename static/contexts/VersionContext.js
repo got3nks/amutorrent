@@ -66,7 +66,7 @@ export const VersionProvider = ({ children }) => {
       setError(err.message);
       // Set minimal fallback version info
       setVersionInfo({
-        appName: 'aMule Web Controller',
+        appName: 'aMuTorrent',
         version: 'unknown',
         updateAvailable: false
       });

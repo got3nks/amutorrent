@@ -12,12 +12,16 @@
  * Note: Loading states are managed per-data-type in DataContext (dataLoaded)
  */
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
-import { PAGE_SIZE_DESKTOP, PAGE_SIZE_MOBILE, BREAKPOINT_MD } from '../utils/index.js';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'https://esm.sh/react@18.2.0';
+import { PAGE_SIZE_DESKTOP, PAGE_SIZE_MOBILE, BREAKPOINT_MD, ERROR_DISPLAY_DURATION, DEFAULT_SORT_CONFIG } from '../utils/index.js';
 
 const { createElement: h } = React;
 
 const AppStateContext = createContext(null);
+
+// Bump when sort field names or sorting behavior changes.
+// Mismatched or missing _v in localStorage → discard saved config, use defaults.
+const SORT_CONFIG_VERSION = 2;
 
 /**
  * Get appropriate default page size based on viewport width
@@ -59,13 +63,72 @@ export const AppStateProvider = ({ children }) => {
     return getDefaultPageSize();
   });
 
-  // UI state
-  const [appError, setAppError] = useState('');
+  // UI state - errors as array for accumulation
+  const [appErrors, setAppErrors] = useState([]);
+  const errorTimeoutRef = useRef(null);
+
+  // UI state - success messages as array for accumulation
+  const [appSuccesses, setAppSuccesses] = useState([]);
+  const successTimeoutRef = useRef(null);
+
+  // Add error to the list and reset timeout
+  const addAppError = useCallback((message) => {
+    if (!message) return;
+
+    setAppErrors(prev => {
+      // Avoid duplicates
+      if (prev.includes(message)) return prev;
+      return [...prev, message];
+    });
+
+    // Clear existing timeout and set a new one
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+    }
+    errorTimeoutRef.current = setTimeout(() => {
+      setAppErrors([]);
+    }, ERROR_DISPLAY_DURATION);
+  }, []);
+
+  // Clear all errors
+  const clearAppErrors = useCallback(() => {
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+    }
+    setAppErrors([]);
+  }, []);
+
+  // Add success message to the list and reset timeout
+  const addAppSuccess = useCallback((message) => {
+    if (!message) return;
+
+    setAppSuccesses(prev => {
+      // Avoid duplicates
+      if (prev.includes(message)) return prev;
+      return [...prev, message];
+    });
+
+    // Clear existing timeout and set a new one
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+    }
+    successTimeoutRef.current = setTimeout(() => {
+      setAppSuccesses([]);
+    }, ERROR_DISPLAY_DURATION);
+  }, []);
+
+  // Clear all success messages
+  const clearAppSuccesses = useCallback(() => {
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+    }
+    setAppSuccesses([]);
+  }, []);
 
   // Historical/Statistics state
   const [appStatsState, setAppStatsState] = useState({
-    historicalData: null,
     speedData: null,
+    historicalData: null,
     historicalRange: '24h',
     historicalStats: null,
     loadingHistory: false
@@ -73,26 +136,19 @@ export const AppStateProvider = ({ children }) => {
 
   // Sort configuration state with localStorage persistence
   const [appSortConfig, setAppSortConfig] = useState(() => {
-    const defaultConfig = {
-      'search': { sortBy: 'sourceCount', sortDirection: 'desc' },
-      'search-results': { sortBy: 'sourceCount', sortDirection: 'desc' },
-      'downloads': { sortBy: 'speed', sortDirection: 'desc' },
-      'uploads': { sortBy: 'EC_TAG_CLIENT_UP_SPEED', sortDirection: 'desc' },
-      'shared': { sortBy: 'transferred', sortDirection: 'desc' },
-      'servers': { sortBy: 'EC_TAG_SERVER_FILES', sortDirection: 'desc' }
-    };
-
     try {
       const saved = localStorage.getItem('amule-sort-config');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { ...defaultConfig, ...parsed };
+        if (parsed._v === SORT_CONFIG_VERSION) {
+          return { ...DEFAULT_SORT_CONFIG, ...parsed };
+        }
       }
     } catch (err) {
       console.error('Failed to load sort config from localStorage:', err);
     }
 
-    return defaultConfig;
+    return DEFAULT_SORT_CONFIG;
   });
 
   // Wrapped setAppCurrentView that scrolls to top first
@@ -111,7 +167,7 @@ export const AppStateProvider = ({ children }) => {
   // Persist sort configuration to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('amule-sort-config', JSON.stringify(appSortConfig));
+      localStorage.setItem('amule-sort-config', JSON.stringify({ ...appSortConfig, _v: SORT_CONFIG_VERSION }));
     } catch (err) {
       console.error('Failed to save sort config to localStorage:', err);
     }
@@ -132,7 +188,8 @@ export const AppStateProvider = ({ children }) => {
     appCurrentView,
     appPage,
     appPageSize,
-    appError,
+    appErrors,     // Array of error messages
+    appSuccesses,  // Array of success messages
     appStatsState,
     appSortConfig,
 
@@ -140,15 +197,18 @@ export const AppStateProvider = ({ children }) => {
     setAppCurrentView,
     setAppPage,
     setAppPageSize,
-    setAppError,
+    addAppError,   // Add error to accumulator
+    clearAppErrors, // Clear all errors
+    addAppSuccess, // Add success message
+    clearAppSuccesses, // Clear all success messages
     setAppStatsState,
     setAppSortConfig,
 
     // Handlers
     handleAppNavigate
   }), [
-    appCurrentView, appPage, appPageSize, appError, appStatsState, appSortConfig,
-    setAppCurrentView, handleAppNavigate
+    appCurrentView, appPage, appPageSize, appErrors, appSuccesses, appStatsState, appSortConfig,
+    setAppCurrentView, addAppError, clearAppErrors, addAppSuccess, clearAppSuccesses, handleAppNavigate
     // Note: React useState setters are stable and don't need to be in deps
   ]);
 

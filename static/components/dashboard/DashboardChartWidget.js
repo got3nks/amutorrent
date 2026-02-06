@@ -16,12 +16,12 @@ const { createElement: h } = React;
  */
 const DashboardChartWidget = ({ title, children, height = '200px' }) => {
   return h('div', {
-    className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700'
+    className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 overflow-hidden'
   },
     h('h3', {
       className: 'text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300'
     }, title),
-    h('div', { style: { height } }, children)
+    h('div', { style: { height, position: 'relative' } }, children)
   );
 };
 

@@ -7,13 +7,15 @@
 import React from 'https://esm.sh/react@18.2.0';
 import Icon from '../common/Icon.js';
 import Portal from '../common/Portal.js';
+import { useLiveData } from '../../contexts/LiveDataContext.js';
+import { useStaticData } from '../../contexts/StaticDataContext.js';
 
-const { createElement: h, useState, useRef, useEffect } = React;
+const { createElement: h, useState, useRef, useEffect, useMemo } = React;
 
 /**
  * Navigation item for the footer
  */
-const NavItem = ({ icon, label, active, onClick }) => {
+const NavItem = ({ icon, label, active, badge, onClick }) => {
   return h('button', {
     onClick,
     className: `flex flex-col items-center justify-center flex-1 py-1.5 px-1 transition-colors ${
@@ -22,7 +24,12 @@ const NavItem = ({ icon, label, active, onClick }) => {
         : 'text-gray-500 dark:text-gray-400'
     }`
   },
-    h(Icon, { name: icon, size: 20, className: active ? 'text-blue-600 dark:text-blue-400' : '' }),
+    h('div', { className: 'relative' },
+      h(Icon, { name: icon, size: 20, className: active ? 'text-blue-600 dark:text-blue-400' : '' }),
+      badge > 0 && h('span', {
+        className: 'absolute -top-0.5 -right-2.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-blue-600 text-white text-[9px] font-bold leading-none'
+      }, badge > 99 ? '99+' : badge)
+    ),
     h('span', { className: 'text-[9px] mt-0.5 font-medium' }, label)
   );
 };
@@ -30,13 +37,20 @@ const NavItem = ({ icon, label, active, onClick }) => {
 /**
  * More menu popup item
  */
-const MoreMenuItem = ({ icon, label, onClick }) => {
+const MoreMenuItem = ({ icon, label, active, warning, onClick }) => {
   return h('button', {
     onClick,
-    className: 'flex items-center gap-3 w-full px-4 py-2.5 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors'
+    className: `flex items-center gap-3 w-full px-4 py-2.5 text-left transition-colors ${
+      active
+        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+    }`
   },
     h(Icon, { name: icon, size: 18 }),
-    h('span', { className: 'text-sm font-medium' }, label)
+    h('span', { className: 'text-sm font-medium flex items-center gap-1.5' },
+      label,
+      warning && h(Icon, { name: 'alertTriangle', size: 14, className: 'text-amber-500' })
+    )
   );
 };
 
@@ -46,6 +60,22 @@ const MoreMenuItem = ({ icon, label, onClick }) => {
  * @param {function} onNavigate - Navigation handler
  */
 const MobileNavFooter = ({ currentView, onNavigate }) => {
+  const { dataItems } = useLiveData();
+  const { clientsEnabled, hasCategoryPathWarnings } = useStaticData();
+  const amuleEnabled = clientsEnabled?.amule !== false;
+
+  // Count active downloads for badge
+  const activeDownloadCount = useMemo(() => {
+    if (!dataItems) return 0;
+    return dataItems.filter(i => i.downloading).length;
+  }, [dataItems]);
+
+  // Count active uploads for badge (items with activeUploads)
+  const activeUploadCount = useMemo(() => {
+    if (!dataItems) return 0;
+    return dataItems.reduce((sum, i) => sum + (i.activeUploads?.length || 0), 0);
+  }, [dataItems]);
+
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreButtonRef = useRef(null);
   const menuRef = useRef(null);
@@ -84,18 +114,19 @@ const MobileNavFooter = ({ currentView, onNavigate }) => {
   const mainNavItems = [
     { icon: 'home', label: 'Home', view: 'home' },
     { icon: 'search', label: 'Search', view: 'search', activeViews: ['search', 'search-results'] },
-    { icon: 'download', label: 'Downloads', view: 'downloads' },
-    { icon: 'upload', label: 'Uploads', view: 'uploads' }
+    { icon: 'download', label: 'Downloads', view: 'downloads', badge: activeDownloadCount },
+    { icon: 'upload', label: 'Uploads', view: 'uploads', badge: activeUploadCount }
   ];
 
-  // More menu items
+  // More menu items (filter ED2K Servers when aMule is disabled)
   const moreMenuItems = [
     { icon: 'history', label: 'History', view: 'history' },
     { icon: 'share', label: 'Shared Files', view: 'shared' },
-    { icon: 'folder', label: 'Categories', view: 'categories' },
-    { icon: 'server', label: 'Servers', view: 'servers' },
+    { icon: 'folder', label: 'Categories', view: 'categories', warning: hasCategoryPathWarnings },
+    ...(amuleEnabled ? [{ icon: 'server', label: 'ED2K Servers', view: 'servers' }] : []),
     { icon: 'fileText', label: 'Logs', view: 'logs' },
     { icon: 'chartBar', label: 'Statistics', view: 'statistics' },
+    { icon: 'bell', label: 'Notifications', view: 'notifications' },
     { icon: 'settings', label: 'Settings', view: 'settings' }
   ];
 
@@ -112,6 +143,7 @@ const MobileNavFooter = ({ currentView, onNavigate }) => {
           key: item.view,
           icon: item.icon,
           label: item.label,
+          badge: item.badge || 0,
           active: item.activeViews
             ? item.activeViews.includes(currentView)
             : currentView === item.view,
@@ -150,6 +182,8 @@ const MobileNavFooter = ({ currentView, onNavigate }) => {
             key: item.view,
             icon: item.icon,
             label: item.label,
+            active: item.view === currentView,
+            warning: item.warning,
             onClick: () => handleNavigate(item.view)
           })
         )

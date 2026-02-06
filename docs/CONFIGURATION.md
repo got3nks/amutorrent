@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers all configuration options for aMule Web Controller.
+This guide covers all configuration options for aMuTorrent.
 
 ## Table of Contents
 
@@ -8,12 +8,13 @@ This guide covers all configuration options for aMule Web Controller.
 - [Settings Page](#settings-page)
 - [Configuration Precedence](#configuration-precedence)
 - [Environment Variables](#environment-variables)
-- [aMule EC Setup](#amule-ec-setup)
 - [Docker Network Configuration](#docker-network-configuration)
 
-> **GeoIP Setup:** For displaying peer locations, see the [GeoIP Setup Guide](./GEOIP.md).
+> **Download Clients:** See [aMule Integration](./AMULE.md) and [rTorrent Integration](./RTORRENT.md) for client-specific setup.
 >
-> **Sonarr/Radarr Integration:** For setting up *arr applications, see the [Integration Guide](./INTEGRATIONS.md).
+> **Integrations:** See [Prowlarr](./PROWLARR.md), [Notifications](./NOTIFICATIONS.md), and [Sonarr/Radarr](./INTEGRATIONS.md) guides.
+>
+> **GeoIP:** For displaying peer locations, see the [GeoIP Setup Guide](./GEOIP.md).
 
 ---
 
@@ -23,9 +24,9 @@ When you first access the web interface (or if no configuration exists), an inte
 
 1. **Welcome** - Introduction to the setup process
 2. **Security** - Configure web interface authentication (password protection)
-3. **aMule Connection** - Configure host, port, and EC password (with connection testing)
+3. **Download Clients** - Configure aMule and/or rTorrent connections (with testing)
 4. **Directories** - Set data, logs, and GeoIP directories
-5. **Integrations** - Optionally enable Sonarr and Radarr integration
+5. **Integrations** - Optionally enable Prowlarr, Sonarr, and Radarr
 6. **Review & Save** - Test all settings and save configuration
 
 The wizard will:
@@ -51,9 +52,9 @@ When authentication is enabled, the password must meet these requirements:
 After initial setup, access the Settings page anytime via the sidebar (desktop) or bottom navigation bar (mobile). The Settings page allows you to:
 
 - View and edit all configuration options
-- Test individual configuration sections (aMule, Directories, Sonarr, Radarr)
+- Test individual configuration sections (aMule, rTorrent, Directories, Prowlarr, Sonarr, Radarr)
 - Test all configuration at once before saving
-- Enable/disable Sonarr and Radarr integrations with toggle switches
+- Enable/disable integrations with toggle switches
 
 **Environment Variable Indicators:**
 
@@ -78,6 +79,8 @@ The application uses different precedence rules for sensitive and non-sensitive 
 Sensitive fields include:
 - `WEB_AUTH_PASSWORD` - Web UI authentication password
 - `AMULE_PASSWORD` - aMule EC connection password
+- `RTORRENT_PASSWORD` - rTorrent HTTP auth password
+- `PROWLARR_API_KEY` - Prowlarr API key
 - `SONARR_API_KEY` - Sonarr API key
 - `RADARR_API_KEY` - Radarr API key
 
@@ -125,7 +128,7 @@ Add these to your `docker-compose.yml` if needed:
 
 ```yaml
 services:
-  amule-web:
+  amutorrent:
     environment:
       # Server Configuration
       - PORT=4000
@@ -134,10 +137,24 @@ services:
       - WEB_AUTH_ENABLED=true
       - WEB_AUTH_PASSWORD=your_secure_password  # Locks UI editing
 
-      # aMule Connection (optional - wizard will ask if not set)
+      # aMule Connection (optional)
+      - AMULE_ENABLED=true
       - AMULE_HOST=host.docker.internal
       - AMULE_PORT=4712
       - AMULE_PASSWORD=your_ec_password  # Locks UI editing
+
+      # rTorrent Connection (optional)
+      - RTORRENT_ENABLED=true
+      - RTORRENT_HOST=rtorrent
+      - RTORRENT_PORT=8000
+      - RTORRENT_PATH=/RPC2
+      - RTORRENT_USERNAME=user
+      - RTORRENT_PASSWORD=pass  # Locks UI editing
+
+      # Prowlarr Integration (optional - requires rTorrent)
+      - PROWLARR_ENABLED=true
+      - PROWLARR_URL=http://prowlarr:9696
+      - PROWLARR_API_KEY=your_api_key  # Locks UI editing
 
       # Sonarr Integration (optional)
       - SONARR_URL=http://sonarr:8989
@@ -172,9 +189,30 @@ services:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AMULE_ENABLED` | `true` | Enable aMule integration |
 | `AMULE_HOST` | `127.0.0.1` | aMule daemon hostname or IP |
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
+| `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders |
+
+#### rTorrent Connection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RTORRENT_ENABLED` | `false` | Enable rTorrent integration |
+| `RTORRENT_HOST` | `localhost` | rTorrent XML-RPC hostname |
+| `RTORRENT_PORT` | `8000` | rTorrent XML-RPC port |
+| `RTORRENT_PATH` | `/RPC2` | XML-RPC endpoint path |
+| `RTORRENT_USERNAME` | - | HTTP auth username (if required) |
+| `RTORRENT_PASSWORD` | - | HTTP auth password (locks UI editing) |
+
+#### Prowlarr Integration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROWLARR_ENABLED` | `false` | Enable Prowlarr integration |
+| `PROWLARR_URL` | - | Prowlarr base URL |
+| `PROWLARR_API_KEY` | - | Prowlarr API key (locks UI editing) |
 
 #### Sonarr Integration
 
@@ -192,6 +230,28 @@ services:
 | `RADARR_API_KEY` | - | Radarr API key (locks UI editing) |
 | `RADARR_SEARCH_INTERVAL_HOURS` | `6` | Hours between automatic searches |
 
+#### Download History
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HISTORY_ENABLED` | `false` | Enable download history tracking |
+| `HISTORY_USERNAME_HEADER` | - | HTTP header for username (e.g., `remote-user` for Authelia) |
+
+#### Event Scripting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCRIPTING_ENABLED` | `false` | Enable custom event scripts |
+| `SCRIPTING_SCRIPT_PATH` | `scripts/custom.sh` | Path to custom script |
+| `SCRIPTING_TIMEOUT_MS` | `30000` | Script execution timeout |
+
+#### ED2K Rate Limiting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between searches (avoid flood protection) |
+| `ED2K_CACHE_TTL_MS` | `600000` | Search result cache duration |
+
 #### Advanced
 
 | Variable | Default | Description |
@@ -202,45 +262,31 @@ services:
 
 ---
 
-## aMule EC Setup
-
-Before using this web controller, you must enable External Connections in aMule:
-
-1. **Open aMule** (or amuled configuration)
-2. **Navigate to Preferences** → **Remote Controls** → **External Connections**
-3. **Enable "Accept external connections"**
-4. **Set an EC password** (remember this for the web controller configuration)
-5. **Note the EC port** (default: 4712)
-6. **Optional:** Configure allowed IP addresses for security
-
----
-
 ## Docker Network Configuration
 
-### Default Setup - aMule on Host Machine
+### Default Setup - Services on Host Machine
 
-This is the most common scenario:
+This is the most common scenario when aMule or rTorrent run on your host:
 
 ```yaml
 extra_hosts:
   - "host.docker.internal:host-gateway"  # Required!
 ```
 
-- In the setup wizard, use **`host.docker.internal`** as the aMule Host
+- Use **`host.docker.internal`** as the hostname in settings
 - The `extra_hosts` line creates a special hostname that points to your host machine
 - Works on Docker Desktop (Mac/Windows) and Linux with recent Docker versions
 
-### aMule in Another Container
+### Services in Other Containers
 
-If using the all-in-one setup or aMule is in a separate container:
-- Use the **service name** as hostname (e.g., `amule`)
-- Ensure both containers are on the same Docker network
+If using the all-in-one setup or services are in separate containers:
+- Use the **service name** as hostname (e.g., `amule`, `rtorrent`, `prowlarr`)
+- Ensure all containers are on the same Docker network
 - The `extra_hosts` line is not needed
 
-### Remote aMule
+### Remote Services
 
-If aMule is running on a different machine:
+If services are running on different machines:
 - Use the **IP address** or **hostname** of the remote machine
-- Ensure aMule EC port (4712) is accessible from your network
+- Ensure required ports are accessible from your network
 - The `extra_hosts` line is not needed
-

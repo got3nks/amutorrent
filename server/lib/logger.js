@@ -155,6 +155,40 @@ class Logger {
   }
 
   /**
+   * Read the last N lines from the log file
+   * @param {number} lines - Number of lines to read (default 200)
+   * @returns {Promise<string>} Log content
+   */
+  async readLog(lines = 200) {
+    if (!this.logDir) {
+      return 'Logger not initialized';
+    }
+
+    const logFile = path.join(this.logDir, 'server.log');
+
+    try {
+      const content = fs.readFileSync(logFile, 'utf-8');
+      const allLines = content.split('\n');
+      const lastLines = allLines.slice(-lines);
+      return lastLines.join('\n');
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return 'No log file found';
+      }
+      return `Error reading log: ${err.message}`;
+    }
+  }
+
+  /**
+   * Get the log file path
+   * @returns {string|null} Log file path
+   */
+  getLogPath() {
+    if (!this.logDir) return null;
+    return path.join(this.logDir, 'server.log');
+  }
+
+  /**
    * Close the log stream
    */
   close() {

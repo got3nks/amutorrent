@@ -5,6 +5,123 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - aMuTorrent
+
+### 🎉 Major Release - Multi-Client Support & App Rebrand
+
+This release transforms the app from an aMule-only controller into a unified download manager supporting multiple clients. The app has been rebranded to **aMuTorrent** to reflect its expanded capabilities.
+
+### ✨ Added
+
+#### **rTorrent Integration**
+- **Full rTorrent Support** - Connect to rTorrent via XML-RPC over HTTP
+- **Unified Download Views** - Manage aMule and rTorrent downloads in a single interface
+- **Torrent File Upload** - Add torrents via file upload or magnet links
+- **Label/Category Support** - Automatic directory assignment based on categories
+- **Tracker Information** - Display tracker domain for torrent downloads
+
+#### **Prowlarr Integration**
+- **Torrent Search** - Search for torrents via Prowlarr indexer manager
+- **Direct Downloads** - Add search results directly to rTorrent
+- **Indexer Filtering** - Filter search results by indexer source
+- **Category Mapping** - Assign categories when adding from search results
+
+#### **Notifications System**
+- **Apprise Integration** - Push notifications via 80+ services (Discord, Telegram, Slack, Pushover, ntfy, Gotify, Email, Webhooks, and more)
+- **Form-Based Configuration** - Easy service setup through web UI (no YAML editing)
+- **Event Selection** - Choose which events trigger notifications (download added, completed, moved, deleted, category changed)
+- **Test Notifications** - Verify service configuration before enabling
+- **Apprise Detection** - Graceful handling when Apprise CLI is not installed
+
+#### **Custom Event Scripting**
+- **Script Execution** - Run custom scripts when download events occur
+- **Multiple Input Methods** - Event data via argument, environment variables, and JSON stdin
+- **Example Script** - Included `scripts/custom.sh` with documentation and examples
+- **Timeout Protection** - Configurable script timeout to prevent hung processes
+
+#### **Enhanced Search View**
+- **Multi-Selection** - Select multiple search results for batch download
+- **Category Selection** - Assign category when downloading search results
+- **Improved Results Display** - Better formatting and source information
+
+#### **Configurable Table Columns**
+- **Column Visibility** - Show/hide columns per view
+- **Column Reordering** - Drag to reorder columns
+- **Secondary Sorting** - Configure secondary sort column for tie-breaking
+- **Persistent Settings** - Column preferences saved to localStorage
+- **Per-View Configuration** - Different column setups for each view
+
+#### **Category Path Management**
+- **Move to Category Path** - Move downloads (active or completed) to their category's configured directory
+- **Directory Browser** - Visual directory picker for category path configuration
+- **Background Move Operations** - File moves tracked with progress indication
+
+#### **Selection Mode Improvements**
+- **Frozen Sorting** - Sort order locked while in selection mode to prevent confusion
+- **Select All/Page** - Quick shortcuts to select all items or current page
+- **Visual Indicators** - Clear feedback for selected items count
+
+#### **Shared Files Enhancements**
+- **Upload Speed Indicator** - Real-time upload speed per shared file
+- **Peer Count in Info Modal** - See connected peers for each shared file
+- **Automatic Folder Reload** - Configurable interval to rescan shared folders
+
+#### **App Logs**
+- **Application Logs View** - View aMuTorrent server logs in the Logs tab
+- **Log Rotation** - Automatic log file management
+- **Real-time Updates** - Live log streaming via WebSocket
+
+#### **UI Improvements**
+- **Client Icons** - Visual indicators showing which client (aMule/rTorrent) each item belongs to
+- **Combined Statistics** - Unified speed and transfer charts for both clients
+- **Sticky View Headers** - Headers stay visible while scrolling on mobile
+- **Improved Tooltips** - Tooltips now use portals to avoid clipping issues
+
+### 🔧 Changed
+
+#### **History System Overhaul**
+- **Background Status Tracking** - Download status now maintained by background task instead of computed on each request
+- **Improved aMule Tracking** - Downloads correctly marked as completed after full download
+- **Username Tracking Fix** - Fixed username capture for Prowlarr-initiated downloads
+- **Performance Improvements** - Reduced database queries for history operations
+
+#### **View Consolidation**
+- **Unified Item Views** - Downloads, uploads, and shared files use consistent item components
+- **Combined Columns** - Merged related columns with partial sorting for compact views
+- **Responsive Breakpoints** - Better adaptation between mobile, tablet, and desktop
+
+#### **Architecture Improvements**
+- **Modular Client Handlers** - Separate handler classes for rTorrent and Prowlarr
+- **Unified Item Builder** - Common data structure for items from different clients
+- **Download Normalizer** - Consistent download representation across clients
+- **Category Manager** - Centralized category handling with path mapping
+
+### 🐛 Fixed
+
+- **History Completion Status** - aMule downloads now correctly marked as completed
+- **Tooltip Positioning** - Fixed tooltips being clipped by container overflow
+- **Selection Mode Sorting** - Prevented confusing reorder while items are selected
+- **Username in History** - Fixed username not being recorded for some download methods
+- **Chart Memory Leaks** - Proper cleanup of Chart.js instances on unmount
+- **WebSocket Reconnection** - Improved handling of connection drops
+
+### 📝 Documentation
+
+- **aMule Integration Guide** - EC protocol setup in `docs/AMULE.md`
+- **rTorrent Integration Guide** - XML-RPC setup in `docs/RTORRENT.md`
+- **Prowlarr Integration Guide** - Torrent search setup in `docs/PROWLARR.md`
+- **Notifications Guide** - Apprise configuration in `docs/NOTIFICATIONS.md`
+- **Custom Scripting Guide** - Event script development in `scripts/README.md`
+- **Configuration Guide Updated** - New environment variables and multi-client setup
+
+### ⚠️ Breaking Changes
+
+- **App Renamed** - Project renamed from "aMule Web Controller" to "aMuTorrent"
+- **Repository Renamed** - GitHub repository URL changed
+- **Docker Image** - New Docker Hub repository (old image deprecated)
+
+---
+
 ## [2.2.0]
 
 ### ✨ Added

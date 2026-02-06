@@ -6,73 +6,58 @@
 const fs = require('fs').promises;
 const path = require('path');
 const QueuedAmuleClient = require('../modules/queuedAmuleClient');
+const RtorrentHandler = require('./rtorrent/RtorrentHandler');
+const ProwlarrHandler = require('./prowlarr/ProwlarrHandler');
+const { checkDirectoryAccess } = require('./pathUtils');
 
 /**
  * Test directory access (read and write permissions)
  * @param {string} dirPath - Path to test
- * @returns {Promise<{success: boolean, readable: boolean, writable: boolean, error: string|null}>}
+ * @param {object} options - Options
+ * @param {boolean} options.checkOnly - If true, only check existence (don't create missing directories)
+ * @returns {Promise<{success: boolean, exists: boolean, readable: boolean, writable: boolean, error: string|null}>}
  */
-async function testDirectoryAccess(dirPath) {
+async function testDirectoryAccess(dirPath, options = {}) {
+  const { checkOnly = false } = options;
   const result = {
     success: false,
+    exists: false,
     readable: false,
     writable: false,
     error: null
   };
 
   try {
-    // Resolve absolute path
     const resolvedPath = path.resolve(dirPath);
 
-    // Check if path exists
-    try {
-      const stats = await fs.stat(resolvedPath);
-      if (!stats.isDirectory()) {
-        result.error = 'Path exists but is not a directory';
+    // First check using shared helper (with actual write test)
+    const checkResult = await checkDirectoryAccess(dirPath, true);
+
+    // If directory doesn't exist and we're not in checkOnly mode, try to create it
+    if (!checkResult.exists && !checkOnly) {
+      try {
+        await fs.mkdir(resolvedPath, { recursive: true });
+        // Re-check after creation
+        const recheck = await checkDirectoryAccess(dirPath, true);
+        result.exists = recheck.exists;
+        result.readable = recheck.readable;
+        result.writable = recheck.writable;
+        result.error = recheck.error;
+        result.success = recheck.exists && recheck.readable && recheck.writable;
+        return result;
+      } catch (createErr) {
+        result.error = `Cannot create directory: ${createErr.message}`;
         return result;
       }
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        // Directory doesn't exist, try to create it
-        try {
-          await fs.mkdir(resolvedPath, { recursive: true });
-        } catch (createErr) {
-          result.error = `Cannot create directory: ${createErr.message}`;
-          return result;
-        }
-      } else {
-        result.error = `Cannot access path: ${err.message}`;
-        return result;
-      }
     }
 
-    // Test read permission
-    try {
-      await fs.access(resolvedPath, fs.constants.R_OK);
-      result.readable = true;
-    } catch (err) {
-      result.error = 'Directory is not readable';
-      return result;
-    }
+    // Map results
+    result.exists = checkResult.exists;
+    result.readable = checkResult.readable;
+    result.writable = checkResult.writable;
+    result.error = checkResult.error;
+    result.success = checkResult.exists && checkResult.readable && checkResult.writable;
 
-    // Test write permission
-    try {
-      const testFileName = `.test-write-${Date.now()}`;
-      const testFilePath = path.join(resolvedPath, testFileName);
-
-      // Try to write
-      await fs.writeFile(testFilePath, 'test', 'utf8');
-
-      // Try to delete
-      await fs.unlink(testFilePath);
-
-      result.writable = true;
-    } catch (err) {
-      result.error = 'Directory is not writable';
-      return result;
-    }
-
-    result.success = true;
     return result;
   } catch (err) {
     result.error = `Unexpected error: ${err.message}`;
@@ -143,6 +128,79 @@ async function testAmuleConnection(host, port, password) {
         if (typeof client.disconnect === 'function') {
           await client.disconnect();
         }
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+    }
+
+    return result;
+  }
+}
+
+/**
+ * Test rtorrent connection via XML-RPC
+ * @param {string} host - rtorrent XML-RPC host
+ * @param {number} port - rtorrent XML-RPC port
+ * @param {string} rpcPath - XML-RPC path (e.g., /RPC2)
+ * @param {string} username - Optional username for basic auth
+ * @param {string} password - Optional password for basic auth
+ * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
+ */
+async function testRtorrentConnection(host, port, rpcPath, username, password) {
+  const result = {
+    success: false,
+    connected: false,
+    version: null,
+    error: null
+  };
+
+  if (!host) {
+    result.error = 'Host is required';
+    return result;
+  }
+
+  let client = null;
+
+  try {
+    // Create temporary client
+    client = new RtorrentHandler({
+      host,
+      port: port || 8000,
+      path: rpcPath || '/RPC2',
+      username: username || null,
+      password: password || null
+    });
+
+    client.connect();
+
+    // Try to test connection with timeout
+    const testPromise = client.testConnection();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+    });
+
+    const testResult = await Promise.race([testPromise, timeoutPromise]);
+
+    if (testResult.success) {
+      result.connected = true;
+      result.version = testResult.version;
+      result.success = true;
+      result.message = `Connected to rtorrent ${testResult.version}`;
+    } else {
+      result.error = testResult.error || 'Connection failed';
+    }
+
+    // Cleanup
+    client.disconnect();
+
+    return result;
+  } catch (err) {
+    result.error = err.message;
+
+    // Try to clean up connection
+    if (client) {
+      try {
+        client.disconnect();
       } catch (cleanupErr) {
         // Ignore cleanup errors
       }
@@ -243,6 +301,74 @@ async function testRadarrAPI(url, apiKey) {
 }
 
 /**
+ * Test Prowlarr API connection
+ * @param {string} url - Prowlarr URL
+ * @param {string} apiKey - Prowlarr API key
+ * @returns {Promise<{success: boolean, reachable: boolean, authenticated: boolean, version: string|null, indexerCount: number|null, error: string|null}>}
+ */
+async function testProwlarrAPI(url, apiKey) {
+  const result = {
+    success: false,
+    reachable: false,
+    authenticated: false,
+    version: null,
+    indexerCount: null,
+    error: null
+  };
+
+  if (!url || !apiKey) {
+    result.error = 'URL and API key are required';
+    return result;
+  }
+
+  try {
+    // Create temporary handler
+    const handler = new ProwlarrHandler();
+    handler.configure({ url, apiKey });
+
+    // Test connection with timeout
+    const testPromise = handler.testConnection();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+    });
+
+    const testResult = await Promise.race([testPromise, timeoutPromise]);
+
+    result.reachable = true;
+
+    if (testResult.success) {
+      result.authenticated = true;
+      result.version = testResult.version;
+      result.success = true;
+
+      // Try to get indexer count
+      try {
+        const indexers = await handler.getIndexers();
+        result.indexerCount = indexers.length;
+        result.message = `Connected to Prowlarr ${result.version} with ${result.indexerCount} indexer(s)`;
+      } catch (err) {
+        result.message = `Connected to Prowlarr ${result.version}`;
+      }
+    } else {
+      result.error = testResult.error || 'Connection failed';
+    }
+
+    return result;
+  } catch (err) {
+    if (err.name === 'AbortError' || err.message.includes('timeout')) {
+      result.error = 'Connection timeout - server not reachable';
+    } else if (err.message.includes('ECONNREFUSED')) {
+      result.error = 'Connection refused - server not running or wrong port';
+    } else if (err.message.includes('ENOTFOUND')) {
+      result.error = 'Host not found - check URL';
+    } else {
+      result.error = err.message;
+    }
+    return result;
+  }
+}
+
+/**
  * Test GeoIP database availability (optional feature)
  * @param {string} dirPath - Path to GeoIP directory
  * @returns {Promise<{success: boolean, available: boolean, databases: object, warning: string|null, error: string|null}>}
@@ -322,6 +448,8 @@ module.exports = {
   testDirectoryAccess,
   testGeoIPDatabase,
   testAmuleConnection,
+  testRtorrentConnection,
   testSonarrAPI,
-  testRadarrAPI
+  testRadarrAPI,
+  testProwlarrAPI
 };

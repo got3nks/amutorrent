@@ -1,10 +1,11 @@
 {
-  "name": "amule-webapp-frontend",
+  "name": "amutorrent-webapp-frontend",
   "version": "2.2.0",
-  "description": "aMule Web Controller Frontend Build",
+  "description": "aMuTorrent Frontend Build",
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./static/output.css --minify",
     "build:js": "node build.mjs",
+    "build:profile": "npm run build:css && node build.mjs --profile",
     "build": "npm run build:css && npm run build:js",
     "watch:css": "tailwindcss -i ./src/input.css -o ./static/output.css --watch",
     "watch:js": "node build.mjs --watch",

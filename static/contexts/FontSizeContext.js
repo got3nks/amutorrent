@@ -1,47 +1,48 @@
 /**
  * FontSizeContext
  *
- * Provides global font size control (small/medium/large) to the entire app
- * Applies CSS custom properties for base sizes and form elements
+ * Provides global font size control (medium/large) to the entire app
+ * Device-aware: applies different base sizes on mobile vs desktop
+ * Uses CSS class mapping to reuse existing text-size-* CSS rules
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'https://esm.sh/react@18.2.0';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout.js';
 
 const { createElement: h } = React;
 
 const FontSizeContext = createContext(null);
 
-// Font size configurations
-const FONT_SIZE_CONFIG = {
-  small: {
-    base: '13px',
-    scale: 0.9,
-    formScale: 0.9,
-    label: 'Small'
-  },
-  medium: {
-    base: '14px',
-    scale: 1.0,
-    formScale: 1.0,
-    label: 'Medium'
-  },
-  large: {
-    base: '16px',
-    scale: 1.15,
-    formScale: 1.1,
-    label: 'Large'
-  }
+// Device-aware font size configurations
+const DESKTOP_CONFIG = {
+  medium: { base: '14px', scale: 1.0, formScale: 1.0, label: 'Medium' },
+  large:  { base: '16px', scale: 1.15, formScale: 1.1, label: 'Large' }
 };
 
-export const FONT_SIZES = Object.keys(FONT_SIZE_CONFIG);
+const MOBILE_CONFIG = {
+  medium: { base: '13px', scale: 0.9, formScale: 0.9, label: 'Medium' },
+  large:  { base: '14px', scale: 1.0, formScale: 1.0, label: 'Large' }
+};
+
+// CSS class mapping: (device, fontSize) → body class
+// Reuses existing text-size-small/medium/large CSS rules
+const CSS_CLASS_MAP = {
+  'mobile-medium': 'text-size-small',
+  'mobile-large': 'text-size-medium',
+  'desktop-medium': 'text-size-medium',
+  'desktop-large': 'text-size-large'
+};
+
+export const FONT_SIZES = ['medium', 'large'];
 
 export const FontSizeProvider = ({ children }) => {
   const [fontSize, setFontSize] = useState(() => {
-    // Try to load from localStorage, default to medium
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('amule-font-size');
-        if (saved && FONT_SIZE_CONFIG[saved]) {
+        // Migration: 'small' falls back to 'medium'
+        if (saved === 'small') return 'medium';
+        if (saved && DESKTOP_CONFIG[saved]) {
           return saved;
         }
       } catch (err) {
@@ -51,19 +52,29 @@ export const FontSizeProvider = ({ children }) => {
     return 'medium';
   });
 
+  // Mobile detection for device-aware sizing
+  const { isMobile } = useResponsiveLayout();
+
+  // Get device-aware config
+  const fontSizeConfig = useMemo(() =>
+    (isMobile ? MOBILE_CONFIG : DESKTOP_CONFIG)[fontSize],
+    [isMobile, fontSize]
+  );
+
   // Apply font size CSS custom properties to document
   useEffect(() => {
     const root = document.documentElement;
-    const config = FONT_SIZE_CONFIG[fontSize];
+    const config = fontSizeConfig;
 
     // Set CSS custom properties
     root.style.setProperty('--font-size-base', config.base);
     root.style.setProperty('--font-size-scale', config.scale.toString());
     root.style.setProperty('--font-size-form-scale', config.formScale.toString());
 
-    // Apply base font size class to body for Tailwind
+    // Apply mapped CSS class to body (reuses existing text-size-* rules)
+    const classKey = `${isMobile ? 'mobile' : 'desktop'}-${fontSize}`;
     document.body.classList.remove('text-size-small', 'text-size-medium', 'text-size-large');
-    document.body.classList.add(`text-size-${fontSize}`);
+    document.body.classList.add(CSS_CLASS_MAP[classKey]);
 
     // Save to localStorage
     try {
@@ -71,27 +82,23 @@ export const FontSizeProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to save font size to localStorage:', err);
     }
-  }, [fontSize]);
+  }, [fontSize, isMobile, fontSizeConfig]);
 
-  // Cycle through font sizes: small -> medium -> large -> small
+  // Cycle through font sizes: medium -> large -> medium
   const cycleFontSize = useCallback(() => {
     setFontSize(prev => {
-      const sizes = FONT_SIZES;
-      const currentIndex = sizes.indexOf(prev);
-      const nextIndex = (currentIndex + 1) % sizes.length;
-      return sizes[nextIndex];
+      const currentIndex = FONT_SIZES.indexOf(prev);
+      const nextIndex = (currentIndex + 1) % FONT_SIZES.length;
+      return FONT_SIZES[nextIndex];
     });
   }, []);
 
   // Set specific font size
   const setFontSizeValue = useCallback((size) => {
-    if (FONT_SIZE_CONFIG[size]) {
+    if (DESKTOP_CONFIG[size]) {
       setFontSize(size);
     }
   }, []);
-
-  // Get current configuration
-  const fontSizeConfig = useMemo(() => FONT_SIZE_CONFIG[fontSize], [fontSize]);
 
   // Memoize context value
   const value = useMemo(() => ({

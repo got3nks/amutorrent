@@ -21,6 +21,8 @@ import { WebSocketProvider } from './WebSocketContext.js';
 import { DataFetchProvider } from './DataFetchContext.js';
 import { ActionsProvider } from './ActionsContext.js';
 import { VersionProvider } from './VersionContext.js';
+import { ClientFilterProvider } from './ClientFilterContext.js';
+import { StickyHeaderProvider } from './StickyHeaderContext.js';
 
 const { createElement: h } = React;
 
@@ -48,10 +50,12 @@ const composeProviders = (...providers) => ({ children }) =>
  * 5. AppStateProvider - UI state (current view, modals, etc.)
  * 6. LiveDataProvider - frequently changing data (stats, downloads, uploads)
  * 7. StaticDataProvider - less frequently changing data (categories, servers, etc.)
- * 8. SearchProvider - search state
- * 9. WebSocketProvider - WebSocket connection (uses LiveData + StaticData)
- * 10. DataFetchProvider - data fetching functions (uses LiveData + StaticData)
- * 11. ActionsProvider - action handlers (uses WebSocket)
+ * 8. ClientFilterProvider - client filter (aMule/rtorrent enabled) - needs LiveData for connection status
+ * 9. SearchProvider - search state
+ * 10. WebSocketProvider - WebSocket connection (uses LiveData + StaticData)
+ * 11. DataFetchProvider - data fetching functions (uses LiveData + StaticData)
+ * 12. ActionsProvider - action handlers (uses WebSocket)
+ * 13. StickyHeaderProvider - scroll-based header management (UI only)
  */
 export const AppProviders = composeProviders(
   AuthProvider,
@@ -61,8 +65,10 @@ export const AppProviders = composeProviders(
   AppStateProvider,
   LiveDataProvider,
   StaticDataProvider,
+  ClientFilterProvider,
   SearchProvider,
   WebSocketProvider,
   DataFetchProvider,
-  ActionsProvider
+  ActionsProvider,
+  StickyHeaderProvider
 );

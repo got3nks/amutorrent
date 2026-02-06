@@ -15,7 +15,7 @@ const { createElement: h } = React;
  * @param {React.ReactNode} children - Alert content
  * @param {string} className - Additional CSS classes
  */
-const AlertBox = ({ type = 'info', children, className = '' }) => {
+const AlertBox = ({ type = 'info', children, className = '', onAction, actionLabel }) => {
   const styles = {
     info: {
       bg: 'bg-blue-50 dark:bg-blue-900/20',
@@ -60,8 +60,13 @@ const AlertBox = ({ type = 'info', children, className = '' }) => {
           className: style.iconColor
         })
       ),
-      h('div', { className: `ml-3 flex-1 ${style.text} text-sm break-word whitespace-normal` },
-        children
+      h('div', { className: `ml-3 flex-1 ${style.text} text-sm break-words whitespace-pre-line` },
+        children,
+        onAction && h('br'),
+        onAction && h('button', {
+          onClick: onAction,
+          className: 'underline font-medium hover:no-underline'
+        }, actionLabel)
       )
     )
   );

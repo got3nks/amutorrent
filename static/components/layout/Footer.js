@@ -6,11 +6,13 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { formatSpeed, formatBytes } from '../../utils/index.js';
-import { getED2KStatus, getKADStatus, getStatusBadgeClass, getStatusIcon } from '../../utils/networkStatus.js';
+import { getED2KStatus, getKADStatus, getBTStatus, getStatusBadgeClass, getStatusIcon } from '../../utils/networkStatus.js';
 import { useVersion } from '../../contexts/index.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
+import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import Icon from '../common/Icon.js';
 import Tooltip from '../common/Tooltip.js';
+import ClientIcon from '../common/ClientIcon.js';
 
 const { createElement: h } = React;
 
@@ -23,6 +25,7 @@ const { createElement: h } = React;
 const Footer = ({ currentView, onOpenAbout }) => {
   const { dataStats: stats } = useLiveData();
   const { updateAvailable, latestVersion } = useVersion();
+  const { amuleConnected, rtorrentConnected } = useClientFilter();
 
   if (!stats) {
     return h('footer', { className: 'bg-gray-800 text-white py-4 text-center text-sm' },
@@ -33,9 +36,24 @@ const Footer = ({ currentView, onOpenAbout }) => {
   // Get network status using shared helpers
   const ed2k = getED2KStatus(stats);
   const kad = getKADStatus(stats);
+  const bt = getBTStatus(stats);
 
-  const uploadSpeed = formatSpeed(stats.EC_TAG_STATS_UL_SPEED || 0);
-  const downloadSpeed = formatSpeed(stats.EC_TAG_STATS_DL_SPEED || 0);
+  // Get speeds from each client (ensure numeric values)
+  const amuleUploadSpeed = Number(stats.EC_TAG_STATS_UL_SPEED) || 0;
+  const amuleDownloadSpeed = Number(stats.EC_TAG_STATS_DL_SPEED) || 0;
+  const rtorrentUploadSpeed = Number(stats.rtorrent?.uploadSpeed) || 0;
+  const rtorrentDownloadSpeed = Number(stats.rtorrent?.downloadSpeed) || 0;
+
+  // Sum speeds from all connected clients (regardless of user filter)
+  const totalUploadSpeed =
+    (amuleConnected ? amuleUploadSpeed : 0) +
+    (rtorrentConnected ? rtorrentUploadSpeed : 0);
+  const totalDownloadSpeed =
+    (amuleConnected ? amuleDownloadSpeed : 0) +
+    (rtorrentConnected ? rtorrentDownloadSpeed : 0);
+
+  // Show tooltip breakdown when both clients are connected
+  const showSpeedTooltip = amuleConnected && rtorrentConnected;
 
   // Footer is hidden on mobile (replaced by MobileNavFooter)
   return h('footer', {
@@ -44,19 +62,34 @@ const Footer = ({ currentView, onOpenAbout }) => {
     h('div', { className: 'mx-auto' },
       // Desktop view only
       h('div', { className: 'flex justify-between items-center text-xs' },
-        // Left: Connection status
+        // Left: Connection status (conditional based on active clients)
         h('div', { className: 'flex items-center gap-2 lg:gap-3' },
-          h('div', { className: 'flex items-center gap-2' },
-            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
-            h('span', { className: `px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(ed2k.status)}` },
-              `${getStatusIcon(ed2k.status)} ${ed2k.text}`
+          // aMule: ED2K and KAD status
+          amuleConnected && h(React.Fragment, null,
+            h('div', { className: 'flex items-center gap-2' },
+              h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
+              h('span', { className: `px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(ed2k.status)}` },
+                `${getStatusIcon(ed2k.status)} ${ed2k.text}`
+              ),
+              ed2k.connected && ed2k.serverName && h('span', { className: 'hidden xl:inline text-gray-600 dark:text-gray-400 text-xs' }, `(${ed2k.serverName} - ${ed2k.serverPing}ms)`)
             ),
-            ed2k.connected && ed2k.serverName && h('span', { className: 'text-gray-600 dark:text-gray-400 text-xs' }, `(${ed2k.serverName} - ${ed2k.serverPing}ms)`)
+            h('div', { className: 'flex items-center gap-2' },
+              h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'KAD:'),
+              h('span', { className: `px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(kad.status)}` },
+                `${getStatusIcon(kad.status)} ${kad.text}`
+              )
+            )
           ),
-          h('div', { className: 'flex items-center gap-2' },
-            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'KAD:'),
-            h('span', { className: `px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(kad.status)}` },
-              `${getStatusIcon(kad.status)} ${kad.text}`
+          // Divider between aMule and rTorrent status
+          amuleConnected && rtorrentConnected && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600' }),
+          // rTorrent: BT port status
+          rtorrentConnected && h('div', { className: 'flex items-center gap-2' },
+            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'BT:'),
+            h('span', { className: `px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(bt.status)}` },
+              `${getStatusIcon(bt.status)} ${bt.text}`
+            ),
+            bt.listenPort && h('span', { className: 'hidden xl:inline text-gray-600 dark:text-gray-400 text-xs' },
+              `(port ${bt.listenPort})`
             )
           )
         ),
@@ -134,22 +167,68 @@ const Footer = ({ currentView, onOpenAbout }) => {
           ),
           // Vertical divider (only show if disk or CPU indicators are visible)
           (stats.diskSpace || stats.cpuUsage) && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600' }),
-          // Upload speed
-          h('div', { className: 'flex items-center gap-1 lg:gap-2' },
-            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
-              h('span', { className: 'hidden lg:inline' }, 'Upload '),
-              '↑'
-            ),
-            h('span', { className: 'text-green-600 dark:text-green-400 font-mono font-semibold' }, uploadSpeed)
-          ),
-          // Download speed
-          h('div', { className: 'flex items-center gap-1 lg:gap-2' },
-            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
-              h('span', { className: 'hidden lg:inline' }, 'Download '),
-              '↓'
-            ),
-            h('span', { className: 'text-blue-600 dark:text-blue-400 font-mono font-semibold' }, downloadSpeed)
-          )
+          // Upload speed - with tooltip only if both clients connected and enabled
+          showSpeedTooltip
+            ? h(Tooltip, {
+                content: h('div', { className: 'space-y-1' },
+                  h('div', { className: 'font-semibold mb-1' }, 'Upload Speed'),
+                  h('div', { className: 'flex items-center gap-2' },
+                    h(ClientIcon, { clientType: 'amule', size: 14 }),
+                    h('span', null, formatSpeed(amuleUploadSpeed))
+                  ),
+                  h('div', { className: 'flex items-center gap-2' },
+                    h(ClientIcon, { clientType: 'rtorrent', size: 14 }),
+                    h('span', null, formatSpeed(rtorrentUploadSpeed))
+                  )
+                ),
+                position: 'top'
+              },
+                h('div', { className: 'flex items-center gap-1 lg:gap-2 cursor-help' },
+                  h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
+                    h('span', { className: 'hidden lg:inline' }, 'Upload '),
+                    '↑'
+                  ),
+                  h('span', { className: 'text-green-600 dark:text-green-400 font-mono font-semibold' }, formatSpeed(totalUploadSpeed))
+                )
+              )
+            : h('div', { className: 'flex items-center gap-1 lg:gap-2' },
+                h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
+                  h('span', { className: 'hidden lg:inline' }, 'Upload '),
+                  '↑'
+                ),
+                h('span', { className: 'text-green-600 dark:text-green-400 font-mono font-semibold' }, formatSpeed(totalUploadSpeed))
+              ),
+          // Download speed - with tooltip only if both clients connected and enabled
+          showSpeedTooltip
+            ? h(Tooltip, {
+                content: h('div', { className: 'space-y-1' },
+                  h('div', { className: 'font-semibold mb-1' }, 'Download Speed'),
+                  h('div', { className: 'flex items-center gap-2' },
+                    h(ClientIcon, { clientType: 'amule', size: 14 }),
+                    h('span', null, formatSpeed(amuleDownloadSpeed))
+                  ),
+                  h('div', { className: 'flex items-center gap-2' },
+                    h(ClientIcon, { clientType: 'rtorrent', size: 14 }),
+                    h('span', null, formatSpeed(rtorrentDownloadSpeed))
+                  )
+                ),
+                position: 'top'
+              },
+                h('div', { className: 'flex items-center gap-1 lg:gap-2 cursor-help' },
+                  h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
+                    h('span', { className: 'hidden lg:inline' }, 'Download '),
+                    '↓'
+                  ),
+                  h('span', { className: 'text-blue-600 dark:text-blue-400 font-mono font-semibold' }, formatSpeed(totalDownloadSpeed))
+                )
+              )
+            : h('div', { className: 'flex items-center gap-1 lg:gap-2' },
+                h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
+                  h('span', { className: 'hidden lg:inline' }, 'Download '),
+                  '↓'
+                ),
+                h('span', { className: 'text-blue-600 dark:text-blue-400 font-mono font-semibold' }, formatSpeed(totalDownloadSpeed))
+              )
         )
       )
     )
