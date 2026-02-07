@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1]
+
+### 🐛 Fixed
+
+- **Path Resolution** - Fix path resolution for categories with `pathMappings: null`. Categories with a `path` but no `pathMappings` now correctly use `path` as the local path instead of falling back to Default category.
+- **Version Check** - Handle HTTP redirects in version check to support repo renames. Old images checking the previous repo name will now correctly follow the redirect to find new releases.
+
 ## [3.0.0] - aMuTorrent
 
 ### 🎉 Major Release - Multi-Client Support & App Rebrand

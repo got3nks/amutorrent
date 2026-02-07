@@ -1126,9 +1126,10 @@ class CategoryManager extends BaseModule {
     for (const category of this.categories.values()) {
       // Skip Default category in first pass (it's handled as fallback)
       if (category.name === 'Default') continue;
-      if (!category.path || !category.pathMappings) continue;
+      if (!category.path) continue;
 
-      const appPath = category.pathMappings[clientType];
+      // Use pathMappings if available, otherwise use path (native setup)
+      const appPath = category.pathMappings?.[clientType] || category.path;
       if (!appPath) continue;
 
       // Normalize category path for matching

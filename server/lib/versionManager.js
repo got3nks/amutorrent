@@ -116,6 +116,49 @@ class VersionManager {
   }
 
   /**
+   * Make HTTPS request with redirect support
+   */
+  _httpsRequest(url, maxRedirects = 3) {
+    return new Promise((resolve) => {
+      const parsedUrl = new URL(url);
+      const options = {
+        hostname: parsedUrl.hostname,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'amutorrent',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        timeout: 10000
+      };
+
+      const req = https.request(options, (res) => {
+        // Handle redirects (301, 302, 307, 308)
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (maxRedirects > 0) {
+            resolve(this._httpsRequest(res.headers.location, maxRedirects - 1));
+          } else {
+            resolve({ statusCode: res.statusCode, data: null });
+          }
+          return;
+        }
+
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve({ statusCode: res.statusCode, data }));
+      });
+
+      req.on('error', () => resolve({ statusCode: 0, data: null }));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ statusCode: 0, data: null });
+      });
+
+      req.end();
+    });
+  }
+
+  /**
    * Check GitHub API for latest release
    * Caches result to avoid rate limiting (60 req/hour unauthenticated)
    */
@@ -127,61 +170,36 @@ class VersionManager {
       return this.githubCache.data;
     }
 
-    return new Promise((resolve) => {
-      const options = {
-        hostname: 'api.github.com',
-        path: `/repos/${this.githubRepo}/releases/latest`,
-        method: 'GET',
-        headers: {
-          'User-Agent': 'amutorrent',
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        timeout: 10000
-      };
+    try {
+      const url = `https://api.github.com/repos/${this.githubRepo}/releases/latest`;
+      const { statusCode, data } = await this._httpsRequest(url);
 
-      const req = https.request(options, (res) => {
-        let data = '';
+      if (statusCode === 200 && data) {
+        const release = JSON.parse(data);
+        const result = {
+          latestVersion: release.tag_name.replace(/^v/, ''),
+          releaseUrl: release.html_url,
+          publishedAt: release.published_at,
+          releaseName: release.name || null
+        };
 
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try {
-            if (res.statusCode === 200) {
-              const release = JSON.parse(data);
-              const result = {
-                latestVersion: release.tag_name.replace(/^v/, ''),
-                releaseUrl: release.html_url,
-                publishedAt: release.published_at,
-                releaseName: release.name || null
-              };
+        // Cache successful result
+        this.githubCache.data = result;
+        this.githubCache.timestamp = now;
+        this.githubCache.ttl = 6 * 60 * 60 * 1000; // Reset to 6 hours
 
-              // Cache successful result
-              this.githubCache.data = result;
-              this.githubCache.timestamp = now;
-              this.githubCache.ttl = 6 * 60 * 60 * 1000; // Reset to 6 hours
-
-              resolve(result);
-            } else if (res.statusCode === 404) {
-              // No releases yet
-              resolve(null);
-            } else {
-              // Rate limited or error - use longer cache TTL
-              this.githubCache.ttl = 12 * 60 * 60 * 1000; // 12 hours
-              resolve(this.githubCache.data || null);
-            }
-          } catch (e) {
-            resolve(this.githubCache.data || null);
-          }
-        });
-      });
-
-      req.on('error', () => resolve(this.githubCache.data || null));
-      req.on('timeout', () => {
-        req.destroy();
-        resolve(this.githubCache.data || null);
-      });
-
-      req.end();
-    });
+        return result;
+      } else if (statusCode === 404) {
+        // No releases yet
+        return null;
+      } else {
+        // Rate limited or error - use longer cache TTL
+        this.githubCache.ttl = 12 * 60 * 60 * 1000; // 12 hours
+        return this.githubCache.data || null;
+      }
+    } catch (e) {
+      return this.githubCache.data || null;
+    }
   }
 
   /**
