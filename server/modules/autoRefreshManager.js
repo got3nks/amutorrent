@@ -258,6 +258,14 @@ class AutoRefreshManager extends BaseModule {
       // Get known hashes from database to detect external additions
       const knownHashes = this.downloadHistoryDB.getKnownHashes();
 
+      // Build hash→category lookup from unified items (works for all clients including aMule)
+      const categoryByHash = new Map();
+      for (const item of (batchData.items || [])) {
+        if (item.hash && item.category) {
+          categoryByHash.set(item.hash.toLowerCase(), item.category);
+        }
+      }
+
       // Process aMule data
       const amuleDownloads = batchData._amuleDownloads || [];
       const amuleSharedFiles = batchData._amuleSharedFiles || [];
@@ -288,6 +296,7 @@ class AutoRefreshManager extends BaseModule {
           downloaded,
           uploaded,
           ratio,
+          category: categoryByHash.get(hash) || null,
           clientType: 'amule'
           // No trackerDomain for aMule
         });
@@ -308,13 +317,18 @@ class AutoRefreshManager extends BaseModule {
         const size = f.size || existing.size || 0;
         const ratio = size > 0 ? uploaded / size : 0;
 
+        // aMule's f.path is the directory containing the file.
+        // Only use it if absolute; relative paths (from aMule's incoming dir) aren't useful.
+        const amuleDir = f.path && f.path.startsWith('/') ? f.path : null;
+
         metadataMap.set(hash, {
           ...existing,
           size,
           name: f.name || existing.name,
           uploaded,
           ratio,
-          directory: f.path || existing.directory || null,
+          directory: amuleDir || existing.directory || null,
+          category: categoryByHash.get(hash) || existing.category || null,
           clientType: 'amule'
           // No trackerDomain for aMule
         });
@@ -352,6 +366,7 @@ class AutoRefreshManager extends BaseModule {
           trackerDomain,
           directory: d.directory || null,
           multiFile: d.isMultiFile || false,
+          category: categoryByHash.get(hash) || d.label || null,
           clientType: 'rtorrent'
         });
       }
@@ -382,12 +397,13 @@ class AutoRefreshManager extends BaseModule {
         metadataMap.set(hash, {
           size: d.size,
           name: d.name,
-          downloaded: d.sizeDownloaded || 0,
+          downloaded: d.downloaded || 0,
           uploaded: d.uploadTotal || 0,
           ratio: d.ratio || 0,
           trackerDomain,
           directory: d.directory || null,
           multiFile: d.isMultiFile || false,
+          category: categoryByHash.get(hash) || d.category || null,
           clientType: 'qbittorrent'
         });
       }

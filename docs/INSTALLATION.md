@@ -2,7 +2,7 @@
 
 aMuTorrent can be installed using Docker (recommended) or natively.
 
-**Prerequisites:** At least one of: aMule with External Connections enabled, or rTorrent with XML-RPC over HTTP.
+**Prerequisites:** At least one of: aMule with External Connections enabled, rTorrent with XML-RPC over HTTP, or qBittorrent with WebUI enabled.
 
 ## Docker Installation (Recommended)
 
@@ -50,7 +50,7 @@ docker compose up -d
 
 Open `http://localhost:4000` and follow the setup wizard to configure your download clients.
 
-> **All-in-One Setup:** For a complete setup with aMule and rTorrent in Docker, see [docker-compose.all-in-one.yml](https://github.com/got3nks/amutorrent/blob/main/docker-compose.all-in-one.yml).
+> **All-in-One Setup:** For a complete setup with aMule, rTorrent, and qBittorrent in Docker, see [docker-compose.all-in-one.yml](https://github.com/got3nks/amutorrent/blob/main/docker-compose.all-in-one.yml).
 
 ## Native Installation
 
@@ -87,7 +87,7 @@ node server/server.js
 
 On first launch, aMuTorrent will display a setup wizard to configure:
 
-- **Download clients** - Enable at least one: aMule, rTorrent, or both
+- **Download clients** - Enable at least one: aMule, rTorrent, qBittorrent, or any combination
 - **Web authentication** (optional) - Protect the web interface with a password
 
 ## Next Steps
@@ -96,7 +96,7 @@ After completing the setup wizard, explore additional features:
 
 > **Configuration:** Settings, environment variables, and Docker networking. See [Configuration](./CONFIGURATION.md).
 >
-> **Download Clients:** Detailed setup for [aMule](./AMULE.md) and [rTorrent](./RTORRENT.md).
+> **Download Clients:** Detailed setup for [aMule](./AMULE.md), [rTorrent](./RTORRENT.md), and [qBittorrent](./QBITTORRENT.md).
 >
 > **Prowlarr:** Search torrents directly from the web UI. See [Prowlarr Setup](./PROWLARR.md).
 >

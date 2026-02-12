@@ -299,6 +299,7 @@ class MoveOperationsDB {
       status: row.status,
       errorMessage: row.error_message,
       isMultiFile: row.is_multi_file === 1,
+      categoryName: row.category_name || null,
       filesTotal: row.files_total,
       filesMoved: row.files_moved,
       currentFile: row.current_file,

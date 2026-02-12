@@ -23,6 +23,9 @@ class QueuedAmuleClient {
     // Callback for getting file info (needed for history)
     this.getFileInfoCallback = null;
 
+    // Callback for resolving aMule category ID to name
+    this.categoryNameResolver = null;
+
     // Cache for EC_TAG_PARTFILE_SOURCE_NAMES data (keyed by file hash)
     this.sourceNamesCache = new Map();
 
@@ -285,6 +288,14 @@ class QueuedAmuleClient {
   }
 
   /**
+   * Set callback to resolve aMule category ID to category name
+   * @param {function} resolver - function(amuleId) => categoryName
+   */
+  setCategoryNameResolver(resolver) {
+    this.categoryNameResolver = resolver;
+  }
+
+  /**
    * Intercept download methods to track in history
    * @param {string} method - Method name
    * @param {Array} args - Method arguments [hash/link, categoryId, username?]
@@ -336,6 +347,8 @@ class QueuedAmuleClient {
    */
   async trackDownloadStart(method, args, username) {
     let hash, filename, size;
+    // categoryId is always the second argument for both download methods
+    const categoryId = args[1] ?? 0;
 
     if (method === 'downloadSearchResult') {
       // args: [fileHash, categoryId, username?]
@@ -362,8 +375,14 @@ class QueuedAmuleClient {
       size = parsed.size || null;
     }
 
+    // Resolve aMule category ID to name
+    let categoryName = null;
+    if (categoryId > 0 && this.categoryNameResolver) {
+      categoryName = this.categoryNameResolver(categoryId);
+    }
+
     if (hash) {
-      this.downloadHistoryDB.addDownload(hash, filename, size, username, 'amule');
+      this.downloadHistoryDB.addDownload(hash, filename, size, username, 'amule', categoryName);
     } else {
       logger.warn(`[QueuedAmuleClient] No hash found for ${method}, cannot track in history`);
     }

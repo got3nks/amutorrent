@@ -158,7 +158,7 @@ class MoveOperationManager extends BaseModule {
    * @param {Object} operation - Operation record from database
    */
   async executeMove(operation) {
-    const { hash, name, clientType = 'rtorrent', sourcePath, destPath, remoteSourcePath, remoteDestPath, isMultiFile } = operation;
+    const { hash, name, clientType = 'rtorrent', sourcePath, destPath, remoteSourcePath, remoteDestPath, isMultiFile, categoryName } = operation;
     const clientDestPath = remoteDestPath || destPath;
 
     this.log(`📦 Moving: ${name} -> ${clientDestPath}`);
@@ -185,6 +185,7 @@ class MoveOperationManager extends BaseModule {
         hash: hash.toLowerCase(),
         filename: name,
         clientType: clientType || 'unknown',
+        category: categoryName || null,
         sourcePath: remoteSourcePath || sourcePath,
         destPath: clientDestPath
       });

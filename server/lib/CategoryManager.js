@@ -120,6 +120,9 @@ class CategoryManager extends BaseModule {
     // Store path validation warnings per category
     // Format: { categoryName: { path: 'warning', mappings: { amule: 'warning', rtorrent: 'warning' } } }
     this.pathWarnings = {};
+    // Debounce concurrent validateAllPaths calls so all client syncs settle first
+    this._validateTimer = null;
+    this._validateResolvers = [];
   }
 
   /**
@@ -228,11 +231,43 @@ class CategoryManager extends BaseModule {
   // ==========================================================================
 
   /**
-   * Validate all category paths and store warnings
-   * Checks each category's path or mapped paths based on configuration
+   * Validate all category paths and store warnings.
+   * Debounced: multiple rapid calls (e.g. from concurrent client connects)
+   * are collapsed into a single validation that runs after calls settle.
+   * All callers receive the same result promise.
    * @returns {Promise<Object>} { hasWarnings: boolean, warnings: Object }
    */
-  async validateAllPaths() {
+  validateAllPaths() {
+    // Reset the debounce timer on each call
+    if (this._validateTimer) {
+      clearTimeout(this._validateTimer);
+    }
+
+    // Return a promise that will resolve when the debounced validation completes
+    return new Promise((resolve, reject) => {
+      this._validateResolvers.push({ resolve, reject });
+
+      this._validateTimer = setTimeout(async () => {
+        this._validateTimer = null;
+        const resolvers = this._validateResolvers;
+        this._validateResolvers = [];
+
+        try {
+          const result = await this._doValidateAllPaths();
+          for (const r of resolvers) r.resolve(result);
+        } catch (err) {
+          for (const r of resolvers) r.reject(err);
+        }
+      }, 500);
+    });
+  }
+
+  /**
+   * Internal: actual path validation logic
+   * @returns {Promise<Object>} { hasWarnings: boolean, warnings: Object }
+   * @private
+   */
+  async _doValidateAllPaths() {
     this.pathWarnings = {};
     let hasWarnings = false;
 
@@ -369,6 +404,9 @@ class CategoryManager extends BaseModule {
         return 'Directory not found';
       }
       if (!result.readable || !result.writable) {
+        if (result.error) {
+          return result.error;
+        }
         const missing = [];
         if (!result.readable) missing.push('read');
         if (!result.writable) missing.push('write');

@@ -98,13 +98,14 @@ class QbittorrentManager extends BaseModule {
    * @param {string} name - Torrent name
    * @param {number} size - Size in bytes (optional)
    * @param {string} username - Username (optional)
+   * @param {string} category - Category name (optional)
    */
-  trackDownload(hash, name, size = null, username = null) {
+  trackDownload(hash, name, size = null, username = null, category = null) {
     if (!this.isHistoryEnabled() || !hash) return;
 
     try {
       this.log(`📜 History: tracking qbittorrent download - hash: ${hash}, name: ${name}, size: ${size}`);
-      this.downloadHistoryDB.addDownload(hash, name || 'Unknown', size, username, 'qbittorrent');
+      this.downloadHistoryDB.addDownload(hash, name || 'Unknown', size, username, 'qbittorrent', category);
     } catch (err) {
       logger.warn('[qbittorrentManager] Failed to track download:', err.message);
     }
@@ -379,11 +380,21 @@ class QbittorrentManager extends BaseModule {
             lastUpdated: now
           });
 
-          // Convert peers object to array
+          // Convert peers object to normalized array (matching rTorrent peer format)
           const peersArray = Object.entries(peers).map(([ip, data]) => ({
             address: ip.split(':')[0] || ip,
             port: parseInt(ip.split(':')[1]) || 0,
-            ...data
+            client: data.client || 'Unknown',
+            flags: data.flags || '',
+            completedPercent: Math.round((data.progress || 0) * 100),
+            downloadRate: data.dl_speed || 0,
+            uploadRate: data.up_speed || 0,
+            downloadTotal: data.downloaded || 0,
+            uploadTotal: data.uploaded || 0,
+            isEncrypted: !!(data.flags && data.flags.includes('E')),
+            isIncoming: !!(data.flags && data.flags.includes('I')),
+            country: data.country || '',
+            countryCode: data.country_code || '',
           }));
 
           // Update peer cache
@@ -518,7 +529,7 @@ class QbittorrentManager extends BaseModule {
     // Track in history
     const { hash, name } = this.parseMagnetUri(magnetUri);
     if (hash) {
-      this.trackDownload(hash, name || 'Magnet download', null, options.username);
+      this.trackDownload(hash, name || 'Magnet download', null, options.username, options.category || null);
     }
   }
 

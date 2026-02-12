@@ -116,13 +116,22 @@ async function checkPathPermissions(targetPath, options = {}) {
             await fs.unlink(testFilePath);
           } catch (writeErr) {
             result.writable = false;
-            result.error = 'Directory is not writable (write test failed)';
+            const stats = await fs.stat(resolvedPath);
+            const mode = '0' + (stats.mode & 0o777).toString(8);
+            result.error = `Write test failed: ${writeErr.code || writeErr.message} (uid=${process.getuid()}, gid=${process.getgid()}, dir owned by ${stats.uid}:${stats.gid}, mode=${mode})`;
             result.errorCode = 'not_writable';
             return result;
           }
         }
       } catch (err) {
-        result.error = 'Path is not writable';
+        // fs.access(W_OK) failed - get stat details for diagnostics
+        try {
+          const stats = await fs.stat(resolvedPath);
+          const mode = '0' + (stats.mode & 0o777).toString(8);
+          result.error = `Not writable: ${err.code || err.message} (uid=${process.getuid()}, gid=${process.getgid()}, dir owned by ${stats.uid}:${stats.gid}, mode=${mode})`;
+        } catch {
+          result.error = `Not writable: ${err.code || err.message}`;
+        }
         result.errorCode = 'not_writable';
         return result;
       }

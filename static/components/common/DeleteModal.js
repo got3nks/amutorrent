@@ -29,6 +29,7 @@ const { createElement: h, useState, useEffect } = React;
  * @param {boolean} forceShowDeleteOption - Force show delete files checkbox (for aMule shared files)
  * @param {Object} permissionCheck - Permission check results { loading, canDeleteFiles, warnings }
  * @param {boolean} skipFileMessages - Skip file-related info messages (e.g., for history deletion)
+ * @param {function} onEditMappings - Optional handler to open category mappings editor
  */
 const DeleteModal = ({
   show,
@@ -160,6 +161,7 @@ const DeleteModal = ({
             key: idx,
             type: 'warning',
             className: 'text-xs py-2 !mb-0',
+            breakAll: true,
             onAction: onEditMappings,
             actionLabel: 'Edit category mappings \u2192'
           }, warning.message)

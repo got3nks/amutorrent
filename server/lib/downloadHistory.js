@@ -236,8 +236,9 @@ class DownloadHistory {
    * @param {number} size - File size in bytes
    * @param {string} username - Optional username from proxy auth
    * @param {string} clientType - Client type ('amule' or 'rtorrent')
+   * @param {string} category - Optional category name
    */
-  addDownload(hash, filename, size, username = null, clientType = 'amule') {
+  addDownload(hash, filename, size, username = null, clientType = 'amule', category = null) {
     const stmt = this.db.prepare(`
       INSERT INTO download_history (hash, filename, size, started_at, username, client_type)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -267,7 +268,8 @@ class DownloadHistory {
       filename,
       size: size || null,
       username,
-      clientType
+      clientType,
+      category: category || null
     });
   }
 
@@ -374,8 +376,9 @@ class DownloadHistory {
               clientType: meta?.clientType || entry.client_type || 'unknown',
               downloaded: entry.downloaded || 0,
               uploaded: entry.uploaded || 0,
-              ratio: entry.ratio || 0,
+              ratio: Math.round((entry.ratio || 0) * 100) / 100,
               trackerDomain: entry.tracker_domain || null,
+              category: meta?.category || null,
               path: fullPath,
               multiFile: meta?.multiFile || false
             });

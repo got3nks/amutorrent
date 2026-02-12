@@ -14,8 +14,11 @@ const { createElement: h } = React;
  * @param {string} type - Type of alert: 'info' | 'warning' | 'error' | 'success'
  * @param {React.ReactNode} children - Alert content
  * @param {string} className - Additional CSS classes
+ * @param {function} onAction - Optional action button handler
+ * @param {string} actionLabel - Label for the action button
+ * @param {boolean} breakAll - Use break-all instead of break-words for content with paths/hashes (default: false)
  */
-const AlertBox = ({ type = 'info', children, className = '', onAction, actionLabel }) => {
+const AlertBox = ({ type = 'info', children, className = '', onAction, actionLabel, breakAll = false }) => {
   const styles = {
     info: {
       bg: 'bg-blue-50 dark:bg-blue-900/20',
@@ -60,7 +63,7 @@ const AlertBox = ({ type = 'info', children, className = '', onAction, actionLab
           className: style.iconColor
         })
       ),
-      h('div', { className: `ml-3 flex-1 ${style.text} text-sm break-words whitespace-pre-line` },
+      h('div', { className: `ml-3 flex-1 ${style.text} text-sm ${breakAll ? 'break-all' : 'break-words'} whitespace-pre-line` },
         children,
         onAction && h('br'),
         onAction && h('button', {

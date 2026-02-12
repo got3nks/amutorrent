@@ -14,10 +14,16 @@ const DirectoryBrowserModal = ({
   initialPath = '/',
   onSelect,
   onClose,
-  title = 'Select Directory'
+  title,
+  mode = 'directory'
 }) => {
+  const resolvedTitle = title || (mode === 'file' ? 'Select File' : 'Select Directory');
+  const isFileMode = mode === 'file';
+
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [directories, setDirectories] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [parentPath, setParentPath] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -26,18 +32,23 @@ const DirectoryBrowserModal = ({
   const loadDirectory = useCallback(async (pathToLoad) => {
     setLoading(true);
     setError(null);
+    setSelectedFile(null);
+
+    const body = { path: pathToLoad };
+    if (isFileMode) body.includeFiles = true;
 
     try {
       const res = await fetch('/api/filesystem/browse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: pathToLoad })
+        body: JSON.stringify(body)
       });
 
       if (res.ok) {
         const data = await res.json();
         setCurrentPath(data.path);
         setDirectories(data.directories || []);
+        setFiles(data.files || []);
         setParentPath(data.parent);
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -48,7 +59,7 @@ const DirectoryBrowserModal = ({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isFileMode]);
 
   // Load initial directory when modal opens
   useEffect(() => {
@@ -71,8 +82,18 @@ const DirectoryBrowserModal = ({
     }
   };
 
+  const handleSelectFile = (fileName) => {
+    setSelectedFile(fileName === selectedFile ? null : fileName);
+  };
+
   const handleSelect = () => {
-    onSelect(currentPath);
+    if (isFileMode) {
+      if (!selectedFile) return;
+      const filePath = currentPath === '/' ? '/' + selectedFile : currentPath + '/' + selectedFile;
+      onSelect(filePath);
+    } else {
+      onSelect(currentPath);
+    }
     onClose();
   };
 
@@ -90,7 +111,7 @@ const DirectoryBrowserModal = ({
       },
         // Header
         h('div', { className: 'p-4 border-b border-gray-200 dark:border-gray-700' },
-          h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100' }, title)
+          h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100' }, resolvedTitle)
         ),
 
         // Breadcrumb path display
@@ -135,31 +156,55 @@ const DirectoryBrowserModal = ({
             ),
 
             // Directory list
-            directories.length === 0 && !parentPath
+            directories.length === 0 && files.length === 0 && !parentPath
               ? h('div', { className: 'p-4 text-center text-gray-500 dark:text-gray-400 text-sm' },
-                  'No subdirectories'
+                  isFileMode ? 'No files or subdirectories' : 'No subdirectories'
                 )
-              : directories.map(dir =>
-                  h('button', {
-                    key: dir,
-                    onClick: () => handleNavigate(dir),
-                    className: 'w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2'
-                  },
-                    h(Icon, { name: 'folder', size: 16, className: 'text-yellow-500' }),
-                    h('span', { className: 'text-sm text-gray-700 dark:text-gray-300 truncate' }, dir)
+              : [
+                  // Directories
+                  ...directories.map(dir =>
+                    h('button', {
+                      key: 'd-' + dir,
+                      onClick: () => handleNavigate(dir),
+                      className: 'w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2'
+                    },
+                      h(Icon, { name: 'folder', size: 16, className: 'text-yellow-500' }),
+                      h('span', { className: 'text-sm text-gray-700 dark:text-gray-300 truncate' }, dir)
+                    )
+                  ),
+                  // Files (only in file mode)
+                  ...files.map(file =>
+                    h('button', {
+                      key: 'f-' + file,
+                      onClick: () => handleSelectFile(file),
+                      className: `w-full text-left px-4 py-2 flex items-center gap-2 ${
+                        selectedFile === file
+                          ? 'bg-blue-50 dark:bg-blue-900/30 ring-1 ring-inset ring-blue-300 dark:ring-blue-700'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`
+                    },
+                      h(Icon, { name: 'file', size: 16, className: 'text-gray-400' }),
+                      h('span', { className: 'text-sm text-gray-600 dark:text-gray-400 truncate' }, file)
+                    )
                   )
-                )
+                ]
           )
         ),
 
         // Footer with buttons
         h('div', { className: 'p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center gap-3' },
           h('div', { className: 'text-xs text-gray-500 dark:text-gray-400 truncate flex-1 font-mono' },
-            currentPath
+            isFileMode && selectedFile
+              ? (currentPath === '/' ? '/' + selectedFile : currentPath + '/' + selectedFile)
+              : currentPath
           ),
           h('div', { className: 'flex gap-2' },
             h(Button, { variant: 'secondary', onClick: onClose }, 'Cancel'),
-            h(Button, { variant: 'primary', onClick: handleSelect }, 'Select')
+            h(Button, {
+              variant: 'primary',
+              onClick: handleSelect,
+              disabled: isFileMode && !selectedFile
+            }, 'Select')
           )
         )
       )

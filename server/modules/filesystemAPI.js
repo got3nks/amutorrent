@@ -27,7 +27,7 @@ class FilesystemAPI extends BaseModule {
    */
   async browse(req, res) {
     try {
-      const { path: dirPath } = req.body;
+      const { path: dirPath, includeFiles } = req.body;
 
       if (!dirPath || typeof dirPath !== 'string') {
         return response.badRequest(res, 'Path is required');
@@ -70,14 +70,33 @@ class FilesystemAPI extends BaseModule {
         .map(entry => entry.name)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
+      // Optionally collect regular files
+      let files;
+      if (includeFiles) {
+        files = entries
+          .filter(entry => {
+            if (!entry.isFile()) return false;
+            if (entry.name.startsWith('.')) return false;
+            return true;
+          })
+          .map(entry => entry.name)
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      }
+
       // Get parent path (null if at root)
       const parentPath = normalizedPath === '/' ? null : path.dirname(normalizedPath);
 
-      res.json({
+      const result = {
         path: normalizedPath,
         parent: parentPath,
         directories
-      });
+      };
+
+      if (includeFiles) {
+        result.files = files;
+      }
+
+      res.json(result);
     } catch (err) {
       this.log('❌ Error browsing directory:', err.message);
       response.serverError(res, 'Failed to browse directory');

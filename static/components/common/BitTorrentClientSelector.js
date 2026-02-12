@@ -22,6 +22,7 @@ const { createElement: h } = React;
  * @param {string} className - Additional CSS classes
  * @param {string} variant - 'buttons' (default) or 'dropdown'
  * @param {string} label - Label text (optional)
+ * @param {boolean} showFullName - Always show full client name regardless of viewport (default: false)
  */
 const BitTorrentClientSelector = ({
   connectedClients,
@@ -30,7 +31,8 @@ const BitTorrentClientSelector = ({
   showSelector,
   className = '',
   variant = 'buttons',
-  label = 'Send to'
+  label = 'Send to',
+  showFullName = false
 }) => {
   // Don't render if we shouldn't show selector
   if (!showSelector || connectedClients.length < 2) {
@@ -79,8 +81,12 @@ const BitTorrentClientSelector = ({
             size: 16,
             title: ''
           }),
-          h('span', { className: 'hidden sm:inline md:hidden' }, client.shortName),
-          h('span', { className: 'hidden md:inline' }, client.name)
+          showFullName
+            ? h('span', null, client.name)
+            : [
+                h('span', { key: 'short', className: 'hidden sm:inline md:hidden' }, client.shortName),
+                h('span', { key: 'full', className: 'hidden md:inline' }, client.name)
+              ]
         )
       )
     )

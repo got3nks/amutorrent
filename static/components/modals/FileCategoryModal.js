@@ -31,6 +31,7 @@ const { createElement: h, useState, useEffect, useMemo } = React;
  * @param {boolean} forceMove - Whether move is forced (aMule shared files)
  * @param {function} onSubmit - Submit handler (fileHash/hashes, categoryName, options)
  * @param {function} onClose - Close handler
+ * @param {function} onEditMappings - Optional handler to open category mappings editor
  */
 const FileCategoryModal = ({
   show,
@@ -226,6 +227,7 @@ const FileCategoryModal = ({
         permissionCheck.error && h(AlertBox, {
           type: 'warning',
           className: 'mt-2',
+          breakAll: true,
           onAction: onEditMappings,
           actionLabel: 'Edit category mappings \u2192'
         }, permissionCheck.error)

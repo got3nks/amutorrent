@@ -1179,6 +1179,7 @@ class WebSocketHandlers extends BaseModule {
             filename: name,
             clientType: item?.clientType || cachedItem?.client || 'unknown',
             deletedFromDisk: deleteFiles === true || (item?.clientType === 'amule' && source !== 'shared'),
+            category: cachedItem?.category || null,
             path: fullPath,
             multiFile: cachedItem?.multiFile || false
           });
@@ -1273,7 +1274,8 @@ class WebSocketHandlers extends BaseModule {
                       destPathLocal,
                       destPathRemote,
                       totalSize: item.complete ? item.size : (item.sizeDownloaded || item.size),
-                      isMultiFile: item.multiFile
+                      isMultiFile: item.multiFile,
+                      categoryName: targetCategory.name
                     });
                     context.log(`Queued move for ${fileName || fileHash} -> ${destPathRemote}`);
                   } catch (moveErr) {
@@ -1310,7 +1312,8 @@ class WebSocketHandlers extends BaseModule {
                       destPathLocal: remotePath,  // Use remote path (qBittorrent handles moves internally)
                       destPathRemote: remotePath,
                       totalSize: item.complete ? item.size : (item.sizeDownloaded || item.size),
-                      isMultiFile: item.multiFile
+                      isMultiFile: item.multiFile,
+                      categoryName: targetCategory.name
                     });
                     context.log(`Queued move for qBittorrent ${fileName || fileHash} -> ${remotePath}`);
                   } catch (moveErr) {
@@ -1348,7 +1351,8 @@ class WebSocketHandlers extends BaseModule {
                   destPathLocal,
                   destPathRemote,
                   totalSize: item.complete ? item.size : (item.sizeDownloaded || item.size),
-                  isMultiFile: false // aMule files are always single files
+                  isMultiFile: false, // aMule files are always single files
+                  categoryName: targetCategory.name
                 });
                 context.log(`Queued move for aMule shared file ${fileName || fileHash} -> ${destPathRemote}`);
               } catch (moveErr) {

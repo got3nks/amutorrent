@@ -194,7 +194,7 @@ function normalizeRtorrentDownload(download) {
 
   return {
     clientType: 'rtorrent',
-    hash: download.hash,
+    hash: download.hash.toLowerCase(),
     name: download.name,
     size: download.size,
     downloaded: download.completedBytes,
@@ -206,6 +206,7 @@ function normalizeRtorrentDownload(download) {
     // rtorrent-specific fields
     priority: download.priority,  // 0=off, 1=low, 2=normal, 3=high
     ratio: download.ratio,
+    category: download.label || '', // Alias for consistency with qBittorrent
     label: download.label,
     directory: download.directory,
     peers: download.peers,
@@ -223,7 +224,8 @@ function normalizeRtorrentDownload(download) {
 
     // Timestamps
     creationDate: download.creationDate || null,
-    startedTime: download.startedTime || null
+    startedTime: download.startedTime || null,
+    finishedTime: download.finishedTime || null
   };
 }
 
@@ -439,12 +441,13 @@ function normalizeQBittorrentDownload(torrent) {
 
 /**
  * Normalize qBittorrent peer to upload entry format
- * @param {Object} peer - qBittorrent peer object (from peersDetailed)
+ * Peers are already normalized in qbittorrentManager (downloadRate, uploadRate, etc.)
+ * @param {Object} peer - qBittorrent peer object (from peersDetailed, already normalized)
  * @param {Object} torrent - Parent torrent object (for file info)
  * @returns {Object} Normalized upload entry
  */
 function normalizeQBittorrentPeer(peer, torrent) {
-  const address = peer.address || peer.ip || '';
+  const address = peer.address || '';
   const port = peer.port || 0;
   const trackerDomain = extractTrackerDomain(torrent.trackers || []);
 
@@ -457,13 +460,13 @@ function normalizeQBittorrentPeer(peer, torrent) {
     port,
     software: peer.client || 'Unknown',
     softwareId: null,
-    uploadRate: peer.up_speed || 0,
-    downloadRate: peer.dl_speed || 0,
-    uploadTotal: peer.uploaded || 0,
+    uploadRate: peer.uploadRate || 0,
+    downloadRate: peer.downloadRate || 0,
+    uploadTotal: peer.uploadTotal || 0,
     uploadSession: null,
-    completedPercent: Math.round((peer.progress || 0) * 100),
-    isEncrypted: !!(peer.flags && peer.flags.includes('E')),
-    isIncoming: !!(peer.flags && peer.flags.includes('I')),
+    completedPercent: peer.completedPercent || 0,
+    isEncrypted: peer.isEncrypted || false,
+    isIncoming: peer.isIncoming || false,
     downloadHash: torrent.hash,
     downloadName: torrent.name,
     label: torrent.category || null,
@@ -485,7 +488,7 @@ function extractQBittorrentUploads(torrents) {
 
     for (const peer of peers) {
       // Only include peers we're actively uploading to
-      if (peer.up_speed > 0) {
+      if (peer.uploadRate > 0) {
         uploads.push(normalizeQBittorrentPeer(peer, torrent));
       }
     }

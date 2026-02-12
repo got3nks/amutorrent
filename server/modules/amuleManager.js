@@ -127,6 +127,8 @@ class AmuleManager extends BaseModule {
       // Setup download history tracking on the new client
       if (this.downloadHistoryDB) {
         this.client.setDownloadHistoryDB(this.downloadHistoryDB);
+        // Lazy require to avoid circular dependency (CategoryManager requires amuleManager)
+        this.client.setCategoryNameResolver((amuleId) => require('../lib/CategoryManager').getCategoryNameByAmuleId(amuleId));
         const historyEnabled = config.getConfig()?.history?.enabled !== false;
         this.log(`📜 Download history tracking ${historyEnabled ? 'enabled' : 'disabled'} on new client`);
       }

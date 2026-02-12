@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - Bug Fixes & Improvements
+
+### ✨ Added
+
+- **File Browser for Script Path** - Settings page script path field now has a browse button that opens a file picker modal
+- **Category in Download Events** - `downloadAdded`, `downloadFinished`, `fileDeleted`, and `fileMoved` events now include the `category` field
+- **Delete Event** - Now includes `category` field in the event payload
+
+### 🐛 Fixed
+
+- **fileMoved Event Category** - Category was always `null` in fileMoved events due to missing field in DB row mapping and missing parameter in move queue calls
+- **fileMoved Notification Destination** - Apprise notification showed "To: Unknown" due to field name mismatch (`destination` vs `destPath`)
+- **aMule Category Name Resolution** - aMule category IDs are resolved to human-readable names for event scripting
+- **aMule Relative Path in History** - `downloadFinished` events showed relative `.part` paths (e.g., `003.part/file.mkv`) instead of absolute paths; now only uses absolute paths from aMule shared files
+- **Path Validation Race Condition** - Multiple client connections triggering concurrent `validateAllPaths()` calls caused inconsistent results; now debounced with 500ms delay
+- **Path Validation Error Detail** - Permission check failures now show detailed diagnostics (uid, gid, directory ownership, file mode) instead of generic "Missing write permission"
+- **qBittorrent Downloaded Bytes** - Fixed incorrect field name (`sizeDownloaded` → `downloaded`) in history metadata for qBittorrent
+- **qBittorrent Peer Data** - Normalize peer data at source to match rTorrent format
+- **qBittorrent Peer Counter** - Fix peer counter for qBittorrent downloads in Active Downloads widget
+- **Download History Ratio** - Ratio values now rounded to 2 decimal places
+
+### 🔧 Changed
+
+- **UI Path Display** - AlertBox supports `breakAll` prop for better word-breaking of long paths and hashes
+- **Client Selector** - BitTorrentClientSelector supports `showFullName` prop to always display full client name
+- **Download Normalizer** - rTorrent hash lowercased for consistency, added `category` alias and `finishedTime` field
+- **File Selection Mode in Directory Browser** - `DirectoryBrowserModal` supports `mode="file"` to browse and select files (directories still navigable)
+
+### 📝 Documentation
+
+- **Event Scripting README** - Updated `downloadAdded` event documentation with new `category` field and JSON examples
+- **Installation Docs** - Updated for three-client support
+- **Landing Page** - Updated for three-client support
+
+---
+
 ## [3.1.0] - qBittorrent Support
 
 ### 🎉 Major Release - Three-Client Support

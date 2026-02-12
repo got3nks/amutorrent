@@ -376,7 +376,8 @@ const AddDownloadModal = ({
                 onSelectClient: selectClient,
                 showSelector: showClientSelector,
                 variant: 'buttons',
-                label: null
+                label: null,
+                showFullName: true
               })
             );
           })(),

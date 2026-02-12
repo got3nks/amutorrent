@@ -72,13 +72,15 @@ When an event occurs, your script receives:
 
 | Event | Trigger | Additional JSON Fields |
 |-------|---------|----------------------|
-| `downloadAdded` | New download started | size, username |
-| `downloadFinished` | Download completed | size, downloaded, uploaded, ratio, trackerDomain, path, multiFile |
+| `downloadAdded` | New download started | size, username, category |
+| `downloadFinished` | Download completed | size, downloaded, uploaded, ratio, trackerDomain, category, path, multiFile |
 | `categoryChanged` | Category changed | oldCategory, newCategory, path, multiFile |
-| `fileMoved` | File moved | sourcePath, destPath |
-| `fileDeleted` | File deleted | deletedFromDisk, path, multiFile |
+| `fileMoved` | File moved | category, sourcePath, destPath |
+| `fileDeleted` | File deleted | deletedFromDisk, category, path, multiFile |
 
 **Common fields** (present in all events): `hash`, `filename`, `clientType`
+
+The `category` field contains the item's category name (e.g., `"Movies"`, `"TV Shows"`), or `null` if uncategorized/Default.
 
 The `path` field contains the full path to the file (or the content directory for multi-file torrents). When `multiFile` is `true`, `path` points to a directory containing multiple files.
 
@@ -92,7 +94,8 @@ The `path` field contains the full path to the file (or the content directory fo
   "filename": "ubuntu-24.04-desktop-amd64.iso",
   "size": 6114770944,
   "username": "admin",
-  "clientType": "qbittorrent"
+  "clientType": "qbittorrent",
+  "category": "Linux ISOs"
 }
 ```
 
@@ -108,6 +111,7 @@ The `path` field contains the full path to the file (or the content directory fo
   "uploaded": 1528692736,
   "ratio": 0.25,
   "trackerDomain": "torrent.ubuntu.com",
+  "category": "Linux ISOs",
   "path": "/downloads/ubuntu-24.04-desktop-amd64.iso",
   "multiFile": false
 }
@@ -125,6 +129,7 @@ Multi-file torrent example (path points to the content directory):
   "uploaded": 7516192768,
   "ratio": 0.5,
   "trackerDomain": "tracker.example.com",
+  "category": "TV Shows",
   "path": "/downloads/My.Series.S01.Complete",
   "multiFile": true
 }
@@ -152,6 +157,7 @@ Multi-file torrent example (path points to the content directory):
   "filename": "old-file.zip",
   "clientType": "qbittorrent",
   "deletedFromDisk": true,
+  "category": "Movies",
   "path": "/downloads/old-file.zip",
   "multiFile": false
 }
@@ -164,6 +170,7 @@ Multi-file torrent example (path points to the content directory):
   "hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
   "filename": "movie.mkv",
   "clientType": "rtorrent",
+  "category": "Movies",
   "sourcePath": "/downloads/movie.mkv",
   "destPath": "/media/movies/movie.mkv"
 }

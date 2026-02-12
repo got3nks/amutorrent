@@ -196,13 +196,14 @@ class RtorrentManager extends BaseModule {
    * @param {string} name - Torrent name
    * @param {number} size - Size in bytes (optional)
    * @param {string} username - Username (optional)
+   * @param {string} category - Category/label name (optional)
    */
-  trackDownload(hash, name, size = null, username = null) {
+  trackDownload(hash, name, size = null, username = null, category = null) {
     if (!this.isHistoryEnabled() || !hash) return;
 
     try {
       this.log(`📜 History: tracking rtorrent download - hash: ${hash}, name: ${name}, size: ${size}`);
-      this.downloadHistoryDB.addDownload(hash, name || 'Unknown', size, username, 'rtorrent');
+      this.downloadHistoryDB.addDownload(hash, name || 'Unknown', size, username, 'rtorrent', category);
     } catch (err) {
       logger.warn('[rtorrentManager] Failed to track download:', err.message);
     }
@@ -615,7 +616,7 @@ class RtorrentManager extends BaseModule {
     // Track in history
     const { hash, name } = this.parseMagnetUri(magnetUri);
     if (hash) {
-      this.trackDownload(hash, name || 'Magnet download', null, options.username);
+      this.trackDownload(hash, name || 'Magnet download', null, options.username, options.label || null);
     }
   }
 
@@ -635,7 +636,7 @@ class RtorrentManager extends BaseModule {
     // Track in history
     const { hash, name, size } = this.parseTorrentBuffer(torrentData);
     if (hash) {
-      this.trackDownload(hash, name || 'Torrent download', size, options.username);
+      this.trackDownload(hash, name || 'Torrent download', size, options.username, options.label || null);
     }
   }
 

@@ -516,7 +516,7 @@ class NotificationManager extends BaseModule {
         const newCat = eventData.newCategory || eventData.category || 'None';
         return `${filename}\n${oldCat} → ${newCat}`;
       case 'fileMoved':
-        const dest = eventData.destination || eventData.newPath || 'Unknown';
+        const dest = eventData.destPath || 'Unknown';
         return `Moved: ${filename}\nTo: ${dest}`;
       case 'fileDeleted':
         return `Deleted: ${filename}`;

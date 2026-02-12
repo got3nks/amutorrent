@@ -10,7 +10,8 @@ const { createElement: h, useState, useEffect } = React;
 
 import { useConfig } from '../../hooks/index.js';
 import { useAppState } from '../../contexts/AppStateContext.js';
-import { LoadingSpinner, AlertBox } from '../common/index.js';
+import { LoadingSpinner, AlertBox, IconButton, Input } from '../common/index.js';
+import DirectoryBrowserModal from '../modals/DirectoryBrowserModal.js';
 import {
   ConfigSection,
   ConfigField,
@@ -66,6 +67,7 @@ const SettingsView = () => {
     radarr: false,
     prowlarr: false
   });
+  const [showScriptBrowser, setShowScriptBrowser] = useState(false);
 
   // Load current configuration on mount
   useEffect(() => {
@@ -1185,9 +1187,24 @@ const SettingsView = () => {
           description: 'Full path to the script to execute (must be executable)',
           value: formData.eventScripting?.scriptPath || '',
           onChange: (value) => updateField('eventScripting', 'scriptPath', value),
-          placeholder: '/path/to/script.sh',
           required: formData.eventScripting?.enabled
-        }),
+        },
+          h('div', { className: 'flex gap-2' },
+            h(Input, {
+              value: formData.eventScripting?.scriptPath || '',
+              onChange: (e) => updateField('eventScripting', 'scriptPath', e.target.value),
+              placeholder: '/path/to/script.sh',
+              className: 'flex-1 font-mono'
+            }),
+            h(IconButton, {
+              type: 'button',
+              icon: 'folder',
+              variant: 'secondary',
+              onClick: () => setShowScriptBrowser(true),
+              title: 'Browse for script file'
+            })
+          )
+        ),
         h(ConfigField, {
           label: 'Timeout (ms)',
           description: 'Maximum time to wait for script execution before killing it',
@@ -1231,6 +1248,22 @@ const SettingsView = () => {
         )
       )
     ),
+
+    // Script file browser modal
+    h(DirectoryBrowserModal, {
+      show: showScriptBrowser,
+      mode: 'file',
+      initialPath: (() => {
+        const sp = formData.eventScripting?.scriptPath || '';
+        if (!sp) return '/';
+        const lastSlash = sp.lastIndexOf('/');
+        return lastSlash > 0 ? sp.substring(0, lastSlash) : '/';
+      })(),
+      onSelect: (filePath) => {
+        updateField('eventScripting', 'scriptPath', filePath);
+      },
+      onClose: () => setShowScriptBrowser(false)
+    }),
 
     // Test summary
     h(TestSummary, {
