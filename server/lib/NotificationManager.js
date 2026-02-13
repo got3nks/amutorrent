@@ -480,21 +480,17 @@ class NotificationManager extends BaseModule {
    * @returns {string} Title
    */
   _buildNotificationTitle(eventType, eventData) {
-    const clientType = eventData.clientType ? ` (${eventData.clientType})` : '';
+    const client = eventData.clientType || null;
+    let label;
     switch (eventType) {
-      case 'downloadAdded':
-        return `Download Started${clientType}`;
-      case 'downloadFinished':
-        return `Download Complete${clientType}`;
-      case 'categoryChanged':
-        return `Category Changed${clientType}`;
-      case 'fileMoved':
-        return `File Moved${clientType}`;
-      case 'fileDeleted':
-        return `File Deleted${clientType}`;
-      default:
-        return `aMuTorrent Event${clientType}`;
+      case 'downloadAdded':    label = '⬇️ New Download'; break;
+      case 'downloadFinished': label = '✅ Download Complete'; break;
+      case 'categoryChanged':  label = '🏷️ Category Changed'; break;
+      case 'fileMoved':        label = '📦 File Moved'; break;
+      case 'fileDeleted':      label = '🗑️ File Deleted'; break;
+      default:                 label = 'aMuTorrent Event'; break;
     }
+    return client ? `${label} · ${client}` : label;
   }
 
   /**
@@ -505,21 +501,23 @@ class NotificationManager extends BaseModule {
    */
   _buildNotificationBody(eventType, eventData) {
     const filename = eventData.filename || eventData.name || 'Unknown file';
+    const category = eventData.category || null;
+    const catLine = category ? `\n🏷️ ${category}` : '';
 
     switch (eventType) {
       case 'downloadAdded':
-        return `Started downloading: ${filename}`;
+        return `${filename}${catLine}`;
       case 'downloadFinished':
-        return `Completed: ${filename}`;
+        return `${filename}${catLine}`;
       case 'categoryChanged':
         const oldCat = eventData.oldCategory || 'None';
         const newCat = eventData.newCategory || eventData.category || 'None';
-        return `${filename}\n${oldCat} → ${newCat}`;
+        return `${filename}\n🏷️ ${oldCat} → ${newCat}`;
       case 'fileMoved':
         const dest = eventData.destPath || 'Unknown';
-        return `Moved: ${filename}\nTo: ${dest}`;
+        return `${filename}\n📂 ${dest}${catLine}`;
       case 'fileDeleted':
-        return `Deleted: ${filename}`;
+        return `${filename}${catLine}`;
       default:
         return filename;
     }

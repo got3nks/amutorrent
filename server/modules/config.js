@@ -29,7 +29,6 @@ const CLEANUP_HOUR = 3;              // Run cleanup at 3 AM
  * Format: { envVar: { path, type, enablesIntegration } }
  */
 const ENV_VAR_MAP = {
-  DEMO_MODE: { path: 'demoMode', type: 'boolean' },
   PORT: { path: 'server.port', type: 'int' },
   WEB_AUTH_ENABLED: { path: 'server.auth.enabled', type: 'boolean' },
   WEB_AUTH_PASSWORD: { path: 'server.auth.password', type: 'string' },
@@ -234,7 +233,7 @@ class Config extends BaseModule {
   getDefaults() {
     return {
       version: '1.0',
-      demoMode: false,  // Demo mode - generates fake data instead of fetching from real clients
+      // Note: demoMode is env-only (DEMO_MODE=true), not persisted to config.json
       firstRunCompleted: false,
       lastSeenVersion: null,  // Tracks which version changelog the user has seen
       server: {
@@ -725,7 +724,7 @@ class Config extends BaseModule {
   // ==========================================================================
 
   get DEMO_MODE() {
-    return this.runtimeConfig?.demoMode || false;
+    return process.env.DEMO_MODE === 'true';
   }
 
   get PORT() {

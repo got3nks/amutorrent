@@ -530,10 +530,18 @@ const CategoryModal = ({
               mappingWarnings.rtorrent && h(AlertBox, { type: 'warning', className: 'mt-2' }, mappingWarnings.rtorrent)
             ),
 
-            // Note: qBittorrent doesn't need path mapping - it handles moves/deletes natively via API
+            // qBittorrent info message (shown when qBittorrent is enabled)
+            isQbittorrentEnabled && h('div', null,
+              h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1' },
+                'qBittorrent → App path'
+              ),
+              h('p', { className: 'text-sm text-gray-600 dark:text-gray-400 italic' },
+                'Not required — file operations use qBittorrent\'s native API.'
+              )
+            ),
 
             // Message if no clients need path mapping
-            !isAmuleEnabled && !isRtorrentEnabled && h('p', {
+            !isAmuleEnabled && !isRtorrentEnabled && !isQbittorrentEnabled && h('p', {
               className: 'text-sm text-gray-500 dark:text-gray-400 italic'
             }, 'No download clients connected. Connect clients to configure path mappings.')
           )

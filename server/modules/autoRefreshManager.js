@@ -10,7 +10,6 @@ const BaseModule = require('../lib/BaseModule');
 const { getDiskSpace } = require('../lib/diskSpace');
 const { getCpuUsage } = require('../lib/cpuUsage');
 const dataFetchService = require('../lib/DataFetchService');
-const { extractTrackerDomain } = require('../lib/downloadNormalizer');
 
 // Singleton managers - imported directly instead of injected
 const amuleManager = require('./amuleManager');
@@ -276,9 +275,9 @@ class AutoRefreshManager extends BaseModule {
         const hash = d.hash?.toLowerCase();
         if (!hash) continue;
 
-        // Detect external additions (not in database)
-        if (!knownHashes.has(hash)) {
-          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'amule');
+        // Detect external additions (not in database) - only for incomplete downloads
+        if (!knownHashes.has(hash) && d.progress < 100) {
+          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'amule', categoryByHash.get(hash) || null);
           knownHashes.add(hash); // Add to known set to avoid duplicate detection
         }
 
@@ -325,6 +324,7 @@ class AutoRefreshManager extends BaseModule {
           ...existing,
           size,
           name: f.name || existing.name,
+          downloaded: size, // Shared file = complete, downloaded equals size
           uploaded,
           ratio,
           directory: amuleDir || existing.directory || null,
@@ -343,7 +343,7 @@ class AutoRefreshManager extends BaseModule {
 
         // Detect external additions (not in database) - only for incomplete downloads
         if (!knownHashes.has(hash) && d.progress < 100) {
-          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'rtorrent');
+          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'rtorrent', categoryByHash.get(hash) || d.label || null);
           knownHashes.add(hash); // Add to known set to avoid duplicate detection
         }
 
@@ -353,9 +353,6 @@ class AutoRefreshManager extends BaseModule {
           activeHashes.add(hash);
         }
 
-        // Extract primary tracker domain (with subdomain removal)
-        const trackerDomain = extractTrackerDomain(d.trackers);
-
         // Store metadata for potential updates (including transfer stats)
         metadataMap.set(hash, {
           size: d.size,
@@ -363,7 +360,7 @@ class AutoRefreshManager extends BaseModule {
           downloaded: d.downloaded || 0,
           uploaded: d.uploadTotal || 0,
           ratio: d.ratio || 0,
-          trackerDomain,
+          trackerDomain: d.trackerDomain || null,
           directory: d.directory || null,
           multiFile: d.isMultiFile || false,
           category: categoryByHash.get(hash) || d.label || null,
@@ -380,7 +377,7 @@ class AutoRefreshManager extends BaseModule {
 
         // Detect external additions (not in database) - only for incomplete downloads
         if (!knownHashes.has(hash) && d.progress < 100) {
-          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'qbittorrent');
+          this.downloadHistoryDB.addExternalDownload(hash, d.name, d.size, 'qbittorrent', categoryByHash.get(hash) || d.category || null);
           knownHashes.add(hash); // Add to known set to avoid duplicate detection
         }
 
@@ -390,9 +387,6 @@ class AutoRefreshManager extends BaseModule {
           activeHashes.add(hash);
         }
 
-        // Extract primary tracker domain (with subdomain removal)
-        const trackerDomain = extractTrackerDomain(d.trackers);
-
         // Store metadata for potential updates (including transfer stats)
         metadataMap.set(hash, {
           size: d.size,
@@ -400,7 +394,7 @@ class AutoRefreshManager extends BaseModule {
           downloaded: d.downloaded || 0,
           uploaded: d.uploadTotal || 0,
           ratio: d.ratio || 0,
-          trackerDomain,
+          trackerDomain: d.trackerDomain || null,
           directory: d.directory || null,
           multiFile: d.isMultiFile || false,
           category: categoryByHash.get(hash) || d.category || null,

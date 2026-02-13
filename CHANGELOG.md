@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2] - UI Polish & Fixes
+
+### ✨ Added
+
+- **Notification Emojis & Redesign** - Apprise notifications now use emoji titles (⬇️ ✅ 🏷️ 📦 🗑️), show client type in title with dot separator, and category with 🏷️ tag
+- **MobileStatusTabs Icons** - Status filter pills now show icons from STATUS_DISPLAY_MAP
+- **CategoryModal qBittorrent Info** - Path mapping section shows message that qBittorrent doesn't need mapping (uses native API)
+
+### 🐛 Fixed
+
+- **Demo Mode Environment Variable** - `DEMO_MODE=true` env var was overridden by config.json; now reads directly from `process.env`
+- **Website Stale Screenshots** - Removed 12 stale screenshots, updated carousels from 12→6 desktop slides and 4→2 mobile slide groups
+- **Docs Sync Script** - Screenshot sync now cleans destination before copying to prevent stale files
+
+---
+
 ## [3.1.1] - Bug Fixes & Improvements
 
 ### ✨ Added

@@ -537,9 +537,10 @@ class DownloadHistory {
    * @param {string} filename - File name
    * @param {number} size - File size in bytes
    * @param {string} clientType - Client type ('amule' or 'rtorrent')
+   * @param {string} category - Optional category name
    */
-  addExternalDownload(hash, filename, size, clientType = 'amule') {
-    this.addDownload(hash, filename, size, 'external', clientType);
+  addExternalDownload(hash, filename, size, clientType = 'amule', category = null) {
+    this.addDownload(hash, filename, size, 'external', clientType, category);
     logger.log(`📥 History: Detected external ${clientType} download - ${filename}`);
   }
 

@@ -7,7 +7,8 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { STATUS_LABELS } from '../../utils/index.js';
+import { STATUS_LABELS, STATUS_DISPLAY_MAP } from '../../utils/index.js';
+import Icon from './Icon.js';
 
 const { createElement: h } = React;
 
@@ -73,17 +74,26 @@ const MobileStatusTabs = ({ activeTab, statusCounts = {}, onTabChange, totalCoun
       const isActive = activeTab === tab.key;
 
       // Don't show counts when using showAllTabs (server-side filtering has no client-side counts)
-      const displayText = showAllTabs ? tab.label : `${tab.label} (${tab.count})`;
+      const countText = showAllTabs ? '' : ` (${tab.count})`;
+      const statusInfo = STATUS_DISPLAY_MAP[tab.key];
+      const iconName = statusInfo?.icon || null;
 
       return h('button', {
         key: tab.key,
         onClick: () => onTabChange(tab.key),
-        className: `px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+        className: `flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
           isActive
             ? 'bg-blue-600 text-white'
             : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
         }`
-      }, displayText);
+      },
+        iconName && h(Icon, {
+          name: iconName,
+          size: 12,
+          className: isActive ? 'text-white' : (statusInfo.iconClass || '')
+        }),
+        `${tab.label}${countText}`
+      );
     }),
     trailingContent
   );

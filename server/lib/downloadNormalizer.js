@@ -190,7 +190,7 @@ function normalizeAmuleUpload(upload) {
 function normalizeRtorrentDownload(download) {
   const trackers = download.trackers || [];
   const trackerDomain = extractTrackerDomain(trackers);
-  const progress = download.progress ? Math.round(download.progress * 100) : 0;
+  const progress = download.progress ? parseFloat((download.progress * 100).toFixed(2)) : 0;
 
   return {
     clientType: 'rtorrent',
@@ -375,7 +375,7 @@ function getQBittorrentMessage(torrent) {
  * @returns {Object} Normalized download
  */
 function normalizeQBittorrentDownload(torrent) {
-  const progress = Math.round((torrent.progress || 0) * 100);
+  const progress = parseFloat(((torrent.progress || 0) * 100).toFixed(2));
   const trackers = torrent.trackersDetailed || [];
 
   // Find the best tracker (most peers) instead of just using the first one
@@ -397,7 +397,7 @@ function normalizeQBittorrentDownload(torrent) {
     hash: torrent.hash.toLowerCase(),
     name: torrent.name,
     size: torrent.size || torrent.total_size,
-    downloaded: torrent.downloaded || torrent.completed,
+    downloaded: torrent.completed || torrent.downloaded,
     progress,
     speed: torrent.dlspeed || 0,
     uploadSpeed: torrent.upspeed || 0,

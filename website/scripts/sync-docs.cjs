@@ -160,6 +160,14 @@ function syncScreenshots() {
     fs.mkdirSync(SCREENSHOTS_DEST, { recursive: true });
   }
 
+  // Clean destination to remove stale screenshots
+  const existing = fs.readdirSync(SCREENSHOTS_DEST).filter(f =>
+    f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')
+  );
+  for (const file of existing) {
+    fs.unlinkSync(path.join(SCREENSHOTS_DEST, file));
+  }
+
   const files = fs.readdirSync(SCREENSHOTS_SOURCE).filter(f =>
     f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')
   );
