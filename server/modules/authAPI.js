@@ -140,10 +140,25 @@ class AuthAPI extends BaseModule {
         const authEnabled = config.getAuthEnabled();
         const authenticated = req.session && req.session.authenticated;
 
-        res.json({
+        const result = {
           authEnabled,
           authenticated: authenticated || false
-        });
+        };
+
+        // Include delay/block info for unauthenticated clients
+        if (authEnabled && !authenticated) {
+          const clientIp = getClientIP(req);
+          if (authManager.checkIPBlocked(clientIp)) {
+            result.retryAfter = Math.ceil(authManager.getBlockTimeRemaining(clientIp) / 1000);
+          } else {
+            const attemptCount = authManager.getAttemptCount(clientIp);
+            if (attemptCount > 0) {
+              result.retryDelay = authManager.getDelayForAttempts(attemptCount) / 1000;
+            }
+          }
+        }
+
+        res.json(result);
       } catch (err) {
         this.log('❌ Auth status error:', err);
         res.json({

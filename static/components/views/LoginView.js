@@ -28,7 +28,7 @@ export default function LoginView() {
   const countdownRef = useRef(null);
   const retryRef = useRef(null);
 
-  const { login, error, clearError } = useAuth();
+  const { login, error, clearError, loginDelay } = useAuth();
 
   // Countdown during submission (progressive delay)
   useEffect(() => {
@@ -65,6 +65,15 @@ export default function LoginView() {
     }, 1000);
     return () => clearInterval(retryRef.current);
   }, [retryCountdown > 0]);
+
+  // Initialize timers from server-reported delay on mount
+  useEffect(() => {
+    if (loginDelay.retryAfter > 0) {
+      setRetryCountdown(loginDelay.retryAfter);
+    } else if (loginDelay.retryDelay > 0) {
+      setPendingDelay(loginDelay.retryDelay);
+    }
+  }, [loginDelay]);
 
   const handleClearError = useCallback(() => {
     clearError();
@@ -120,12 +129,14 @@ export default function LoginView() {
       // Login Form
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8' },
         h('form', { className: 'space-y-6', onSubmit: handleSubmit },
-          // Error Message
-          error && h('div', { className: 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4' },
+          // Error Message (also shown on page load when IP is blocked)
+          (error || retryCountdown > 0) && h('div', { className: 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4' },
             h('div', { className: 'flex items-start' },
               h(Icon, { name: 'warning', size: 20, className: 'text-red-600 dark:text-red-400 mt-0.5 mr-3 flex-shrink-0' }),
               h('div', { className: 'flex-1' },
-                h('p', { className: 'text-sm text-red-800 dark:text-red-200 font-medium' }, error),
+                h('p', { className: 'text-sm text-red-800 dark:text-red-200 font-medium' },
+                  error || 'Too many failed attempts.'
+                ),
                 retryCountdown > 0 && h('p', { className: 'text-sm text-red-600 dark:text-red-300 mt-1' },
                   `Try again in ${formatCountdown(retryCountdown)}`
                 )

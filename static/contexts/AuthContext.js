@@ -23,6 +23,9 @@ export const AuthProvider = ({ children }) => {
   // First-run state (moved from AppContent)
   const [isFirstRun, setIsFirstRun] = useState(null);
 
+  // Login delay info from status check (persists across page loads)
+  const [loginDelay, setLoginDelay] = useState({ retryDelay: 0, retryAfter: 0 });
+
   /**
    * Check authentication status
    */
@@ -33,6 +36,10 @@ export const AuthProvider = ({ children }) => {
 
       setAuthEnabled(data.authEnabled);
       setIsAuthenticated(data.authenticated);
+      setLoginDelay({
+        retryDelay: data.retryDelay || 0,
+        retryAfter: data.retryAfter || 0
+      });
       return data;
     } catch (err) {
       console.error('Failed to check auth status:', err);
@@ -99,6 +106,7 @@ export const AuthProvider = ({ children }) => {
       if (data.success) {
         setIsAuthenticated(true);
         setError(null);
+        setLoginDelay({ retryDelay: 0, retryAfter: 0 });
         return { success: true };
       } else {
         setError(data.message || 'Login failed');
@@ -150,6 +158,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     isFirstRun,
+    loginDelay,
 
     // Methods
     login,
@@ -157,7 +166,7 @@ export const AuthProvider = ({ children }) => {
     checkAuthStatus,
     clearError,
     completeFirstRun
-  }), [isAuthenticated, authEnabled, loading, error, isFirstRun, login, logout, checkAuthStatus, clearError, completeFirstRun]);
+  }), [isAuthenticated, authEnabled, loading, error, isFirstRun, loginDelay, login, logout, checkAuthStatus, clearError, completeFirstRun]);
 
   return h(AuthContext.Provider, { value }, children);
 };
