@@ -404,7 +404,7 @@ async function startServer() {
     // In first-run mode, only start HTTP server and WebSocket
     // Don't initialize aMule, GeoIP, or Arr services until configured
     server.listen(config.PORT, config.HOST, () => {
-      log(`🚀 aMuTorrent web UI running on http://${config.HOST === '0.0.0.0' ? 'localhost' : config.HOST}:${config.PORT} (bound to ${config.HOST})`);
+      log(`🚀 aMuTorrent web UI running on http://localhost:${config.PORT} — ${config.HOST === '::' ? 'listening on all interfaces' : `bound to ${config.HOST}`}`);
       log(`📊 WebSocket server ready`);
       log(`⚙️  SETUP MODE - Complete configuration via web interface`);
     });
@@ -417,7 +417,7 @@ async function startServer() {
 
     // Start HTTP server
     server.listen(config.PORT, config.HOST, () => {
-      log(`🚀 aMuTorrent web UI running on http://${config.HOST === '0.0.0.0' ? 'localhost' : config.HOST}:${config.PORT} (bound to ${config.HOST})`);
+      log(`🚀 aMuTorrent web UI running on http://localhost:${config.PORT} — ${config.HOST === '::' ? 'listening on all interfaces' : `bound to ${config.HOST}`}`);
       log(`📊 WebSocket server ready`);
       log(`🔌 aMule connection: ${config.AMULE_HOST}:${config.AMULE_PORT}`);
     });
