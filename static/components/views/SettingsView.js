@@ -310,6 +310,10 @@ const SettingsView = () => {
       }, 5000);
     } catch (err) {
       setSaveError(err.message);
+      // Auto-open User Management section if the error is about missing admin accounts
+      if (err.message?.includes('admin') && err.message?.includes('User Management')) {
+        toggleSection('users', true);
+      }
     }
   };
 
@@ -557,7 +561,7 @@ const SettingsView = () => {
       )
     ),
 
-    // User Management (admin only, auth enabled)
+    // User Management (shown when auth is enabled)
     formData.server.auth?.enabled && h(ConfigSection, {
       title: 'User Management',
       description: 'Manage user accounts and permissions',
