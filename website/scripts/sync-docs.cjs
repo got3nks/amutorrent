@@ -31,6 +31,9 @@ const TITLE_MAP = {
   'PROWLARR': 'Prowlarr',
   'RTORRENT': 'rTorrent',
   'QBITTORRENT': 'qBittorrent',
+  'DELUGE': 'Deluge',
+  'TRANSMISSION': 'Transmission',
+  'USERS': 'User Management',
   'INSTALLATION': 'Installation',
   'SCRIPTING': 'Scripting',
 };
@@ -47,6 +50,9 @@ const DESC_MAP = {
   'PROWLARR': 'Search torrents via Prowlarr indexers',
   'RTORRENT': 'Connect aMuTorrent to rTorrent via XML-RPC',
   'QBITTORRENT': 'Connect aMuTorrent to qBittorrent via WebUI API',
+  'DELUGE': 'Connect aMuTorrent to Deluge via WebUI JSON-RPC',
+  'TRANSMISSION': 'Connect aMuTorrent to Transmission via RPC',
+  'USERS': 'Multi-user authentication, capabilities, and SSO',
   'INSTALLATION': 'How to install aMuTorrent',
   'SCRIPTING': 'Custom event scripts for automation',
 };

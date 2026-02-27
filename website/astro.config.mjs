@@ -9,7 +9,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'aMuTorrent',
-			description: 'Unified web interface for aMule, rTorrent, and qBittorrent with real-time updates',
+			description: 'Unified web interface for aMule, rTorrent, qBittorrent, Deluge, and Transmission with real-time updates',
 			logo: {
 				src: './src/assets/logo.png',
 				replacesTitle: false,
@@ -32,7 +32,9 @@ export default defineConfig({
 					items: [
 						{ label: 'aMule Setup', slug: 'docs/amule' },
 						{ label: 'rTorrent Setup', slug: 'docs/rtorrent' },
-					{ label: 'qBittorrent Setup', slug: 'docs/qbittorrent' },
+						{ label: 'qBittorrent Setup', slug: 'docs/qbittorrent' },
+						{ label: 'Deluge Setup', slug: 'docs/deluge' },
+						{ label: 'Transmission Setup', slug: 'docs/transmission' },
 					],
 				},
 				{
@@ -47,6 +49,7 @@ export default defineConfig({
 				{
 					label: 'Advanced',
 					items: [
+						{ label: 'User Management', slug: 'docs/users' },
 						{ label: 'Scripting', slug: 'docs/scripting' },
 						{ label: 'API Reference', slug: 'docs/api' },
 						{ label: 'Development', slug: 'docs/development' },

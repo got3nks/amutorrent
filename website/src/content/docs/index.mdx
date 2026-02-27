@@ -1,9 +1,9 @@
 ---
 title: aMuTorrent
-description: Unified web interface for aMule, rTorrent, and qBittorrent with real-time updates
+description: Unified web interface for aMule, rTorrent, qBittorrent, Deluge, and Transmission with real-time updates
 template: splash
 hero:
-  tagline: A modern, unified web interface for managing aMule, rTorrent, and qBittorrent downloads with real-time updates, category management, and integrations with Sonarr, Radarr, and Prowlarr.
+  tagline: A modern, unified web interface for managing aMule, rTorrent, qBittorrent, Deluge, and Transmission downloads with real-time updates, category management, and integrations with Sonarr, Radarr, and Prowlarr.
   image:
     file: ../../assets/logo.png
   actions:
@@ -48,22 +48,22 @@ import Carousel from '../../components/Carousel.astro';
 
 <CardGrid>
   <Card title="Multi-Client Support" icon="puzzle">
-    Manage aMule (ED2K), rTorrent, and qBittorrent from a single interface. View unified download queues, shared files, and upload activity.
+    Manage aMule (ED2K), rTorrent, qBittorrent, Deluge, and Transmission from a single interface. Run multiple instances of each client simultaneously.
+  </Card>
+  <Card title="User Management" icon="open-book">
+    Multi-user authentication with capability-based permissions. Control who can add, edit, or delete downloads. Trusted proxy SSO support.
   </Card>
   <Card title="Real-Time Updates" icon="rocket">
     WebSocket-powered live updates for download progress, speeds, and peer information. No page refreshes needed.
   </Card>
   <Card title="Category Management" icon="list-format">
-    Organize downloads with categories. Automatic path assignment and category-based file organization.
+    Organize downloads with categories. Automatic path assignment and category-based file organization across all clients.
   </Card>
   <Card title="Arr Integration" icon="setting">
     Native integration with Sonarr, Radarr, and Prowlarr. Search for content and auto-trigger missing episode/movie searches.
   </Card>
   <Card title="Push Notifications" icon="approve-check">
     Get notified via Discord, Telegram, Slack, Pushover, ntfy, and 80+ other services using Apprise integration.
-  </Card>
-  <Card title="GeoIP Mapping" icon="star">
-    Visualize peer locations with MaxMind GeoIP integration. See where your downloads are coming from.
   </Card>
 </CardGrid>
 
