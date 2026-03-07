@@ -894,6 +894,13 @@ const SetupWizardView = ({ onComplete }) => {
             h('p', {}, 'rTorrent password is set via RTORRENT_PASSWORD environment variable.')
           ),
 
+          h(EnableToggle, {
+            label: 'Use SSL (HTTPS)',
+            description: 'Connect to rTorrent using HTTPS',
+            enabled: formData.rtorrent?.useSsl || false,
+            onChange: (enabled) => updateField('rtorrent', 'useSsl', enabled)
+          }),
+
           clientTestResults.rtorrent && h(TestResultIndicator, {
             result: clientTestResults.rtorrent,
             label: 'rTorrent Connection Test'
@@ -1436,7 +1443,8 @@ const SetupWizardView = ({ onComplete }) => {
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.rtorrent.host}`),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.rtorrent.port}`),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.rtorrent.path || '/RPC2'}`),
-        formData.rtorrent.username && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.rtorrent.username}`)
+        formData.rtorrent.username && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.rtorrent.username}`),
+        formData.rtorrent.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
       ),
 
       // qBittorrent

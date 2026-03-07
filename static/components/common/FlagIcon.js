@@ -19,8 +19,7 @@ const FlagIcon = ({ countryCode, size = 20, className = '', title }) => {
     return null;
   }
 
-  // Use flag-icons CDN for SVG flags
-  const flagUrl = `https://purecatamphetamine.github.io/country-flag-icons/3x2/${countryCode}.svg`;
+  const flagUrl = `/static/flags/${countryCode}.svg`;
 
   return h('img', {
     src: flagUrl,

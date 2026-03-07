@@ -60,6 +60,7 @@ class ConfigAPI extends BaseModule {
       rtorrentPath: config.isFromEnv('rtorrent.path'),
       rtorrentUsername: config.isFromEnv('rtorrent.username'),
       rtorrentPassword: config.isFromEnv('rtorrent.password'),
+      rtorrentUseSsl: config.isFromEnv('rtorrent.useSsl'),
       qbittorrentEnabled: config.isFromEnv('qbittorrent.enabled'),
       qbittorrentHost: config.isFromEnv('qbittorrent.host'),
       qbittorrentPort: config.isFromEnv('qbittorrent.port'),
@@ -297,7 +298,8 @@ class ConfigAPI extends BaseModule {
           rtorrent.port,
           rtorrent.path,
           rtorrent.username,
-          password
+          password,
+          rtorrent.useSsl
         );
         this.logTestResult('rtorrent connection', results.rtorrent);
       }

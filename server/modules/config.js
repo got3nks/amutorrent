@@ -102,6 +102,7 @@ const CLIENT_ENV_FIELDS = {
     PATH: { field: 'path', type: 'string' },
     USERNAME: { field: 'username', type: 'string' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
+    USE_SSL: { field: 'useSsl', type: 'boolean' },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }
   },

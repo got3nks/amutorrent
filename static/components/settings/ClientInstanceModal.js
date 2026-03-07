@@ -32,7 +32,8 @@ const CLIENT_FIELDS = {
     { field: 'port', label: 'Port', description: 'rTorrent XML-RPC port (default: 8000)', placeholder: '8000', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8000 },
     { field: 'path', label: 'XML-RPC Path', description: 'Path for XML-RPC endpoint (default: /RPC2)', placeholder: '/RPC2', defaultValue: '/RPC2' },
     { field: 'username', label: 'Username (Optional)', description: 'Username for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required' },
-    { field: 'password', label: 'Password (Optional)', description: 'Password for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', sensitive: true }
+    { field: 'password', label: 'Password (Optional)', description: 'Password for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', sensitive: true },
+    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to rTorrent using HTTPS', toggle: true }
   ],
   qbittorrent: [
     { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', required: true },
@@ -68,7 +69,7 @@ const TYPE_LABELS = {
 
 const TYPE_DEFAULTS = {
   amule: { host: '127.0.0.1', port: 4712, password: '', sharedFilesReloadIntervalHours: 3 },
-  rtorrent: { host: '127.0.0.1', port: 8000, path: '/RPC2', username: '', password: '' },
+  rtorrent: { host: '127.0.0.1', port: 8000, path: '/RPC2', username: '', password: '', useSsl: false },
   qbittorrent: { host: '127.0.0.1', port: 8080, username: 'admin', password: '', useSsl: false },
   deluge: { host: '127.0.0.1', port: 8112, password: '', useSsl: false },
   transmission: { host: '127.0.0.1', port: 9091, path: '/transmission/rpc', username: '', password: '', useSsl: false }

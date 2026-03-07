@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - rTorrent HTTPS, Self-Hosted Flags & Script Debugging
+
+### ✨ Added
+
+- **rTorrent HTTPS Support** - Connect to rTorrent XML-RPC endpoints over HTTPS/SSL, matching qBittorrent, Deluge, and Transmission. Configurable via Settings UI, `RTORRENT_USE_SSL` env var, or config.json
+- **Self-Hosted Country Flags** - Country flag SVGs are now bundled locally instead of loading from an external CDN, eliminating Content Security Policy issues and external dependencies
+- **Self-Hosted Chart.js** - Chart.js is now bundled locally instead of loading from jsdelivr CDN, removing the last external script dependency
+- **Event Script CRLF Detection** - Scripts with Windows line endings (CRLF) are detected before execution with a clear warning and fix command in logs
+
+### 🐛 Fixed
+
+- **Event Script Error Logging** - stderr output is now always logged regardless of exit code, and stdout is included on failures for easier debugging
+- **Settings Auto-Scroll on Mobile** - Fixed section auto-scroll not working on mobile when expanding sections that stretch the page content
+
+### 🔒 Security
+
+- **Tighter CSP** - Removed `cdn.jsdelivr.net` from `script-src` Content Security Policy directive — all assets are now self-hosted
+
+---
+
 ## [3.2.0] - Five-Client Support, Multi-Instance & User Management
 
 ### 🎉 Major Release - Five Download Clients & Multi-User

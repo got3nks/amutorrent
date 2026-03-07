@@ -1,12 +1,12 @@
 # rTorrent Integration
 
-aMuTorrent connects to rTorrent via XML-RPC over HTTP, allowing you to manage BitTorrent downloads.
+aMuTorrent connects to rTorrent via XML-RPC over HTTP/HTTPS, allowing you to manage BitTorrent downloads.
 
 > **Alternative:** aMuTorrent also supports [qBittorrent](./QBITTORRENT.md), [Deluge](./DELUGE.md), and [Transmission](./TRANSMISSION.md). You can use multiple BitTorrent clients simultaneously.
 
 ## Requirements
 
-- rTorrent with XML-RPC enabled over HTTP
+- rTorrent with XML-RPC enabled over HTTP or HTTPS
 - Typically requires a web server (nginx, lighttpd) to expose XML-RPC
 
 ## Configuration
@@ -21,6 +21,7 @@ aMuTorrent connects to rTorrent via XML-RPC over HTTP, allowing you to manage Bi
    - **Port**: XML-RPC port (default: `8000`)
    - **Path**: XML-RPC endpoint path (default: `/RPC2`)
    - **Username/Password**: If HTTP authentication is required
+   - **Use SSL (HTTPS)**: Enable if your rTorrent XML-RPC endpoint uses HTTPS
 
 ### Via Environment Variables
 
@@ -31,6 +32,7 @@ RTORRENT_PORT=8000
 RTORRENT_PATH=/RPC2
 RTORRENT_USERNAME=user
 RTORRENT_PASSWORD=pass
+RTORRENT_USE_SSL=false
 ```
 
 ### Via config.json
@@ -43,7 +45,8 @@ RTORRENT_PASSWORD=pass
     "port": 8000,
     "path": "/RPC2",
     "username": "",
-    "password": ""
+    "password": "",
+    "useSsl": false
   }
 }
 ```

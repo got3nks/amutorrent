@@ -15,6 +15,7 @@ class RtorrentHandler {
     this.path = options.path || '/RPC2';
     this.username = options.username || null;
     this.password = options.password || null;
+    this.useSsl = options.useSsl || false;
 
     this.client = null;
     this.connected = false;
@@ -38,7 +39,14 @@ class RtorrentHandler {
       };
     }
 
-    this.client = xmlrpc.createClient(clientOptions);
+    // Allow self-signed certificates when using SSL
+    if (this.useSsl) {
+      clientOptions.rejectUnauthorized = false;
+    }
+
+    this.client = this.useSsl
+      ? xmlrpc.createSecureClient(clientOptions)
+      : xmlrpc.createClient(clientOptions);
     return this;
   }
 

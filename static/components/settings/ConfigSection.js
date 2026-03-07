@@ -41,16 +41,16 @@ const ConfigSection = ({ title, description, defaultOpen = true, open, onToggle,
   };
 
   // Auto-scroll to section header on mobile when user opens it.
-  // Double-rAF ensures the browser has fully laid out the expanded content
-  // before calculating the scroll position.
+  // setTimeout gives the browser enough time to fully lay out expanded content
+  // before calculating the scroll position (rAF alone isn't sufficient when
+  // newly-rendered content stretches the page height).
   useEffect(() => {
     if (isOpen && userToggledRef.current && sectionRef.current && isMobile) {
       userToggledRef.current = false;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-      });
+      const timer = setTimeout(() => {
+        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 

@@ -9,7 +9,7 @@ let chartJsPromise = null;
 let chartJsLoaded = false;
 
 /**
- * Load Chart.js dynamically from CDN
+ * Load Chart.js dynamically
  * @returns {Promise<void>}
  */
 export const loadChartJs = () => {
@@ -26,7 +26,7 @@ export const loadChartJs = () => {
   // Start loading
   chartJsPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    script.src = '/static/dist/chart.umd.min.js';
     script.async = true;
 
     script.onload = () => {

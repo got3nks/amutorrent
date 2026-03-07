@@ -167,6 +167,7 @@ services:
       - RTORRENT_PATH=/RPC2
       - RTORRENT_USERNAME=user
       - RTORRENT_PASSWORD=pass  # Locks UI editing
+      - RTORRENT_USE_SSL=false
 
       # qBittorrent Connection (optional)
       - QBITTORRENT_ENABLED=true
@@ -258,6 +259,7 @@ services:
 | `RTORRENT_PATH` | `/RPC2` | XML-RPC endpoint path |
 | `RTORRENT_USERNAME` | - | HTTP auth username (if required) |
 | `RTORRENT_PASSWORD` | - | HTTP auth password (locks UI editing) |
+| `RTORRENT_USE_SSL` | `false` | Use HTTPS for XML-RPC connection |
 
 #### qBittorrent Connection
 

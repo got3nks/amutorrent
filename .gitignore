@@ -31,6 +31,7 @@ pids/
 # Build outputs
 static/output.css
 static/dist/
+!static/dist/chart.umd.min.js
 dist/
 build/
 

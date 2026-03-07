@@ -169,9 +169,10 @@ async function testAmuleConnection(host, port, password) {
  * @param {string} rpcPath - XML-RPC path (e.g., /RPC2)
  * @param {string} username - Optional username for basic auth
  * @param {string} password - Optional password for basic auth
+ * @param {boolean} useSsl - Whether to use HTTPS
  * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
  */
-async function testRtorrentConnection(host, port, rpcPath, username, password) {
+async function testRtorrentConnection(host, port, rpcPath, username, password, useSsl) {
   const result = {
     success: false,
     connected: false,
@@ -193,7 +194,8 @@ async function testRtorrentConnection(host, port, rpcPath, username, password) {
       port: port || 8000,
       path: rpcPath || '/RPC2',
       username: username || null,
-      password: password || null
+      password: password || null,
+      useSsl: useSsl || false
     });
 
     client.connect();

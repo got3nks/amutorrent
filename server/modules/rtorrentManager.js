@@ -57,7 +57,8 @@ class RtorrentManager extends BaseClientManager {
         port: this._clientConfig.port || 8000,
         path: this._clientConfig.path || '/RPC2',
         username: this._clientConfig.username || null,
-        password: this._clientConfig.password || null
+        password: this._clientConfig.password || null,
+        useSsl: this._clientConfig.useSsl || false
       });
 
       newClient.connect();

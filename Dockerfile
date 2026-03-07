@@ -35,6 +35,7 @@ COPY server/modules ./server/modules
 COPY static/index.html ./static/
 COPY static/*.png static/*.ico static/*.svg static/site.webmanifest ./static/
 COPY static/service-icons ./static/service-icons
+COPY static/flags ./static/flags
 
 # Copy built assets from builder stage (CSS + JS bundle)
 COPY --from=builder /build/static/output.css ./static/output.css

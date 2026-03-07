@@ -98,6 +98,17 @@ class EventScriptingManager extends BaseModule {
       return;
     }
 
+    // Warn about Windows line endings (CRLF) which cause "command not found" errors
+    try {
+      const head = Buffer.alloc(256);
+      const fd = await fs.promises.open(scriptPath, 'r');
+      await fd.read(head, 0, 256);
+      await fd.close();
+      if (head.includes(0x0d)) {
+        this.log(`[EventScript] WARNING: Script has Windows line endings (CRLF): ${scriptPath} — this will cause "command not found" errors. Convert with: sed -i 's/\\r$//' ${scriptPath}`);
+      }
+    } catch { /* non-critical check */ }
+
     const jsonData = JSON.stringify(eventData);
 
     // Build environment variables
@@ -162,10 +173,13 @@ class EventScriptingManager extends BaseModule {
         if (timeoutId) clearTimeout(timeoutId);
 
         if (!killed) {
+          if (stderr) {
+            this.log(`[EventScript] stderr for ${eventType}: ${stderr.trim().substring(0, 500)}`);
+          }
           if (code === 0) {
             this.log(`[EventScript] Script completed for ${eventType}${stdout ? ': ' + stdout.trim().substring(0, 100) : ''}`);
           } else {
-            this.log(`[EventScript] Script exited with code ${code} for ${eventType}${stderr ? ': ' + stderr.trim().substring(0, 200) : ''}`);
+            this.log(`[EventScript] Script exited with code ${code} for ${eventType}${stdout ? ' | stdout: ' + stdout.trim().substring(0, 200) : ''}`);
           }
         }
         resolve();
