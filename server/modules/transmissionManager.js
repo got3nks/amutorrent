@@ -236,50 +236,53 @@ class TransmissionManager extends BaseClientManager {
     const trackersByHash = new Map();
     const peersByHash = new Map();
 
-    const promises = items.map(async (torrent) => {
-      const hash = (torrent.hashString || torrent.hash || '').toLowerCase();
-      if (!hash) return;
+    // Process in batches to avoid overwhelming the Transmission daemon
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (torrent) => {
+        const hash = (torrent.hashString || torrent.hash || '').toLowerCase();
+        if (!hash) return;
 
-      try {
-        const detail = await this.client.getTorrentDetails(
-          [torrent.hashString || torrent.hash],
-          ['peers', 'trackerStats']
-        );
+        try {
+          const detail = await this.client.getTorrentDetails(
+            [torrent.hashString || torrent.hash],
+            ['peers', 'trackerStats']
+          );
 
-        if (!detail) return;
+          if (!detail) return;
 
-        // Trackers
-        const trackerStats = detail.trackerStats || [];
-        const trackerUrls = trackerStats
-          .map(t => t.announce || t.host)
-          .filter(url => typeof url === 'string' && url.length > 0);
-        trackersByHash.set(hash, { trackersDetailed: trackerStats, trackers: trackerUrls });
+          // Trackers
+          const trackerStats = detail.trackerStats || [];
+          const trackerUrls = trackerStats
+            .map(t => t.announce || t.host)
+            .filter(url => typeof url === 'string' && url.length > 0);
+          trackersByHash.set(hash, { trackersDetailed: trackerStats, trackers: trackerUrls });
 
-        // Peers
-        const rawPeers = detail.peers || [];
-        const peersArray = rawPeers.map(p => ({
-          address: p.address || '',
-          port: p.port || 0,
-          client: p.clientName || 'Unknown',
-          flags: p.flagStr || '',
-          completedPercent: Math.round((p.progress || 0) * 100),
-          downloadRate: p.rateToClient || 0,
-          uploadRate: p.rateToPeer || 0,
-          downloadTotal: 0,
-          uploadTotal: 0,
-          isEncrypted: !!(p.isEncrypted),
-          isIncoming: !!(p.isIncoming),
-          country: '',
-          countryCode: ''
-        }));
+          // Peers
+          const rawPeers = detail.peers || [];
+          const peersArray = rawPeers.map(p => ({
+            address: p.address || '',
+            port: p.port || 0,
+            client: p.clientName || 'Unknown',
+            flags: p.flagStr || '',
+            completedPercent: Math.round((p.progress || 0) * 100),
+            downloadRate: p.rateToClient || 0,
+            uploadRate: p.rateToPeer || 0,
+            downloadTotal: 0,
+            uploadTotal: 0,
+            isEncrypted: !!(p.isEncrypted),
+            isIncoming: !!(p.isIncoming),
+            country: '',
+            countryCode: ''
+          }));
 
-        peersByHash.set(hash, peersArray);
-      } catch {
-        // Individual torrent fetch failed, skip
-      }
-    });
-
-    await Promise.all(promises);
+          peersByHash.set(hash, peersArray);
+        } catch {
+          // Individual torrent fetch failed, skip
+        }
+      }));
+    }
     return { trackersByHash, peersByHash };
   }
 

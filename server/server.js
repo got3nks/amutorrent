@@ -268,6 +268,12 @@ notificationsAPI.registerRoutes(app); // Notifications API
 userAPI.registerRoutes(app);           // User management API (admin only)
 versionAPI.registerProtectedRoutes(app); // Version seen tracking (protected)
 
+// Debug API — only when NODE_INSPECT=true
+if (process.env.NODE_INSPECT === 'true') {
+  const debugAPI = require('./modules/debugAPI');
+  debugAPI.registerRoutes(app);
+}
+
 // ============================================================================
 // WEBSOCKET SETUP
 // ============================================================================

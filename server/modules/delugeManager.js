@@ -223,44 +223,47 @@ class DelugeManager extends BaseClientManager {
       'peers', 'trackers', 'tracker_host'
     ];
 
-    const promises = items.map(async (torrent) => {
-      const hash = torrent.hash.toLowerCase();
+    // Process in batches to avoid overwhelming the Deluge daemon
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (torrent) => {
+        const hash = torrent.hash.toLowerCase();
 
-      try {
-        const status = await this.client.getTorrentStatus(hash, peerFields);
+        try {
+          const status = await this.client.getTorrentStatus(hash, peerFields);
 
-        // Trackers
-        const trackers = status.trackers || [];
-        const trackerUrls = trackers
-          .map(t => t.url || t)
-          .filter(url => typeof url === 'string' && url.length > 0);
-        trackersByHash.set(hash, { trackersDetailed: trackers, trackers: trackerUrls });
+          // Trackers
+          const trackers = status.trackers || [];
+          const trackerUrls = trackers
+            .map(t => t.url || t)
+            .filter(url => typeof url === 'string' && url.length > 0);
+          trackersByHash.set(hash, { trackersDetailed: trackers, trackers: trackerUrls });
 
-        // Peers — Deluge returns peers as array of objects
-        const rawPeers = status.peers || [];
-        const peersArray = rawPeers.map(p => ({
-          address: p.ip || '',
-          port: p.port || 0,
-          client: p.client || 'Unknown',
-          flags: '',
-          completedPercent: Math.round((p.progress || 0) * 100),
-          downloadRate: p.down_speed || 0,
-          uploadRate: p.up_speed || 0,
-          downloadTotal: 0,
-          uploadTotal: 0,
-          isEncrypted: !!(p.is_encrypted),
-          isIncoming: !!(p.is_incoming || p.direction === 'Incoming'),
-          country: p.country || '',
-          countryCode: ''
-        }));
+          // Peers — Deluge returns peers as array of objects
+          const rawPeers = status.peers || [];
+          const peersArray = rawPeers.map(p => ({
+            address: p.ip || '',
+            port: p.port || 0,
+            client: p.client || 'Unknown',
+            flags: '',
+            completedPercent: Math.round((p.progress || 0) * 100),
+            downloadRate: p.down_speed || 0,
+            uploadRate: p.up_speed || 0,
+            downloadTotal: 0,
+            uploadTotal: 0,
+            isEncrypted: !!(p.is_encrypted),
+            isIncoming: !!(p.is_incoming || p.direction === 'Incoming'),
+            country: p.country || '',
+            countryCode: ''
+          }));
 
-        peersByHash.set(hash, peersArray);
-      } catch {
-        // Individual torrent fetch failed, skip
-      }
-    });
-
-    await Promise.all(promises);
+          peersByHash.set(hash, peersArray);
+        } catch {
+          // Individual torrent fetch failed, skip
+        }
+      }));
+    }
     return { trackersByHash, peersByHash };
   }
 

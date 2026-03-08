@@ -81,20 +81,27 @@ class AutoRefreshManager extends BaseModule {
         }
       }
 
-      // Fetch all data using DataFetchService (downloads, shared, uploads, labels, categories)
-      // Always fetch - needed for history updates even without WebSocket clients
+      // Only fetch batch data if there are WebSocket clients or history update is due
+      const now = Date.now();
+      const historyEnabled = this.downloadHistoryDB && config.getConfig()?.history?.enabled;
+      const historyDue = historyEnabled && now - this._lastHistoryUpdate >= HISTORY_UPDATE_INTERVAL;
+      const hasWsClients = this.wss.clients.size > 0;
+
+      if (!hasWsClients && !historyDue) {
+        // Nothing to do — skip data fetching entirely
+        return;
+      }
+
       const batchData = await dataFetchService.getBatchData();
 
       // Update history status from live data (throttled to reduce SQLite writes)
-      // This runs regardless of WebSocket clients - history should always be tracked
-      const now = Date.now();
-      if (now - this._lastHistoryUpdate >= HISTORY_UPDATE_INTERVAL) {
+      if (historyDue) {
         this.updateHistoryStatus(batchData);
         this._lastHistoryUpdate = now;
       }
 
       // Only build and broadcast updates if there are WebSocket clients connected
-      if (this.wss.clients.size > 0) {
+      if (hasWsClients) {
         const batchUpdate = {};
 
         const combinedStats = {};

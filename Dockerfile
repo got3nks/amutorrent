@@ -60,4 +60,5 @@ ENV RUNNING_IN_DOCKER=true
 EXPOSE 4000
 
 # Start the application
-CMD [ "node", "server/server.js" ]
+# Set NODE_INSPECT=true to enable remote debugging on port 9229
+CMD [ "sh", "-c", "if [ \"$NODE_INSPECT\" = 'true' ]; then exec node --inspect=0.0.0.0:9229 server/server.js; else exec node server/server.js; fi" ]

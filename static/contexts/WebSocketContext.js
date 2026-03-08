@@ -439,6 +439,9 @@ export const WebSocketProvider = ({ children }) => {
         console.log('WebSocket disconnected, code:', event.code);
         setWsConnected(false);
 
+        // 4000 = intentional disconnect (tab hidden) — don't reconnect
+        if (event.code === 4000) return;
+
         // 4001 = session invalidated by server (capability change, password change, user disabled/deleted)
         if (event.code === 4001) {
           console.log('Session invalidated, refreshing auth status...');
@@ -473,11 +476,35 @@ export const WebSocketProvider = ({ children }) => {
   }, []); // No dependencies - connect only runs once
 
   // Initialize WebSocket connection on mount
+  // Disconnect when tab becomes hidden to prevent stale connections after sleep/wake
   useEffect(() => {
     connect();
 
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden — close WS cleanly to avoid stale connection buildup
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (wsRef.current) {
+          // Use code 4000 to signal intentional disconnect (skip reconnect in onclose)
+          wsRef.current.close(4000, 'tab-hidden');
+          wsRef.current = null;
+        }
+      } else {
+        // Tab visible again — reconnect if not already connected
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          connect();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     // Cleanup on unmount
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

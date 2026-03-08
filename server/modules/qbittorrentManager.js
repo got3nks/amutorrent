@@ -176,54 +176,57 @@ class QbittorrentManager extends BaseClientManager {
     const trackersByHash = new Map();
     const peersByHash = new Map();
 
-    const promises = items.map(async (torrent) => {
-      const hash = torrent.hash.toLowerCase();
+    // Process in batches to avoid overwhelming the qBittorrent daemon
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (torrent) => {
+        const hash = torrent.hash.toLowerCase();
 
-      try {
-        const [trackers, peers] = await Promise.all([
-          this.client.getTorrentTrackers(hash).catch(() => []),
-          this.client.getTorrentPeers(hash).catch(() => ({}))
-        ]);
+        try {
+          const [trackers, peers] = await Promise.all([
+            this.client.getTorrentTrackers(hash).catch(() => []),
+            this.client.getTorrentPeers(hash).catch(() => ({}))
+          ]);
 
-        trackersByHash.set(hash, { trackersDetailed: trackers });
+          trackersByHash.set(hash, { trackersDetailed: trackers });
 
-        // Convert peers object to normalized array
-        // Keys are "ip:port" for IPv4 or "[ipv6]:port" for IPv6
-        const peersArray = Object.entries(peers).map(([ip, data]) => {
-          let address, port;
-          if (ip.startsWith('[')) {
-            const closeBracket = ip.lastIndexOf(']');
-            address = ip.substring(1, closeBracket);
-            port = parseInt(ip.substring(closeBracket + 2)) || 0;
-          } else {
-            const lastColon = ip.lastIndexOf(':');
-            address = lastColon > 0 ? ip.substring(0, lastColon) : ip;
-            port = lastColon > 0 ? parseInt(ip.substring(lastColon + 1)) || 0 : 0;
-          }
-          return {
-            address,
-            port,
-            client: data.client || 'Unknown',
-            flags: data.flags || '',
-            completedPercent: Math.round((data.progress || 0) * 100),
-            downloadRate: data.dl_speed || 0,
-            uploadRate: data.up_speed || 0,
-            downloadTotal: data.downloaded || 0,
-            uploadTotal: data.uploaded || 0,
-            isEncrypted: !!(data.flags && data.flags.includes('E')),
-            isIncoming: !!(data.flags && data.flags.includes('I')),
-            country: data.country || '',
-            countryCode: data.country_code || '',
-          };
-        });
+          // Convert peers object to normalized array
+          // Keys are "ip:port" for IPv4 or "[ipv6]:port" for IPv6
+          const peersArray = Object.entries(peers).map(([ip, data]) => {
+            let address, port;
+            if (ip.startsWith('[')) {
+              const closeBracket = ip.lastIndexOf(']');
+              address = ip.substring(1, closeBracket);
+              port = parseInt(ip.substring(closeBracket + 2)) || 0;
+            } else {
+              const lastColon = ip.lastIndexOf(':');
+              address = lastColon > 0 ? ip.substring(0, lastColon) : ip;
+              port = lastColon > 0 ? parseInt(ip.substring(lastColon + 1)) || 0 : 0;
+            }
+            return {
+              address,
+              port,
+              client: data.client || 'Unknown',
+              flags: data.flags || '',
+              completedPercent: Math.round((data.progress || 0) * 100),
+              downloadRate: data.dl_speed || 0,
+              uploadRate: data.up_speed || 0,
+              downloadTotal: data.downloaded || 0,
+              uploadTotal: data.uploaded || 0,
+              isEncrypted: !!(data.flags && data.flags.includes('E')),
+              isIncoming: !!(data.flags && data.flags.includes('I')),
+              country: data.country || '',
+              countryCode: data.country_code || '',
+            };
+          });
 
-        peersByHash.set(hash, peersArray);
-      } catch {
-        // Individual torrent fetch failed, skip
-      }
-    });
-
-    await Promise.all(promises);
+          peersByHash.set(hash, peersArray);
+        } catch {
+          // Individual torrent fetch failed, skip
+        }
+      }));
+    }
     return { trackersByHash, peersByHash };
   }
 

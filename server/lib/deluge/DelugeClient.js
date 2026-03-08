@@ -231,7 +231,7 @@ class DelugeClient {
       'ratio', 'eta', 'time_added', 'completed_time',
       'tracker_host', 'trackers', 'label', 'message',
       'is_finished', 'paused', 'move_on_completed', 'move_on_completed_path',
-      'files', 'num_files', 'comment', 'active_time', 'seeding_time',
+      'num_files', 'comment', 'active_time', 'seeding_time',
       'all_time_download', 'total_payload_download', 'total_payload_upload'
     ];
   }
