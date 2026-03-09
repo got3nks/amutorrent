@@ -508,7 +508,7 @@ const HistoryView = () => {
           columns: visibleColumns,
           scrollable: true,
           showCategoryBorder: true,
-          trackerLabelColumnKey: 'filename',
+          trackerLabelColumnKey: 'name',
           hoverActions: !selectionMode,
           actionsHeader: h('button', {
             onClick: () => setShowConfig(true),

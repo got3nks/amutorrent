@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - Performance, Memory & Idle Optimization
+
+### ⚡ Performance
+
+- **Remove unused Deluge file tree fetch** — the bulk torrent refresh was requesting the full file list for every torrent every ~3 seconds, parsing tens of MB per cycle that was never used. This drastically reduces memory and CPU usage for large Deluge libraries (#29)
+- **Cap tracker/peer refresh concurrency** — per-torrent tracker and peer requests are now batched (10 concurrent) instead of firing all at once. Applied to Deluge, qBittorrent, and Transmission to prevent request storms with large torrent counts (#29)
+- **Skip data fetching when idle** — when no browser tabs are connected and download history updates aren't due, the app skips the expensive data fetch cycle entirely, reducing CPU and network usage to near zero in the background
+- **Auto-disconnect WebSocket on hidden tabs** — when the browser tab is hidden (sleep, tab switch, minimize), the WebSocket disconnects cleanly and reconnects when the tab becomes visible again. Prevents stale connection buildup and Chrome renderer hangs after sleep/wake
+
+### ✨ Added
+
+- **Debug API for memory diagnostics** — opt-in endpoints (`/api/debug/memory` and `/api/debug/heapsnapshot`) for analyzing memory usage. Enable with `NODE_INSPECT=true` environment variable. Admin-only access
+- **Node.js inspector support** — setting `NODE_INSPECT=true` also enables the V8 inspector on port 9229 for remote profiling via Chrome DevTools
+
+### 🐛 Fixed
+
+- **History view tracker label** — tracker labels were not showing in the desktop table view due to a column key mismatch. Now displays correctly in both desktop and mobile views
+
+---
+
 ## [3.2.1] - rTorrent HTTPS, Self-Hosted Flags & Script Debugging
 
 ### ✨ Added
