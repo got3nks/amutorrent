@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.3] - Unraid Template & Empty Env Var Fix
+
+### ✨ Added
+
+- **Unraid Community Applications template** — Docker template XML (`unraid/amutorrent.xml`) for one-click install from the Unraid CA store. Includes all client configurations, SSL toggles, screenshots, and Prowlarr integration
+
+### 🐛 Fixed
+
+- **Empty env vars treated as unset** — environment variables set to empty strings (e.g. `PASSWORD=''` from Unraid/Portainer templates) are now correctly ignored, allowing the setup wizard to collect values interactively instead of treating them as blank overrides
+
+---
+
 ## [3.2.2] - Performance, Memory & Idle Optimization
 
 ### ⚡ Performance

@@ -225,6 +225,14 @@ class Config extends BaseModule {
   }
 
   /**
+   * Check if an environment variable is meaningfully set (not undefined or empty string)
+   */
+  hasEnvValue(envVar) {
+    const val = process.env[envVar];
+    return val !== undefined && val.trim() !== '';
+  }
+
+  /**
    * Parse environment variable value based on type
    */
   parseEnvValue(value, type) {
@@ -246,7 +254,7 @@ class Config extends BaseModule {
    */
   applyEnvVars(config) {
     for (const [envVar, { path, type, enablesIntegration }] of Object.entries(ENV_VAR_MAP)) {
-      if (process.env[envVar] !== undefined) {
+      if (this.hasEnvValue(envVar)) {
         const value = this.parseEnvValue(process.env[envVar], type);
         this.setValueByPath(config, path, value);
 
@@ -274,7 +282,7 @@ class Config extends BaseModule {
 
     // Only remove sensitive fields that come from environment variables
     for (const [envVar, { path }] of Object.entries(ENV_VAR_MAP)) {
-      if (process.env[envVar] !== undefined && SENSITIVE_ENV_VARS.includes(envVar)) {
+      if (this.hasEnvValue(envVar) && SENSITIVE_ENV_VARS.includes(envVar)) {
         this.deleteValueByPath(cleaned, path);
       }
     }
@@ -292,7 +300,7 @@ class Config extends BaseModule {
         for (const [suffix, def] of Object.entries(fields)) {
           if (KEEP_FIELDS.has(def.field)) continue;
           const envVar = `${prefix}_${suffix}`;
-          if (process.env[envVar] === undefined) continue;
+          if (!this.hasEnvValue(envVar)) continue;
           const envValue = this.parseEnvValue(process.env[envVar], def.type);
           // Only strip if value matches env (no user override)
           if (entry[def.field] === envValue) {
@@ -420,7 +428,7 @@ class Config extends BaseModule {
     const fields = CLIENT_ENV_FIELDS[type];
     if (!prefix || !fields) return false;
     for (const suffix of Object.keys(fields)) {
-      if (process.env[`${prefix}_${suffix}`] !== undefined) return true;
+      if (this.hasEnvValue(`${prefix}_${suffix}`)) return true;
     }
     return false;
   }
@@ -440,7 +448,7 @@ class Config extends BaseModule {
       if (!prefix || !fields) continue;
       for (const [suffix, def] of Object.entries(fields)) {
         const envVar = `${prefix}_${suffix}`;
-        if (process.env[envVar] === undefined) continue;
+        if (!this.hasEnvValue(envVar)) continue;
         if (entry[def.field] === this.parseEnvValue(process.env[envVar], def.type)) {
           entry.source = 'env';
           break;
@@ -468,7 +476,7 @@ class Config extends BaseModule {
       const section = { enabled: false };
       for (const [suffix, def] of Object.entries(fields)) {
         const envVar = `${prefix}_${suffix}`;
-        if (process.env[envVar] !== undefined) {
+        if (this.hasEnvValue(envVar)) {
           section[def.field] = this.parseEnvValue(process.env[envVar], def.type);
         }
       }
@@ -555,7 +563,7 @@ class Config extends BaseModule {
     // - Sensitive (passwords/keys): env always wins over config.json
     // - Non-sensitive: env fills gaps only (config.json wins when present)
     for (const [envVar, { path, type, enablesIntegration }] of Object.entries(ENV_VAR_MAP)) {
-      if (process.env[envVar] === undefined) continue;
+      if (!this.hasEnvValue(envVar)) continue;
       const isSensitive = SENSITIVE_ENV_VARS.includes(envVar);
       const fileValue = fileConfig ? this.getValueByPath(fileConfig, path) : undefined;
       if (isSensitive || fileValue === undefined) {
@@ -704,7 +712,7 @@ class Config extends BaseModule {
         }
         if (entry.type === 'amule' && !entry.password) {
           // Skip if password comes from env (stripped by removeEnvVars, refilled at runtime)
-          if (entry.source !== 'env' || !process.env[`${CLIENT_ENV_PREFIX.amule}_PASSWORD`]) {
+          if (entry.source !== 'env' || !this.hasEnvValue(`${CLIENT_ENV_PREFIX.amule}_PASSWORD`)) {
             errors.push(`${label}: password is required`);
           }
         }
@@ -921,7 +929,7 @@ class Config extends BaseModule {
         const fields = CLIENT_ENV_FIELDS[type];
         for (const [suffix, def] of Object.entries(fields)) {
           const envVar = `${prefix}_${suffix}`;
-          if (typeFields[def.field] === undefined && process.env[envVar] !== undefined) {
+          if (typeFields[def.field] === undefined && this.hasEnvValue(envVar)) {
             typeFields[def.field] = this.parseEnvValue(process.env[envVar], def.type);
           }
         }
@@ -970,10 +978,11 @@ class Config extends BaseModule {
       if (entries.length === 0) {
         // No env-sourced entry — create one if env vars define at least host
         const { hostSuffix, portSuffix } = CLIENT_ENV_HOST_PORT[type];
-        const envHost = hostSuffix && process.env[`${prefix}_${hostSuffix}`];
-        if (!envHost) continue; // No host in env — skip this type
+        const hostEnvVar = `${prefix}_${hostSuffix}`;
+        if (!hostSuffix || !this.hasEnvValue(hostEnvVar)) continue; // No host in env — skip this type
+        const envHost = process.env[hostEnvVar];
 
-        const envPort = portSuffix && process.env[`${prefix}_${portSuffix}`];
+        const envPort = portSuffix && this.hasEnvValue(`${prefix}_${portSuffix}`) ? process.env[`${prefix}_${portSuffix}`] : undefined;
         const entry = {
           type,
           source: 'env',
@@ -990,7 +999,7 @@ class Config extends BaseModule {
       for (const entry of entries) {
         for (const [suffix, def] of Object.entries(fields)) {
           const envVar = `${prefix}_${suffix}`;
-          if (process.env[envVar] === undefined) continue;
+          if (!this.hasEnvValue(envVar)) continue;
           const envValue = this.parseEnvValue(process.env[envVar], def.type);
 
           if (def.sensitive) {
@@ -1123,7 +1132,7 @@ class Config extends BaseModule {
     // Find the environment variable for this path
     const envVar = Object.entries(ENV_VAR_MAP).find(([, config]) => config.path === path)?.[0];
 
-    if (envVar && process.env[envVar] !== undefined) {
+    if (envVar && this.hasEnvValue(envVar)) {
       // For sensitive fields, env always wins - return true if env var exists
       if (SENSITIVE_ENV_VARS.includes(envVar)) {
         return true;
@@ -1150,7 +1159,7 @@ class Config extends BaseModule {
 
           // Check flat env var (e.g., AMULE_PASSWORD)
           const flatEnvVar = `${prefix}_${suffix}`;
-          if (process.env[flatEnvVar] !== undefined) {
+          if (this.hasEnvValue(flatEnvVar)) {
             // "From env" only if config.json doesn't have this field for this client
             if (!this.fileConfig) return true;
             if (!Array.isArray(this.fileConfig.clients)) return true;
@@ -1183,7 +1192,7 @@ class Config extends BaseModule {
       const fromEnv = {};
       for (const [suffix, def] of Object.entries(fields)) {
         const envVar = `${prefix}_${suffix}`;
-        if (process.env[envVar] === undefined) {
+        if (!this.hasEnvValue(envVar)) {
           fromEnv[def.field] = false;
           continue;
         }

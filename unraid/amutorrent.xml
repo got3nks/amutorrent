@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>aMuTorrent</Name>
+  <Repository>g0t3nks/amutorrent:latest</Repository>
+  <Registry>https://hub.docker.com/r/g0t3nks/amutorrent</Registry>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Stable release</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <WebUI>http://[IP]:[PORT:4000]</WebUI>
+  <Privileged>false</Privileged>
+  <Support>https://forums.unraid.net/topic/197686-support-amutorrent/</Support>
+  <Project>https://github.com/got3nks/amutorrent</Project>
+  <Overview>Web-based controller for aMule, rTorrent, qBittorrent, Deluge, and Transmission with real-time updates. Features a setup wizard, download history, search via Prowlarr, multi-instance support, user management, and event scripting.</Overview>
+  <Category>Downloaders: MediaApp:Other</Category>
+  <Icon>https://raw.githubusercontent.com/got3nks/amutorrent/main/static/favicon-96x96.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/got3nks/amutorrent/main/unraid/amutorrent.xml</TemplateURL>
+  <Maintainer>
+    <WebPage>https://github.com/got3nks</WebPage>
+  </Maintainer>
+  <Screenshot>https://raw.githubusercontent.com/got3nks/amutorrent/main/docs/screenshots/home-desktop.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/got3nks/amutorrent/main/docs/screenshots/downloads-desktop.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/got3nks/amutorrent/main/docs/screenshots/search-desktop.png</Screenshot>
+  <ExtraSearchTerms>amule torrent rtorrent qbittorrent deluge transmission download</ExtraSearchTerms>
+  <Requires>At least one download client (aMule, rTorrent, qBittorrent, Deluge, or Transmission) must be accessible on your network.</Requires>
+
+  <Config Name="WebUI Port" Target="4000" Default="4000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">4000</Config>
+
+  <Config Name="App Data" Target="/usr/src/app/server/data" Default="/mnt/user/appdata/amutorrent/data" Mode="rw" Description="Application data (config, databases, GeoIP)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/amutorrent/data</Config>
+  <Config Name="Logs" Target="/usr/src/app/server/logs" Default="/mnt/user/appdata/amutorrent/logs" Mode="rw" Description="Application logs" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/amutorrent/logs</Config>
+
+  <Config Name="aMule Enabled" Target="AMULE_ENABLED" Default="false|true" Description="Enable aMule client" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="aMule Host" Target="AMULE_HOST" Default="" Description="aMule EC hostname or IP" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="aMule Port" Target="AMULE_PORT" Default="4712" Description="aMule EC port" Type="Variable" Display="advanced" Required="false" Mask="false">4712</Config>
+  <Config Name="aMule Password" Target="AMULE_PASSWORD" Default="" Description="aMule EC password" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="rTorrent Enabled" Target="RTORRENT_ENABLED" Default="false|true" Description="Enable rTorrent client" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="rTorrent Host" Target="RTORRENT_HOST" Default="" Description="rTorrent XML-RPC hostname or IP" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="rTorrent Port" Target="RTORRENT_PORT" Default="8000" Description="rTorrent XML-RPC port" Type="Variable" Display="advanced" Required="false" Mask="false">8000</Config>
+  <Config Name="rTorrent SSL" Target="RTORRENT_USE_SSL" Default="false|true" Description="Use HTTPS for rTorrent XML-RPC" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="qBittorrent Enabled" Target="QBITTORRENT_ENABLED" Default="false|true" Description="Enable qBittorrent client" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="qBittorrent Host" Target="QBITTORRENT_HOST" Default="" Description="qBittorrent WebUI hostname or IP" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="qBittorrent Port" Target="QBITTORRENT_PORT" Default="8080" Description="qBittorrent WebUI port" Type="Variable" Display="advanced" Required="false" Mask="false">8080</Config>
+  <Config Name="qBittorrent Username" Target="QBITTORRENT_USERNAME" Default="admin" Description="qBittorrent WebUI username" Type="Variable" Display="advanced" Required="false" Mask="false">admin</Config>
+  <Config Name="qBittorrent Password" Target="QBITTORRENT_PASSWORD" Default="" Description="qBittorrent WebUI password" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="qBittorrent SSL" Target="QBITTORRENT_USE_SSL" Default="false|true" Description="Use HTTPS for qBittorrent WebUI" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Deluge Enabled" Target="DELUGE_ENABLED" Default="false|true" Description="Enable Deluge client" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Deluge Host" Target="DELUGE_HOST" Default="" Description="Deluge WebUI hostname or IP" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Deluge Port" Target="DELUGE_PORT" Default="8112" Description="Deluge WebUI port" Type="Variable" Display="advanced" Required="false" Mask="false">8112</Config>
+  <Config Name="Deluge Password" Target="DELUGE_PASSWORD" Default="" Description="Deluge WebUI password" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Deluge SSL" Target="DELUGE_USE_SSL" Default="false|true" Description="Use HTTPS for Deluge WebUI" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Transmission Enabled" Target="TRANSMISSION_ENABLED" Default="false|true" Description="Enable Transmission client" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Transmission Host" Target="TRANSMISSION_HOST" Default="" Description="Transmission RPC hostname or IP" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Transmission Port" Target="TRANSMISSION_PORT" Default="9091" Description="Transmission RPC port" Type="Variable" Display="advanced" Required="false" Mask="false">9091</Config>
+  <Config Name="Transmission Username" Target="TRANSMISSION_USERNAME" Default="" Description="Transmission RPC username" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Transmission Password" Target="TRANSMISSION_PASSWORD" Default="" Description="Transmission RPC password" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Transmission SSL" Target="TRANSMISSION_USE_SSL" Default="false|true" Description="Use HTTPS for Transmission RPC" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Prowlarr URL" Target="PROWLARR_URL" Default="" Description="Prowlarr URL for torrent search (e.g. http://prowlarr:9696)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Prowlarr API Key" Target="PROWLARR_API_KEY" Default="" Description="Prowlarr API key" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="Web Auth Enabled" Target="WEB_AUTH_ENABLED" Default="true|false" Description="Enable password protection for the web interface" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Web Auth Password" Target="WEB_AUTH_PASSWORD" Default="" Description="Web interface password (only used on first run)" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>
