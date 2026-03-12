@@ -577,8 +577,10 @@ const buildFileTree = (files) => {
 /**
  * Recursive tree node component
  */
-const TreeNode = ({ node, depth = 0, defaultExpanded = true }) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+const TreeNode = ({ node, depth = 0, defaultExpanded }) => {
+  const itemCount = node.files.length + Object.keys(node.children).length;
+  const autoExpand = defaultExpanded !== undefined ? defaultExpanded : itemCount < 10;
+  const [expanded, setExpanded] = useState(autoExpand);
 
   // Calculate folder stats
   const folderStats = useMemo(() => {
@@ -709,10 +711,10 @@ const TreeNode = ({ node, depth = 0, defaultExpanded = true }) => {
     ),
     expanded && h('div', null,
       sortedChildren.folders.map(child =>
-        h(TreeNode, { key: child.name, node: child, depth: depth + 1, defaultExpanded: false })
+        h(TreeNode, { key: child.name, node: child, depth: depth + 1 })
       ),
       sortedChildren.files.map(file =>
-        h(TreeNode, { key: file.path, node: { name: file.name, children: {}, files: [], file }, depth: depth + 1, defaultExpanded: false })
+        h(TreeNode, { key: file.path, node: { name: file.name, children: {}, files: [], file }, depth: depth + 1 })
       )
     )
   );
@@ -742,7 +744,7 @@ export const FilesTreeSection = ({ files, loading, error }) => {
   }
 
   return h('div', { className: 'p-2' },
-    h(TreeNode, { node: tree, defaultExpanded: true })
+    h(TreeNode, { node: tree })
   );
 };
 

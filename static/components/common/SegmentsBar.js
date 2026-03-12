@@ -9,13 +9,11 @@
  * - Decodes gapStatus (missing byte ranges), partStatus (source counts), reqStatus (requested ranges)
  * - Based on aMule's PartFileEncoderData and WebServer progress bar implementation
  *
- * COLOR SCHEME:
- * - Green: Downloaded (complete)
- * - Yellow: Currently being requested from sources
- * - Blue: Missing with many sources (10+)
- * - Light Blue: Missing with moderate sources (5-9)
- * - Orange: Missing with few sources (1-4)
- * - Red: Missing with no sources
+ * COLOR SCHEME (matches aMule GUI):
+ * - Green (0, 224, 0): Downloaded (complete)
+ * - Gold (255, 208, 0): Currently being requested from sources
+ * - Blue gradient (0, N, 255): Missing with sources — intensity scales with source count
+ * - Red (255, 0, 0): Missing with no sources
  */
 
 import React from 'https://esm.sh/react@18.2.0';
@@ -150,61 +148,52 @@ const decodeRLEtoUInt64 = (buff) => {
 };
 
 /**
- * Parse gap status buffer into array of gap ranges (byte ranges)
- * Gaps are sent as RLE-encoded uint64 pairs (start, end)
- * @param {Buffer|Uint8Array|Object} gapStatus - Gap status buffer (may be serialized as {data: [], type: "Buffer"})
- * @returns {Array<{start: bigint, end: bigint}>} Array of gap byte ranges
+ * Parse gap status into array of gap ranges.
+ * Accepts pre-decoded array from AmuleClient (preferred) or legacy RLE buffer format.
+ * @param {Array<{start: number, end: number}>|Buffer|Uint8Array|Object} gapStatus
+ * @returns {Array<{start: number, end: number}>} Array of gap byte ranges
  */
 const parseGapStatus = (gapStatus) => {
-  // Handle serialized Buffer format from JSON
-  if (gapStatus && gapStatus.type === 'Buffer' && gapStatus.data) {
-    gapStatus = new Uint8Array(gapStatus.data);
-  } else if (gapStatus && !(gapStatus instanceof Uint8Array)) {
-    gapStatus = new Uint8Array(gapStatus);
-  }
-
-  if (!gapStatus || gapStatus.length === 0) {
+  if (!gapStatus) {
     if (DEBUG) console.log('[SegmentsBar] No gap status data');
     return [];
   }
 
+  // Pre-decoded format from AmuleClient: array of {start, end} objects
+  if (Array.isArray(gapStatus)) {
+    if (DEBUG) {
+      console.log('[SegmentsBar] Pre-decoded gaps:', gapStatus.length);
+      if (gapStatus.length > 0) {
+        console.log('[SegmentsBar] First 5 gaps:', gapStatus.slice(0, 5).map(g => `${g.start}-${g.end} (${((g.end-g.start)/1024/1024).toFixed(1)}MB)`));
+      console.log('[SegmentsBar] Last 3 gaps:', gapStatus.slice(-3).map(g => `${g.start}-${g.end} (${((g.end-g.start)/1024/1024).toFixed(1)}MB)`));
+      const totalGapBytes = gapStatus.reduce((s, g) => s + (g.end - g.start), 0);
+      console.log('[SegmentsBar] Total gap bytes:', totalGapBytes, `(${(totalGapBytes/1024/1024/1024).toFixed(2)} GB)`);
+      }
+    }
+    return gapStatus;
+  }
+
+  // Legacy: RLE-encoded buffer format (serialized as {type: 'Buffer', data: [...]})
+  if (gapStatus.type === 'Buffer' && gapStatus.data) {
+    gapStatus = new Uint8Array(gapStatus.data);
+  } else if (!(gapStatus instanceof Uint8Array)) {
+    gapStatus = new Uint8Array(gapStatus);
+  }
+
+  if (gapStatus.length === 0) return [];
+
   if (DEBUG) {
-    console.log('[SegmentsBar] Gap status buffer length:', gapStatus.length);
-    console.log('[SegmentsBar] First 32 bytes:', Array.from(gapStatus.slice(0, 32)));
+    console.log('[SegmentsBar] Legacy gap buffer length:', gapStatus.length);
   }
 
   try {
-    // Decode RLE to uint64 array
     const decoded = decodeRLEtoUInt64(gapStatus);
-
-    if (DEBUG) {
-      console.log('[SegmentsBar] Decoded gap values:', decoded.length);
-      if (decoded.length > 0) {
-        console.log('[SegmentsBar] First 10 gap values:', Array.from(decoded.slice(0, 10)));
-      }
-    }
-
-    // Gaps are pairs of uint64 values (start, end)
     const gaps = [];
     for (let i = 0; i < decoded.length; i += 2) {
       if (i + 1 < decoded.length) {
-        gaps.push({
-          start: decoded[i],
-          end: decoded[i + 1]
-        });
+        gaps.push({ start: Number(decoded[i]), end: Number(decoded[i + 1]) });
       }
     }
-
-    if (DEBUG) {
-      console.log('[SegmentsBar] Parsed gaps:', gaps.length);
-      if (gaps.length > 0) {
-        console.log('[SegmentsBar] First 5 gaps:', gaps.slice(0, 5).map(g => ({
-          start: g.start.toString(),
-          end: g.end.toString()
-        })));
-      }
-    }
-
     return gaps;
   } catch (error) {
     console.error('[SegmentsBar] Error decoding gap status:', error);
@@ -213,61 +202,42 @@ const parseGapStatus = (gapStatus) => {
 };
 
 /**
- * Parse requested parts buffer into array of byte ranges
- * Format: RLE-encoded uint64 pairs (start, end)
- * @param {Buffer|Uint8Array|Object} reqStatus - Request status buffer (may be serialized as {data: [], type: "Buffer"})
- * @returns {Array<{start: bigint, end: bigint}>} Array of requested byte ranges
+ * Parse requested parts into array of byte ranges.
+ * Accepts pre-decoded array from AmuleClient (preferred) or legacy RLE buffer format.
+ * @param {Array<{start: number, end: number}>|Buffer|Uint8Array|Object} reqStatus
+ * @returns {Array<{start: number, end: number}>} Array of requested byte ranges
  */
 const parseReqStatus = (reqStatus) => {
-  // Handle serialized Buffer format from JSON
-  if (reqStatus && reqStatus.type === 'Buffer' && reqStatus.data) {
-    reqStatus = new Uint8Array(reqStatus.data);
-  } else if (reqStatus && !(reqStatus instanceof Uint8Array)) {
-    reqStatus = new Uint8Array(reqStatus);
-  }
-
-  if (!reqStatus || reqStatus.length === 0) {
+  if (!reqStatus) {
     if (DEBUG) console.log('[SegmentsBar] No request status data');
     return [];
   }
 
-  if (DEBUG) {
-    console.log('[SegmentsBar] Request status buffer length:', reqStatus.length);
-    console.log('[SegmentsBar] First 32 bytes:', Array.from(reqStatus.slice(0, 32)));
+  // Pre-decoded format from AmuleClient: array of {start, end} objects
+  if (Array.isArray(reqStatus)) {
+    if (DEBUG) {
+      console.log('[SegmentsBar] Pre-decoded requests:', reqStatus.length);
+    }
+    return reqStatus;
   }
 
+  // Legacy: RLE-encoded buffer format
+  if (reqStatus.type === 'Buffer' && reqStatus.data) {
+    reqStatus = new Uint8Array(reqStatus.data);
+  } else if (!(reqStatus instanceof Uint8Array)) {
+    reqStatus = new Uint8Array(reqStatus);
+  }
+
+  if (reqStatus.length === 0) return [];
+
   try {
-    // Decode RLE to uint64 array
     const decoded = decodeRLEtoUInt64(reqStatus);
-
-    if (DEBUG) {
-      console.log('[SegmentsBar] Decoded request values:', decoded.length);
-      if (decoded.length > 0) {
-        console.log('[SegmentsBar] First 10 request values:', Array.from(decoded.slice(0, 10)));
-      }
-    }
-
-    // Requests are pairs of uint64 values (start, end)
     const requests = [];
     for (let i = 0; i < decoded.length; i += 2) {
       if (i + 1 < decoded.length) {
-        requests.push({
-          start: decoded[i],
-          end: decoded[i + 1]
-        });
+        requests.push({ start: Number(decoded[i]), end: Number(decoded[i + 1]) });
       }
     }
-
-    if (DEBUG) {
-      console.log('[SegmentsBar] Parsed requests:', requests.length);
-      if (requests.length > 0) {
-        console.log('[SegmentsBar] First 5 requests:', requests.slice(0, 5).map(r => ({
-          start: r.start.toString(),
-          end: r.end.toString()
-        })));
-      }
-    }
-
     return requests;
   } catch (error) {
     console.error('[SegmentsBar] Error decoding request status:', error);
@@ -276,44 +246,46 @@ const parseReqStatus = (reqStatus) => {
 };
 
 /**
- * Parse part status buffer into array of source counts per part
- * Part status is RLE-encoded uint8 array where each value is the source count for that part
- * @param {Buffer|Uint8Array|Object} partStatus - Part status buffer (may be serialized as {data: [], type: "Buffer"})
- * @returns {Uint8Array} Array of source counts per part
+ * Parse part status into array of source counts per part.
+ * Accepts pre-decoded array from AmuleClient (preferred) or legacy RLE buffer format.
+ * @param {number[]|Buffer|Uint8Array|Object} partStatus
+ * @returns {number[]|Uint8Array} Array of source counts per part
  */
 const parsePartStatus = (partStatus) => {
-  // Handle serialized Buffer format from JSON
-  if (partStatus && partStatus.type === 'Buffer' && partStatus.data) {
+  if (!partStatus) {
+    if (DEBUG) console.log('[SegmentsBar] No part status data');
+    return [];
+  }
+
+  // Pre-decoded format from AmuleClient: plain array of source counts
+  if (Array.isArray(partStatus)) {
+    if (DEBUG) {
+      console.log('[SegmentsBar] Pre-decoded parts:', partStatus.length);
+      if (partStatus.length > 0) {
+        console.log('[SegmentsBar] First 20 parts:', partStatus.slice(0, 20));
+      }
+    }
+    return partStatus;
+  }
+
+  // Legacy: RLE-encoded buffer format
+  if (partStatus.type === 'Buffer' && partStatus.data) {
     partStatus = new Uint8Array(partStatus.data);
-  } else if (partStatus && !(partStatus instanceof Uint8Array)) {
+  } else if (!(partStatus instanceof Uint8Array)) {
     partStatus = new Uint8Array(partStatus);
   }
 
-  if (!partStatus || partStatus.length === 0) {
-    if (DEBUG) console.log('[SegmentsBar] No part status data');
-    return new Uint8Array(0);
-  }
-
-  if (DEBUG) {
-    console.log('[SegmentsBar] Part status buffer length:', partStatus.length);
-    console.log('[SegmentsBar] First 32 bytes:', Array.from(partStatus.slice(0, 32)));
-  }
+  if (partStatus.length === 0) return [];
 
   try {
-    // Decode RLE to uint8 array (source count per part)
     const decoded = decodeRLE(partStatus);
-
     if (DEBUG) {
       console.log('[SegmentsBar] Decoded part status length:', decoded.length);
-      if (decoded.length > 0) {
-        console.log('[SegmentsBar] First 20 parts:', Array.from(decoded.slice(0, 20)));
-      }
     }
-
     return decoded;
   } catch (error) {
     console.error('[SegmentsBar] Error decoding part status:', error);
-    return new Uint8Array(0);
+    return [];
   }
 };
 
@@ -389,13 +361,12 @@ const SegmentsBar = ({
 
   /**
    * Check if a byte position is in a gap (not downloaded yet)
-   * @param {number} byte - Byte position
+   * @param {number} bytePos - Byte position
    * @returns {boolean}
    */
-  const isInGap = (byte) => {
-    const bytePos = BigInt(byte);
+  const isInGap = (bytePos) => {
     for (const gap of gaps) {
-      if (bytePos >= gap.start && bytePos <= gap.end) {
+      if (bytePos >= gap.start && bytePos < gap.end) {
         return true;
       }
     }
@@ -404,11 +375,10 @@ const SegmentsBar = ({
 
   /**
    * Check if a byte position is currently being requested
-   * @param {number} byte - Byte position
+   * @param {number} bytePos - Byte position
    * @returns {boolean}
    */
-  const isRequested = (byte) => {
-    const bytePos = BigInt(byte);
+  const isRequested = (bytePos) => {
     for (const req of requests) {
       if (bytePos >= req.start && bytePos <= req.end) {
         return true;
@@ -437,30 +407,28 @@ const SegmentsBar = ({
    */
   const getByteColor = (byte) => {
     if (!isInGap(byte)) {
-      // Downloaded - green
-      return 'rgb(0, 200, 0)';
+      // Downloaded — bright green (matches aMule crProgress)
+      return 'rgb(0, 224, 0)';
     }
 
     // Missing portion
     if (isRequested(byte)) {
-      // Currently being requested - yellow
-      return 'rgb(255, 255, 0)';
+      // Currently being requested — gold (matches aMule crPending)
+      return 'rgb(255, 208, 0)';
     }
 
     const sources = getSourceCount(byte);
     if (sources === 0) {
-      // No sources - red
+      // No sources — red (matches aMule crMissing)
       return 'rgb(255, 0, 0)';
-    } else if (sources < 5) {
-      // Few sources - orange
-      return 'rgb(255, 165, 0)';
-    } else if (sources < 10) {
-      // Moderate sources - light blue
-      return 'rgb(100, 150, 255)';
-    } else {
-      // Many sources - blue
-      return 'rgb(0, 100, 255)';
     }
+    // Blue gradient based on source count (inspired by aMule DownloadListCtrl):
+    // Few sources → bright azure, many sources → dark navy
+    // Both green and blue channels vary for a wider perceptual range
+    const t = Math.min(sources - 1, 9) / 9; // 0..1 over 1-10 sources
+    const g = Math.round(150 * (1 - t));     // 150 → 0
+    const b = Math.round(255 - 80 * t);      // 255 → 175
+    return `rgb(0, ${g}, ${b})`;
   };
 
   // Build color line for the progress bar
