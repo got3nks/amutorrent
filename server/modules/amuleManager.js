@@ -101,7 +101,9 @@ class AmuleManager extends BaseClientManager {
       }
 
       this.log(`🔌 Creating new aMule client (${this._clientConfig.host}:${this._clientConfig.port})...`);
-      const newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password);
+      const newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password, {
+        requestTimeout: 60000 // 60s — large shared file lists (3000+) can take >30s for aMule to respond
+      });
 
       // Set up error handler for the client
       newClient.onError((err) => {

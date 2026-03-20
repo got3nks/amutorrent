@@ -80,7 +80,15 @@ class QueuedAmuleClient {
     this.pendingRequests++;
 
     const current = previous
-      .then(() => fn())
+      .then(() => {
+        // Skip request if the EC protocol is mid-reconnection — sending on an
+        // unauthenticated socket causes "Invalid request" spam on the aMule side
+        if (this.client?.session?.reconnecting) {
+          logger.warn(`QueuedAmuleClient skipping ${methodName} — reconnection in progress`);
+          return null;
+        }
+        return fn();
+      })
       .catch(err => {
         logger.warn(`QueuedAmuleClient request failed (${methodName}):`, err.message);
         return null;
