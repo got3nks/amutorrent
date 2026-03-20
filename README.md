@@ -12,7 +12,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 
 ### Multi-Client Support
 - **aMule Integration** - Control aMule via the EC (External Connection) protocol
-- **rTorrent Integration** - Connect to rTorrent via XML-RPC over HTTP
+- **rTorrent Integration** - Connect to rTorrent via XML-RPC (HTTP proxy, SCGI TCP, or Unix socket)
 - **qBittorrent Integration** - Connect to qBittorrent via WebUI API
 - **Deluge Integration** - Connect to Deluge via WebUI JSON-RPC
 - **Transmission Integration** - Connect to Transmission via HTTP RPC
@@ -49,7 +49,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 
 ## Quick Start (Docker)
 
-**Prerequisites:** At least one of: aMule with External Connections enabled, rTorrent with XML-RPC over HTTP, qBittorrent with WebUI enabled, Deluge with WebUI enabled, or Transmission with RPC enabled.
+**Prerequisites:** At least one of: aMule with External Connections enabled, rTorrent with XML-RPC enabled, qBittorrent with WebUI enabled, Deluge with WebUI enabled, or Transmission with RPC enabled.
 
 ### 1. Pull the image
 
@@ -124,7 +124,7 @@ Open `http://localhost:4000` and complete the setup wizard.
 |----------|-------------|
 | [Configuration Guide](./docs/CONFIGURATION.md) | Setup wizard, settings, environment variables |
 | [aMule Integration](./docs/AMULE.md) | Connect to aMule via EC protocol |
-| [rTorrent Integration](./docs/RTORRENT.md) | Connect to rTorrent via XML-RPC |
+| [rTorrent Integration](./docs/RTORRENT.md) | Connect to rTorrent via XML-RPC (HTTP, SCGI, or Unix socket) |
 | [qBittorrent Integration](./docs/QBITTORRENT.md) | Connect to qBittorrent via WebUI API |
 | [Deluge Integration](./docs/DELUGE.md) | Connect to Deluge via WebUI JSON-RPC |
 | [Transmission Integration](./docs/TRANSMISSION.md) | Connect to Transmission via HTTP RPC |
@@ -171,7 +171,7 @@ Open `http://localhost:4000` and complete the setup wizard.
 - Ensure firewall allows port 4712
 
 **Can't connect to rTorrent?**
-- Ensure XML-RPC is exposed over HTTP (nginx/lighttpd proxy or ruTorrent)
+- Ensure XML-RPC is accessible via HTTP proxy (nginx/ruTorrent) or direct SCGI (TCP port or Unix socket)
 - Test with: `curl http://host:port/RPC2`
 - See [rTorrent Integration](./docs/RTORRENT.md) for setup details
 

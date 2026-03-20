@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.3] - Client Health Events, Notifications & Flood Prevention
+
+### ✨ Added
+
+- **Client health events** — new `clientUnavailable` and `clientAvailable` events fire on connection state transitions, with debouncing (3 consecutive failures before declaring offline, immediate recovery on first success)
+- **Health notifications** — push notifications via Apprise when a client goes offline or comes back online, with configurable event toggles in the Notifications settings
+- **Notification flood prevention** — per-client per-event-type rate limiter: after 3 notifications of the same type within 10 minutes, further notifications are suppressed for 1 hour. The last notification before suppression includes a warning. Online and offline notifications are tracked independently
+- **Health event scripting** — new `EVENT_STATUS`, `EVENT_PREVIOUS_STATUS`, `EVENT_ERROR`, `EVENT_DOWNTIME_DURATION` environment variables for custom event scripts. Scripts receive all health events without flood suppression
+
+### ♻️ Improved
+
+- **aMule EC connection recovery** — consecutive request timeouts now trigger automatic socket destruction and reconnection, fixing stale connections that would hang indefinitely
+
+### 🐛 Fixed
+
+- **aMule null stats crash** — fixed `Cannot read properties of null (reading 'EC_TAG_STATS_UL_SPEED')` error during EC reconnection when `getStats()` returned null from the request queue
+
+---
+
 ## [3.4.2] - Direct SCGI Connection for rTorrent & Diagnostic Logging
 
 ### ✨ Added

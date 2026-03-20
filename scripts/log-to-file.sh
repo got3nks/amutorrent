@@ -41,6 +41,10 @@ TS=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
     echo "EVENT_INSTANCE_NAME:$EVENT_INSTANCE_NAME"
     echo "EVENT_OWNER:        $EVENT_OWNER"
     echo "EVENT_TRIGGERED_BY: $EVENT_TRIGGERED_BY"
+    echo "EVENT_STATUS:       $EVENT_STATUS"
+    echo "EVENT_PREVIOUS_STATUS: $EVENT_PREVIOUS_STATUS"
+    echo "EVENT_ERROR:        $EVENT_ERROR"
+    echo "EVENT_DOWNTIME_DURATION: $EVENT_DOWNTIME_DURATION"
     echo ""
     echo "--- Stdin (JSON) ---"
     if command -v jq &> /dev/null; then

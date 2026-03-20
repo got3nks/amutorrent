@@ -71,6 +71,10 @@ When an event occurs, your script receives:
 | `EVENT_INSTANCE_NAME` | Display name of the client instance |
 | `EVENT_OWNER` | Username of the file owner (empty if untracked or no multi-user) |
 | `EVENT_TRIGGERED_BY` | Username who triggered the action (empty for system events) |
+| `EVENT_STATUS` | Client health status: `available` or `unavailable` (health events only) |
+| `EVENT_PREVIOUS_STATUS` | Previous health status (health events only) |
+| `EVENT_ERROR` | Error message that caused the outage (health events only) |
+| `EVENT_DOWNTIME_DURATION` | Duration of outage in milliseconds (clientAvailable events only) |
 
 ### Event Types
 
@@ -81,8 +85,14 @@ When an event occurs, your script receives:
 | `categoryChanged` | Category changed | oldCategory, newCategory, path, multiFile |
 | `fileMoved` | File moved | category, sourcePath, destPath |
 | `fileDeleted` | File deleted | deletedFromDisk, category, path, multiFile |
+| `clientUnavailable` | Client went offline | status, previousStatus, error |
+| `clientAvailable` | Client came back online | status, previousStatus, downtimeDuration |
 
-**Common fields** (present in all events): `hash`, `filename`, `clientType`, `instanceId`, `instanceName`, `owner`, `triggeredBy`
+**Common fields** (present in all download events): `hash`, `filename`, `clientType`, `instanceId`, `instanceName`, `owner`, `triggeredBy`
+
+**Common fields** (present in all health events): `clientType`, `instanceId`, `instanceName`, `status`, `previousStatus`, `timestamp`
+
+> **Note:** Client health events are debounced (3 consecutive failures before declaring offline), but unlike push notifications, **custom scripts receive every health event without flood suppression**. If you need throttling in your script, implement it yourself (e.g., check a timestamp file).
 
 **User fields** (`owner` and `triggeredBy`) are populated when multi-user authentication is enabled:
 - `owner` — the username who owns the download (looked up from the ownership table)

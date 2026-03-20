@@ -14,11 +14,13 @@
 # - Full event JSON is passed via stdin
 #
 # EVENTS:
-# - downloadAdded     : A new download was added
-# - downloadFinished  : A download completed
-# - categoryChanged   : A download's category was changed
-# - fileMoved         : A file was moved to a new location
-# - fileDeleted       : A file was deleted
+# - downloadAdded      : A new download was added
+# - downloadFinished   : A download completed
+# - categoryChanged    : A download's category was changed
+# - fileMoved          : A file was moved to a new location
+# - fileDeleted        : A file was deleted
+# - clientUnavailable  : A download client went offline
+# - clientAvailable    : A download client came back online
 #
 # =============================================================================
 
@@ -38,6 +40,10 @@ EVENT_TYPE="$1"
 # EVENT_INSTANCE_NAME- Display name of the client instance
 # EVENT_OWNER        - Username of the file owner (empty if untracked/no multi-user)
 # EVENT_TRIGGERED_BY - Username who triggered the action (empty for system events)
+# EVENT_STATUS       - Client health status: available/unavailable (health events only)
+# EVENT_PREVIOUS_STATUS - Previous health status (health events only)
+# EVENT_ERROR        - Error message (clientUnavailable events only)
+# EVENT_DOWNTIME_DURATION - Outage duration in ms (clientAvailable events only)
 
 echo "Event: $EVENT_TYPE"
 echo "Hash: $EVENT_HASH"
@@ -77,6 +83,14 @@ if command -v jq &> /dev/null; then
         fileDeleted)
             DELETED_FROM_DISK=$(echo "$EVENT_JSON" | jq -r '.deletedFromDisk // false')
             echo "Deleted from disk: $DELETED_FROM_DISK"
+            ;;
+        clientUnavailable)
+            ERROR=$(echo "$EVENT_JSON" | jq -r '.error // empty')
+            echo "Client offline: $EVENT_INSTANCE_NAME — $ERROR"
+            ;;
+        clientAvailable)
+            DOWNTIME=$(echo "$EVENT_JSON" | jq -r '.downtimeDuration // empty')
+            echo "Client online: $EVENT_INSTANCE_NAME (downtime: ${DOWNTIME}ms)"
             ;;
     esac
 

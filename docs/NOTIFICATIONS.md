@@ -45,6 +45,14 @@ For the full list of 80+ supported services, see the [Apprise Wiki](https://gith
 | Category Changed | A file's category/label is changed |
 | File Moved | A file is moved to a new location |
 | File Deleted | A file is deleted from the client |
+| Client Offline | A download client becomes unreachable |
+| Client Online | A download client comes back online |
+
+### Client Health Notifications
+
+Client health events fire on **state transitions only** — not on every poll cycle. A client must fail 3 consecutive health checks (~9 seconds) before being declared offline, and recovery is notified immediately on the first successful check.
+
+To prevent notification flooding when a client is flapping, notifications are rate-limited per client and event type: after 3 offline (or online) notifications for the same client within 10 minutes, further notifications of that type are suppressed for 1 hour. The last notification before suppression includes a warning. Online and offline notifications are tracked independently, so a recovery notification is never blocked by prior offline notifications.
 
 ## Multi-User Support
 

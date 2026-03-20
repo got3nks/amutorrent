@@ -1,7 +1,8 @@
 /**
  * EventScriptingManager - Execute user-defined scripts on specific events
  *
- * Supports events: downloadAdded, downloadFinished, categoryChanged, fileMoved, fileDeleted
+ * Supports events: downloadAdded, downloadFinished, categoryChanged, fileMoved, fileDeleted,
+ *                  clientUnavailable, clientAvailable
  *
  * Script invocation:
  * - Event type as first argument
@@ -20,10 +21,12 @@ const config = require('../modules/config');
 const notificationManager = require('./NotificationManager');
 const registry = require('./ClientRegistry');
 const { itemKey } = require('./itemKey');
+const FloodGuard = require('./FloodGuard');
 
 class EventScriptingManager extends BaseModule {
   constructor() {
     super();
+    this._floodGuard = new FloodGuard();
   }
 
   /**
@@ -62,9 +65,20 @@ class EventScriptingManager extends BaseModule {
     this._enrichWithUserInfo(eventData);
 
     // Send Apprise notification (if enabled for this event)
-    notificationManager.notify(eventType, eventData).catch(err => {
-      this.log(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
-    });
+    // Client health events use flood prevention to avoid notification spam
+    if (eventType === 'clientAvailable' || eventType === 'clientUnavailable') {
+      const floodKey = `${eventData.instanceId || 'global'}:${eventType}`;
+      const { allowed, isFinalWarning } = this._floodGuard.check(floodKey);
+      if (allowed) {
+        notificationManager.notifyClientHealth(eventType, eventData, isFinalWarning).catch(err => {
+          this.log(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
+        });
+      }
+    } else {
+      notificationManager.notify(eventType, eventData).catch(err => {
+        this.log(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
+      });
+    }
 
     // Execute custom script (if enabled)
     if (!this.isEventEnabled(eventType)) {
@@ -160,7 +174,12 @@ class EventScriptingManager extends BaseModule {
       EVENT_INSTANCE_ID: eventData.instanceId || '',
       EVENT_INSTANCE_NAME: eventData.instanceName || eventData.clientType || '',
       EVENT_OWNER: eventData.owner || '',
-      EVENT_TRIGGERED_BY: eventData.triggeredBy || ''
+      EVENT_TRIGGERED_BY: eventData.triggeredBy || '',
+      // Client health event fields
+      EVENT_STATUS: eventData.status || '',
+      EVENT_PREVIOUS_STATUS: eventData.previousStatus || '',
+      EVENT_ERROR: eventData.error || '',
+      EVENT_DOWNTIME_DURATION: eventData.downtimeDuration != null ? String(eventData.downtimeDuration) : ''
     };
 
     return new Promise((resolve) => {

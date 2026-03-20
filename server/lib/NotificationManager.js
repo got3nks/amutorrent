@@ -12,6 +12,7 @@ const os = require('os');
 const { spawn, execSync } = require('child_process');
 const BaseModule = require('./BaseModule');
 const config = require('../modules/config');
+const { formatDuration } = require('./timeRange');
 
 // Common paths where pipx/pip install apprise
 const APPRISE_SEARCH_PATHS = [
@@ -139,7 +140,9 @@ class NotificationManager extends BaseModule {
             downloadFinished: true,
             categoryChanged: false,
             fileMoved: true,
-            fileDeleted: true
+            fileDeleted: true,
+            clientUnavailable: true,
+            clientAvailable: true
           },
           services: []
         };
@@ -519,6 +522,37 @@ class NotificationManager extends BaseModule {
   }
 
   /**
+   * Send a client health notification with flood prevention support.
+   * Called from autoRefreshManager when a client state transition is detected.
+   * @param {string} eventType - 'clientAvailable' or 'clientUnavailable'
+   * @param {Object} eventData - Event data
+   * @param {boolean} isFinalWarning - If true, append suppression notice
+   */
+  async notifyClientHealth(eventType, eventData, isFinalWarning = false) {
+    if (!this.isEventEnabled(eventType)) return;
+
+    const enabledServices = this.notificationConfig.services.filter(s => s.enabled);
+    if (enabledServices.length === 0) return;
+
+    const urls = enabledServices.map(s => this._buildAppriseUrl(s)).filter(u => u);
+    if (urls.length === 0) return;
+
+    const title = this._buildNotificationTitle(eventType, eventData);
+    let body = this._buildNotificationBody(eventType, eventData);
+
+    if (isFinalWarning) {
+      body += '\n\n⚠️ Further notifications for this client will be suppressed for 1 hour.';
+    }
+
+    try {
+      await this._sendApprise(title, body, urls);
+      this.log(`[NotificationManager] Notification sent for ${eventType}: ${eventData.instanceName || eventData.instanceId}`);
+    } catch (err) {
+      this.log(`[NotificationManager] Failed to send ${eventType} notification: ${err.message}`);
+    }
+  }
+
+  /**
    * Build notification title based on event type
    * @param {string} eventType - Event type
    * @param {Object} eventData - Event data
@@ -528,12 +562,14 @@ class NotificationManager extends BaseModule {
     const client = eventData.instanceName || eventData.clientType || null;
     let label;
     switch (eventType) {
-      case 'downloadAdded':    label = '⬇️ New Download'; break;
-      case 'downloadFinished': label = '✅ Download Complete'; break;
-      case 'categoryChanged':  label = '🏷️ Category Changed'; break;
-      case 'fileMoved':        label = '📦 File Moved'; break;
-      case 'fileDeleted':      label = '🗑️ File Deleted'; break;
-      default:                 label = 'aMuTorrent Event'; break;
+      case 'downloadAdded':      label = '⬇️ New Download'; break;
+      case 'downloadFinished':   label = '✅ Download Complete'; break;
+      case 'categoryChanged':    label = '🏷️ Category Changed'; break;
+      case 'fileMoved':          label = '📦 File Moved'; break;
+      case 'fileDeleted':        label = '🗑️ File Deleted'; break;
+      case 'clientUnavailable':  label = '🔴 Client Offline'; break;
+      case 'clientAvailable':    label = '🟢 Client Online'; break;
+      default:                   label = 'aMuTorrent Event'; break;
     }
     return client ? `${label} · ${client}` : label;
   }
@@ -564,6 +600,15 @@ class NotificationManager extends BaseModule {
         return `${filename}\n📂 ${dest}${userCatSuffix}`;
       case 'fileDeleted':
         return `${filename}${userCatSuffix}`;
+      case 'clientUnavailable': {
+        let msg = `${eventData.instanceName || eventData.instanceId} is unreachable`;
+        if (eventData.error) msg += `\nError: ${eventData.error}`;
+        return msg;
+      }
+      case 'clientAvailable': {
+        const dur = eventData.downtimeDuration ? formatDuration(eventData.downtimeDuration) : 'unknown';
+        return `${eventData.instanceName || eventData.instanceId} is back online (was offline for ${dur})`;
+      }
       default:
         return filename;
     }

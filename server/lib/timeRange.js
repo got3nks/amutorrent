@@ -85,7 +85,9 @@ function formatDuration(ms) {
     return `${Math.round(ms / MS_PER_SECOND)}s`;
   }
   if (ms < MS_PER_HOUR) {
-    return `${Math.round(ms / MS_PER_MINUTE)}m`;
+    const minutes = Math.floor(ms / MS_PER_MINUTE);
+    const seconds = Math.round((ms % MS_PER_MINUTE) / MS_PER_SECOND);
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
   }
   if (ms < MS_PER_DAY) {
     const hours = Math.floor(ms / MS_PER_HOUR);

@@ -367,6 +367,14 @@ export const EVENT_TYPES = {
   fileDeleted: {
     label: 'File Deleted',
     description: 'When a file is deleted from the client'
+  },
+  clientUnavailable: {
+    label: 'Client Offline',
+    description: 'When a download client becomes unreachable'
+  },
+  clientAvailable: {
+    label: 'Client Online',
+    description: 'When a download client comes back online'
   }
 };
 

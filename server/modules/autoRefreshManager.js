@@ -10,9 +10,12 @@ const logger = require('../lib/logger');
 const BaseModule = require('../lib/BaseModule');
 const { getDiskSpace } = require('../lib/diskSpace');
 const { getCpuUsage } = require('../lib/cpuUsage');
+const { formatDuration } = require('../lib/timeRange');
 const dataFetchService = require('../lib/DataFetchService');
 const DeltaEngine = require('../lib/DeltaEngine');
 const registry = require('../lib/ClientRegistry');
+const HealthTracker = require('../lib/HealthTracker');
+const eventScriptingManager = require('../lib/EventScriptingManager');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
 
@@ -27,6 +30,7 @@ class AutoRefreshManager extends BaseModule {
     this._cachedBatchUpdate = null;
     this._lastHistoryUpdate = 0; // Timestamp of last history update
     this._deltaEngine = new DeltaEngine();
+    this._healthTracker = new HealthTracker();
   }
 
   /**
@@ -82,6 +86,9 @@ class AutoRefreshManager extends BaseModule {
           this.log('⚠️  Error saving metrics:', logger.errorDetail(err));
         }
       }
+
+      // Health check: detect connection state transitions for all enabled instances
+      this._checkClientHealth();
 
       // Only fetch batch data if there are WebSocket clients or history update is due
       const now = Date.now();
@@ -339,6 +346,50 @@ class AutoRefreshManager extends BaseModule {
       this.cleanupTimeout = null;
     }
     this._deltaEngine.reset();
+    this._healthTracker.reset();
+  }
+
+  /**
+   * Check all enabled client instances for health state transitions.
+   * Emits clientAvailable/clientUnavailable events on state changes.
+   */
+  _checkClientHealth() {
+    registry.forEach((manager, instanceId, clientType) => {
+      if (!manager.isEnabled()) return;
+
+      const connected = manager.isConnected();
+      const error = manager.lastError || null;
+      const transition = this._healthTracker.update(instanceId, connected, error);
+
+      if (!transition) return;
+
+      const isRecovery = transition.event === 'clientAvailable';
+      const eventData = {
+        clientType,
+        instanceId,
+        instanceName: manager.displayName,
+        status: isRecovery ? 'available' : 'unavailable',
+        previousStatus: isRecovery ? 'unavailable' : 'available',
+        error: transition.error || null,
+        timestamp: new Date().toISOString()
+      };
+
+      // Add downtime duration for recovery events
+      if (isRecovery && transition.downtimeSince) {
+        eventData.downtimeDuration = Date.now() - transition.downtimeSince;
+      }
+
+      // Log the transition
+      if (isRecovery) {
+        const dur = eventData.downtimeDuration ? ` (was offline for ${formatDuration(eventData.downtimeDuration)})` : '';
+        this.log(`🟢 ${manager.displayName} is back online${dur}`);
+      } else {
+        this.log(`🔴 ${manager.displayName} is unreachable: ${error || 'unknown reason'}`);
+      }
+
+      // Emit event (scripts + notifications with flood prevention handled by EventScriptingManager)
+      eventScriptingManager.emit(transition.event, eventData);
+    });
   }
 
   /**
