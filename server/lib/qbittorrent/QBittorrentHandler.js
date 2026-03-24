@@ -350,32 +350,34 @@ class QBittorrentHandler {
   async getTorrentsInfo(req, res) {
     try {
       const { category } = req.query;
-      const amuleClient = this.getAmuleClient?.();
 
-      if (!amuleClient) {
-        return response.serviceUnavailable(res, 'aMule not connected');
-      }
+      // Use cached unified items from DataFetchService instead of direct EC calls.
+      // Direct getDownloadQueue()/getSharedFiles() calls interfere with aMule's
+      // server-side incremental diff state for getUpdate(), causing XOR corruption.
+      const dataFetchService = require('../DataFetchService');
+      const cached = dataFetchService.getCachedBatchData(10000);
+      const items = cached?.items || [];
 
-      let downloads = await amuleClient.getDownloadQueue();
-      let shared = await amuleClient.getSharedFiles();
+      // Filter to the target aMule instance
+      const targetInstanceId = this.getAmuleInstanceId?.();
+      let downloads = items.filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId));
 
-      // Map shared files to download-like format
-      shared = await Promise.all(shared.map(async file => {
-        const categoryObj = file.path ? await this.getCategoryByPath(file.path) : null;
-        return {
-          fileName: file.fileName,
-          fileHash: file.fileHash,
-          fileSize: String(file.fileSize),
-          fileSizeDownloaded: String(file.fileSize),
-          progress: '100',
-          sourceCount: 0,
-          speed: 0,
-          priority: file.priority ?? 0,
-          category: categoryObj?.id || null
-        };
+      // Map unified items to the format expected by convertToQBittorrentInfo
+      downloads = downloads.map(item => ({
+        fileName: item.name,
+        fileHash: item.hash,
+        fileSize: String(item.size || 0),
+        fileSizeDownloaded: String(item.sizeDownloaded || 0),
+        progress: String(item.progress || 0),
+        sourceCount: item.sources?.connected || 0,
+        speed: item.downloadSpeed || 0,
+        priority: item.downloadPriority ?? 0,
+        category: item.categoryId || null,
+        status: item.status,
+        uploadSpeed: item.uploadSpeed || 0,
+        ratio: item.ratio || 0,
+        directory: item.directory || ''
       }));
-
-      downloads = [...downloads, ...shared];
 
       // Filter by category if requested
       if (category) {

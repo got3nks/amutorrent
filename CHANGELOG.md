@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.4] - Move to..., Search Re-download, Segments Fix & rTorrent Improvements
+
+### ✨ Added
+
+- **"Move to..." feature** — standalone file move action in context menus (Downloads & Shared views) with category quick links, manual path input, permission pre-check, and batch support. Works with all clients via `MoveOperationManager`
+- **Per-instance download tracking** — search results track which client instances have each download, allowing re-download to different clients.
+- **Magnet name resolution** — rTorrent magnet downloads show the real name from history DB instead of `HASH.meta`, with `(resolving)` indicator that clears automatically when metadata resolves
+- **SCGI connection info** — Settings client cards show `SCGI TCP: host:port` or `SCGI Socket: /path` instead of "Not configured"
+
+### ♻️ Improved
+
+- **rTorrent post-load property setting** — label, directory, and priority are now set via separate `system.multicall` after `load.raw_start` instead of inline arguments, avoiding rTorrent's 4KB execute arg buffer overflow (`exec_file.cc buffer_size = 4096`)
+- **Tooltip component** — Improved dark mode contrast with lighter background and border
+- **aMule EC timeout** — increased from 30s to 60s for large shared file lists
+- **Reconnection resilience** — requests are skipped during EC reconnection to prevent "Invalid request" spam on the aMule side
+
+### 🐛 Fixed
+
+- **aMule segment bar corruption** — qBittorrent compatibility API was calling `getDownloadQueue()` / `getSharedFiles()` directly on the EC connection, interfering with aMule's server-side incremental diff state for `getUpdate()`. Now reads from cached data instead
+- **aMule EC XOR reconstruction** — fixed buffer resize logic to match aMule's `Realloc` + XOR algorithm. Clears client-side XOR state on reconnection to prevent stale diff corruption
+- **rTorrent completed status** — stopped torrents at 100% now correctly show "Stopped" instead of "Seeding" in Shared Files view (`completed` status no longer mapped to `seeding`)
+- **Client disconnect detection** — all client managers now trigger reconnect on any fetch error, not just specific error codes (fixes SCGI socket `ENOENT` not being detected)
+- **Search result delete tracking** — deletion from one client only removes that instance from the per-instance download map, preserving other instances' status. Alias lookup handles Prowlarr GUID → real hash mapping
+
+---
+
 ## [3.4.3] - Client Health Events, Notifications & Flood Prevention
 
 ### ✨ Added
