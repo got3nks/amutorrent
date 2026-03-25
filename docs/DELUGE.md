@@ -21,6 +21,7 @@ aMuTorrent connects to Deluge via its WebUI JSON-RPC API, allowing you to manage
    - **Host**: Deluge WebUI hostname (e.g., `localhost` or `deluge`)
    - **Port**: WebUI port (default: `8112`)
    - **Password**: WebUI password (default: `deluge`)
+   - **URL Path**: Base path if behind a reverse proxy (e.g., `/deluge`)
    - **Use SSL**: Enable if WebUI uses HTTPS
 
 > **Note:** Deluge uses password-only authentication — there is no username field.
@@ -31,6 +32,7 @@ aMuTorrent connects to Deluge via its WebUI JSON-RPC API, allowing you to manage
 DELUGE_ENABLED=true
 DELUGE_HOST=localhost
 DELUGE_PORT=8112
+DELUGE_PATH=              # Optional: URL path for reverse proxy (e.g., /deluge)
 DELUGE_PASSWORD=deluge
 DELUGE_USE_SSL=false
 ```

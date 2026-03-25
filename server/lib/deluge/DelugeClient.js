@@ -12,10 +12,11 @@ class DelugeClient {
   constructor(options = {}) {
     this.host = options.host || 'localhost';
     this.port = options.port || 8112;
+    this.path = (options.path || '').replace(/\/+$/, ''); // strip trailing slashes
     this.password = options.password || 'deluge';
     this.useSsl = options.useSsl || false;
 
-    this.baseUrl = `${this.useSsl ? 'https' : 'http'}://${this.host}:${this.port}`;
+    this.baseUrl = `${this.useSsl ? 'https' : 'http'}://${this.host}:${this.port}${this.path}`;
     this.sessionCookie = null; // _session_id cookie
     this.connected = false;
     this._requestId = 0;

@@ -981,6 +981,15 @@ const SetupWizardView = ({ onComplete }) => {
           }),
 
           h(ConfigField, {
+            label: 'URL Path (Optional)',
+            description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)',
+            value: formData.qbittorrent?.path || '',
+            onChange: (value) => updateField('qbittorrent', 'path', value),
+            placeholder: 'Leave empty if not using a reverse proxy',
+            fromEnv: meta?.fromEnv.qbittorrentPath
+          }),
+
+          h(ConfigField, {
             label: 'Username',
             description: 'qBittorrent WebUI username (default: admin)',
             value: formData.qbittorrent?.username || 'admin',
@@ -1051,6 +1060,15 @@ const SetupWizardView = ({ onComplete }) => {
             placeholder: '8112',
             required: formData.deluge?.enabled,
             fromEnv: meta?.fromEnv.delugePort
+          }),
+
+          h(ConfigField, {
+            label: 'URL Path (Optional)',
+            description: 'Base path when behind a reverse proxy (e.g., /deluge)',
+            value: formData.deluge?.path || '',
+            onChange: (value) => updateField('deluge', 'path', value),
+            placeholder: 'Leave empty if not using a reverse proxy',
+            fromEnv: meta?.fromEnv.delugePath
           }),
 
           !meta?.fromEnv.delugePassword && h(ConfigField, {
@@ -1496,8 +1514,28 @@ const SetupWizardView = ({ onComplete }) => {
         h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'qBittorrent Connection'),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.qbittorrent.host}`),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.qbittorrent.port}`),
+        formData.qbittorrent.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.qbittorrent.path}`),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.qbittorrent.username || 'admin'}`),
         formData.qbittorrent.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
+      ),
+
+      // Deluge
+      formData.deluge?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
+        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Deluge Connection'),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.deluge.host}`),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.deluge.port}`),
+        formData.deluge.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.deluge.path}`),
+        formData.deluge.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
+      ),
+
+      // Transmission
+      formData.transmission?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
+        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Transmission Connection'),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.transmission.host}`),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.transmission.port}`),
+        formData.transmission.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.transmission.path}`),
+        formData.transmission.username && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.transmission.username}`),
+        formData.transmission.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
       ),
 
       // Directories

@@ -56,6 +56,7 @@ class DelugeManager extends BaseClientManager {
       const newClient = new DelugeClient({
         host: this._clientConfig.host,
         port: this._clientConfig.port || 8112,
+        path: this._clientConfig.path || '',
         password: this._clientConfig.password || 'deluge',
         useSsl: this._clientConfig.useSsl || false
       });

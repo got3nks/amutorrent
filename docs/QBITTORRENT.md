@@ -39,6 +39,7 @@ aMuTorrent connects to qBittorrent via its WebUI API, allowing you to manage Bit
    - **Port**: WebUI port (default: `8080`)
    - **Username**: WebUI username (default: `admin`)
    - **Password**: WebUI password (set during first-time setup)
+   - **URL Path**: Base path if behind a reverse proxy (e.g., `/qbittorrent`)
    - **Use SSL**: Enable if WebUI uses HTTPS
 
 ### Via Environment Variables
@@ -47,6 +48,7 @@ aMuTorrent connects to qBittorrent via its WebUI API, allowing you to manage Bit
 QBITTORRENT_ENABLED=true
 QBITTORRENT_HOST=localhost
 QBITTORRENT_PORT=8080
+QBITTORRENT_PATH=              # Optional: URL path for reverse proxy (e.g., /qbittorrent)
 QBITTORRENT_USERNAME=admin
 QBITTORRENT_PASSWORD=your_password
 QBITTORRENT_USE_SSL=false

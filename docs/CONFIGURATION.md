@@ -272,6 +272,7 @@ services:
 | `QBITTORRENT_ENABLED` | `false` | Enable qBittorrent integration |
 | `QBITTORRENT_HOST` | `localhost` | qBittorrent WebUI hostname |
 | `QBITTORRENT_PORT` | `8080` | qBittorrent WebUI port |
+| `QBITTORRENT_PATH` | - | URL base path for reverse proxy (e.g., `/qbittorrent`) |
 | `QBITTORRENT_USERNAME` | `admin` | WebUI username |
 | `QBITTORRENT_PASSWORD` | - | WebUI password (locks UI editing) |
 | `QBITTORRENT_USE_SSL` | `false` | Use HTTPS for WebUI connection |
@@ -283,6 +284,7 @@ services:
 | `DELUGE_ENABLED` | `false` | Enable Deluge integration |
 | `DELUGE_HOST` | `localhost` | Deluge WebUI hostname |
 | `DELUGE_PORT` | `8112` | Deluge WebUI port |
+| `DELUGE_PATH` | - | URL base path for reverse proxy (e.g., `/deluge`) |
 | `DELUGE_PASSWORD` | - | WebUI password (locks UI editing) |
 | `DELUGE_USE_SSL` | `false` | Use HTTPS for WebUI connection |
 

@@ -40,6 +40,7 @@ const CLIENT_FIELDS = {
   qbittorrent: [
     { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', required: true },
     { field: 'port', label: 'Port', description: 'qBittorrent WebUI port (default: 8080)', placeholder: '8080', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8080 },
+    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)', placeholder: 'Leave empty if not using a reverse proxy' },
     { field: 'username', label: 'Username', description: 'qBittorrent WebUI username (default: admin)', placeholder: 'admin', defaultValue: 'admin' },
     { field: 'password', label: 'Password', description: 'qBittorrent WebUI password', placeholder: 'Enter qBittorrent password', sensitive: true },
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to qBittorrent using HTTPS', toggle: true }
@@ -47,6 +48,7 @@ const CLIENT_FIELDS = {
   deluge: [
     { field: 'host', label: 'Host', description: 'Deluge Web UI host address', placeholder: '127.0.0.1', required: true },
     { field: 'port', label: 'Port', description: 'Deluge Web UI port (default: 8112)', placeholder: '8112', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8112 },
+    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /deluge)', placeholder: 'Leave empty if not using a reverse proxy' },
     { field: 'password', label: 'Password', description: 'Deluge Web UI password', placeholder: 'Enter Deluge password', sensitive: true },
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Deluge using HTTPS', toggle: true }
   ],

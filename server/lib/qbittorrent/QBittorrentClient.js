@@ -11,11 +11,12 @@ class QBittorrentClient {
   constructor(options = {}) {
     this.host = options.host || 'localhost';
     this.port = options.port || 8080;
+    this.path = (options.path || '').replace(/\/+$/, ''); // strip trailing slashes
     this.username = options.username || 'admin';
     this.password = options.password || '';
     this.useSsl = options.useSsl || false;
 
-    this.baseUrl = `${this.useSsl ? 'https' : 'http'}://${this.host}:${this.port}`;
+    this.baseUrl = `${this.useSsl ? 'https' : 'http'}://${this.host}:${this.port}${this.path}`;
     this.sid = null; // Session cookie
     this.connected = false;
   }

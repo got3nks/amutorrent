@@ -255,7 +255,7 @@ async function testRtorrentConnection(host, port, rpcPath, username, password, u
  * @param {boolean} useSsl - Whether to use HTTPS
  * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
  */
-async function testQbittorrentConnection(host, port, username, password, useSsl) {
+async function testQbittorrentConnection(host, port, username, password, useSsl, rpcPath) {
   const result = {
     success: false,
     connected: false,
@@ -275,6 +275,7 @@ async function testQbittorrentConnection(host, port, username, password, useSsl)
     client = new QBittorrentClient({
       host,
       port: port || 8080,
+      path: rpcPath || '',
       username: username || 'admin',
       password: password || '',
       useSsl: useSsl || false
@@ -325,7 +326,7 @@ async function testQbittorrentConnection(host, port, username, password, useSsl)
  * @param {boolean} useSsl - Whether to use HTTPS
  * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
  */
-async function testDelugeConnection(host, port, password, useSsl) {
+async function testDelugeConnection(host, port, password, useSsl, rpcPath) {
   const result = {
     success: false,
     connected: false,
@@ -344,6 +345,7 @@ async function testDelugeConnection(host, port, password, useSsl) {
     client = new DelugeClient({
       host,
       port: port || 8112,
+      path: rpcPath || '',
       password: password || '',
       useSsl: useSsl || false
     });

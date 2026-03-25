@@ -55,6 +55,7 @@ class QbittorrentManager extends BaseClientManager {
       const newClient = new QBittorrentClient({
         host: this._clientConfig.host,
         port: this._clientConfig.port || 8080,
+        path: this._clientConfig.path || '',
         username: this._clientConfig.username || 'admin',
         password: this._clientConfig.password || '',
         useSsl: this._clientConfig.useSsl || false

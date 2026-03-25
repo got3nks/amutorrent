@@ -68,11 +68,13 @@ class ConfigAPI extends BaseModule {
       qbittorrentPort: config.isFromEnv('qbittorrent.port'),
       qbittorrentUsername: config.isFromEnv('qbittorrent.username'),
       qbittorrentPassword: config.isFromEnv('qbittorrent.password'),
+      qbittorrentPath: config.isFromEnv('qbittorrent.path'),
       qbittorrentUseSsl: config.isFromEnv('qbittorrent.useSsl'),
       delugeEnabled: config.isFromEnv('deluge.enabled'),
       delugeHost: config.isFromEnv('deluge.host'),
       delugePort: config.isFromEnv('deluge.port'),
       delugePassword: config.isFromEnv('deluge.password'),
+      delugePath: config.isFromEnv('deluge.path'),
       delugeUseSsl: config.isFromEnv('deluge.useSsl'),
       transmissionEnabled: config.isFromEnv('transmission.enabled'),
       transmissionHost: config.isFromEnv('transmission.host'),
@@ -325,7 +327,8 @@ class ConfigAPI extends BaseModule {
           qbittorrent.port,
           qbittorrent.username,
           password,
-          qbittorrent.useSsl
+          qbittorrent.useSsl,
+          qbittorrent.path
         );
         this.logTestResult('qBittorrent connection', results.qbittorrent);
       }
@@ -335,7 +338,7 @@ class ConfigAPI extends BaseModule {
       if (deluge && deluge.enabled) {
         const password = deluge.password || (deluge.instanceId ? config.getClientConfig(deluge.instanceId)?.password : null);
         this.log(`🧪 Testing Deluge connection to ${deluge.host}:${deluge.port}...`);
-        results.deluge = await configTester.testDelugeConnection(deluge.host, deluge.port, password, deluge.useSsl);
+        results.deluge = await configTester.testDelugeConnection(deluge.host, deluge.port, password, deluge.useSsl, deluge.path);
         this.logTestResult('Deluge connection', results.deluge);
       }
 
