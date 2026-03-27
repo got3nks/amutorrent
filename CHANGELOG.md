@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - REST API v1, Reverse Proxy Support & Connection Improvements
+
+### ✨ Added
+
+- **REST API v1** — full HTTP REST API at `/api/v1/` exposing all download management features: add/pause/resume/stop/delete downloads, categories CRUD, ED2K search (blocking and non-blocking), move files, permission checks, logs, and data snapshots. Zero code duplication — bridges directly to existing WebSocket handlers
+- **API key authentication for REST API** — `X-API-Key` header support in the auth middleware, allowing stateless REST API access without session cookies. Populates session from the user's API key for seamless capability/ownership checks
+- **Reverse proxy URL path for qBittorrent and Deluge** — optional URL path field (e.g., `/qbittorrent`) for clients behind a reverse proxy. Available in Settings UI, Setup Wizard, and via `QBITTORRENT_PATH` / `DELUGE_PATH` environment variables
+
+### ♻️ Improved
+
+- **getStats disconnect detection** — all client managers (rTorrent, qBittorrent, Deluge, Transmission) now trigger reconnect on stats fetch failure, not just data fetch failure. Fixes cases where client goes offline but health events don't fire
+- **API documentation** — comprehensive docs for all REST API v1 endpoints with request/response examples, capability requirements, and authentication methods
+
+### 🐛 Fixed
+
+- **aMule category creation** — aMule EC protocol returns no category ID on creation (`EC_OP_NOOP`); now re-fetches category list after successful creation to discover the new ID by name
+- **Batch delete event clientType resolution** — delete event emission now uses the manager's `clientType` (always reliable) instead of relying on request body or cache lookup, fixing "Unknown client type: undefined" errors
+- **aMule segment bar corruption** — direct EC calls from qBittorrent-compatible API were interfering with aMule's server-side incremental diff state for `getUpdate()`, causing XOR buffer corruption in segment visualization data. `getTorrentsInfo` now reads from cached DataFetchService data instead of calling `getDownloadQueue()`/`getSharedFiles()` directly on the EC connection, preventing aMule incremental diff state corruption
+- **Metrics recording** — skips recording when `getStats()` returns empty data (client unresponsive), preventing zero-value rows that drag down chart averages
+- **SCGI socket config validation** — config validation correctly requires `socketPath` instead of `host`/`port` for SCGI socket mode. Fixes "host is required" error blocking config saves and version-seen tracking
+- **Deluge and Transmission in wizard review step** — setup wizard now shows all 5 client configurations in the final review step
+
+---
+
 ## [3.4.4] - Move to..., Search Re-download, Segments Fix & rTorrent Improvements
 
 ### ✨ Added

@@ -691,7 +691,14 @@ class AmuleManager extends BaseClientManager {
    */
   async createCategory({ name, path = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.createCategory(name, path, comment, color, priority);
+    const result = await this.client.createCategory(name, path, comment, color, priority);
+    // aMule EC protocol returns EC_OP_NOOP with no ID — discover it via re-fetch
+    if (result.success && result.categoryId == null) {
+      const cats = await this.getCategories();
+      const created = cats?.find(c => c.title === name);
+      if (created?.id != null) result.categoryId = created.id;
+    }
+    return result;
   }
 
   /**
@@ -781,7 +788,7 @@ class AmuleManager extends BaseClientManager {
         return { amuleId: result.categoryId };
       }
       if (result.success) {
-        this.log(`⚠️ Category "${name}" created in aMule but no ID returned`);
+        this.log(`⚠️ Category "${name}" created in aMule but ID not found`);
       }
     } catch (err) {
       this.log(`⚠️ Failed to ensure category in aMule: ${err.message}`);

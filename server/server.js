@@ -43,6 +43,7 @@ const rtorrentAPI = require('./modules/rtorrentAPI');
 const delugeAPI = require('./modules/delugeAPI');
 const transmissionAPI = require('./modules/transmissionAPI');
 const webSocketHandlers = require('./modules/webSocketHandlers');
+const restAPI = require('./modules/restAPI');
 const autoRefreshManager = require('./modules/autoRefreshManager');
 const dataFetchService = require('./lib/DataFetchService');
 const categoryManager = require('./lib/CategoryManager');
@@ -198,6 +199,8 @@ qbittorrentAPI.inject(deps);
 prowlarrAPI.inject(deps);
 authAPI.inject(deps);
 webSocketHandlers.inject(deps);
+restAPI.setHandlers(webSocketHandlers);
+requireAuth.setUserManager(userManager);
 configAPI.inject(deps);
 basicRoutes.inject(deps);
 arrManager.inject(deps);
@@ -264,6 +267,7 @@ rtorrentAPI.registerRoutes(app);    // rtorrent API (files, etc.)
 delugeAPI.registerRoutes(app);     // Deluge API (files, etc.)
 transmissionAPI.registerRoutes(app); // Transmission API (files, etc.)
 filesystemAPI.registerRoutes(app);  // Filesystem browsing API
+restAPI.registerRoutes(app);        // REST API (HTTP bridge to WS handlers)
 
 // Item detail API — serves raw/trackersDetailed stripped from broadcasts (Phase 0)
 app.get('/api/item/detail/:hash', (req, res) => {

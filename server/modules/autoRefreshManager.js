@@ -117,110 +117,88 @@ class AutoRefreshManager extends BaseModule {
         this._lastHistoryUpdate = now;
       }
 
-      // Only build and broadcast updates if there are WebSocket clients connected
+      // ── Build stats (always — needed for cache and broadcast) ──────────
+      const combinedStats = {};
+      combinedStats.prowlarrEnabled = config.getConfig()?.integrations?.prowlarr?.enabled === true;
+
+      combinedStats.instanceSpeeds = {};
+      for (const { instanceId, metrics } of instanceStats) {
+        combinedStats.instanceSpeeds[instanceId] = {
+          uploadSpeed: metrics.uploadSpeed,
+          downloadSpeed: metrics.downloadSpeed
+        };
+      }
+
+      const statsByInstance = {};
+      for (const { instanceId, manager, stats: instStats } of instanceStats) {
+        statsByInstance[instanceId] = { manager, stats: instStats };
+      }
+
+      combinedStats.instances = {};
+      let instanceOrder = 0;
+      registry.forEach((mgr, instanceId, ct) => {
+        const instData = statsByInstance[instanceId];
+        combinedStats.instances[instanceId] = {
+          order: instanceOrder++,
+          type: ct,
+          networkType: clientMeta.getNetworkType(ct),
+          name: mgr.displayName,
+          connected: !!mgr.isConnected(),
+          color: mgr._clientConfig?.color || null,
+          capabilities: clientMeta.get(ct).capabilities,
+          networkStatus: instData ? instData.manager.getNetworkStatus(instData.stats) : null,
+          error: mgr.lastError || null,
+          errorTime: mgr.lastErrorTime || null
+        };
+      });
+
+      try {
+        combinedStats.diskSpace = await getDiskSpace(config.getDataDir());
+      } catch (err) {
+        this.log('⚠️  Error getting disk space:', logger.errorDetail(err));
+      }
+      try {
+        combinedStats.cpuUsage = await getCpuUsage();
+      } catch (err) {
+        this.log('⚠️  Error getting CPU usage:', logger.errorDetail(err));
+      }
+
+      // ── Strip and cache (always — serves both REST API and new WS clients) ─
+      const strippedItems = batchData.items.map(({ raw, trackersDetailed, ...rest }) => rest);
+
+      const fullData = { stats: combinedStats, items: strippedItems };
+      if (batchData.categories?.length > 0) fullData.categories = batchData.categories;
+      if (batchData.clientDefaultPaths) fullData.clientDefaultPaths = batchData.clientDefaultPaths;
+      if (batchData.hasPathWarnings !== undefined) fullData.hasPathWarnings = batchData.hasPathWarnings;
+
+      // ── Delta engine + broadcast (only when WS clients connected) ─────
       if (hasWsClients) {
-        const batchUpdate = {};
-
-        const combinedStats = {};
-
-        // Prowlarr enabled status (integration config, not a client instance)
-        combinedStats.prowlarrEnabled = config.getConfig()?.integrations?.prowlarr?.enabled === true;
-
-        // Per-instance speeds (changes every cycle → LiveDataContext via dataStats)
-        combinedStats.instanceSpeeds = {};
-        for (const { instanceId, metrics } of instanceStats) {
-          combinedStats.instanceSpeeds[instanceId] = {
-            uploadSpeed: metrics.uploadSpeed,
-            downloadSpeed: metrics.downloadSpeed
-          };
-        }
-
-        // Per-instance metadata for frontend (visual identity + network status)
-        // Build instanceId → stats lookup for networkStatus computation
-        const statsByInstance = {};
-        for (const { instanceId, manager, stats: instStats } of instanceStats) {
-          statsByInstance[instanceId] = { manager, stats: instStats };
-        }
-
-        combinedStats.instances = {};
-        let instanceOrder = 0;
-        registry.forEach((mgr, instanceId, ct) => {
-          const instData = statsByInstance[instanceId];
-          combinedStats.instances[instanceId] = {
-            order: instanceOrder++,
-            type: ct,
-            networkType: clientMeta.getNetworkType(ct),
-            name: mgr.displayName,
-            connected: !!mgr.isConnected(),
-            color: mgr._clientConfig?.color || null,
-            capabilities: clientMeta.get(ct).capabilities,
-            networkStatus: instData ? instData.manager.getNetworkStatus(instData.stats) : null,
-            error: mgr.lastError || null,
-            errorTime: mgr.lastErrorTime || null
-          };
-        });
-
-        // Add disk space and CPU usage information to stats
-        try {
-          const dataDir = config.getDataDir();
-          combinedStats.diskSpace = await getDiskSpace(dataDir);
-        } catch (err) {
-          this.log('⚠️  Error getting disk space:', logger.errorDetail(err));
-        }
-        try {
-          combinedStats.cpuUsage = await getCpuUsage();
-        } catch (err) {
-          this.log('⚠️  Error getting CPU usage:', logger.errorDetail(err));
-        }
-        batchUpdate.stats = combinedStats;
-
-        // Strip heavy modal-only fields (raw ~55%, trackersDetailed ~5% of payload)
-        // These are fetched on-demand via API when FileInfoModal opens
-        const strippedItems = batchData.items.map(({ raw, trackersDetailed, ...rest }) => rest);
-
-        // Compute delta for items
         const delta = this._deltaEngine.computeDelta(strippedItems);
         const useDelta = !this._deltaEngine.shouldFallback(delta, strippedItems.length);
 
-        // Compute metadata delta (categories, paths, warnings) — only send when changed
         const metaDelta = this._deltaEngine.computeMetaDelta({
           categories: batchData.categories || [],
           clientDefaultPaths: batchData.clientDefaultPaths || {},
           hasPathWarnings: batchData.hasPathWarnings
         });
 
-        // Build the broadcast message
+        fullData.seq = delta.seq;
+
         if (useDelta) {
-          // Delta update — only changed data
           const deltaData = { stats: combinedStats, delta };
           if (metaDelta) Object.assign(deltaData, metaDelta);
-          const deltaMsg = { type: 'batch-update', data: deltaData };
-
-          // Cache full snapshot for new clients (with items array + seq for delta continuity)
-          const fullData = { stats: combinedStats, items: strippedItems, seq: delta.seq };
-          if (batchData.categories?.length > 0) fullData.categories = batchData.categories;
-          if (batchData.clientDefaultPaths) fullData.clientDefaultPaths = batchData.clientDefaultPaths;
-          if (batchData.hasPathWarnings !== undefined) fullData.hasPathWarnings = batchData.hasPathWarnings;
-          this._cachedBatchUpdate = { type: 'batch-update', data: fullData };
-
-          this.broadcast(deltaMsg, {
+          this.broadcast({ type: 'batch-update', data: deltaData }, {
             transform: (msg, user) => this._transformDeltaForUser(msg, user)
           });
         } else {
-          // Full snapshot — too many changes for delta to be efficient
-          const fullData = { stats: combinedStats, items: strippedItems, seq: delta.seq };
-          if (batchData.categories?.length > 0) fullData.categories = batchData.categories;
-          if (batchData.clientDefaultPaths) fullData.clientDefaultPaths = batchData.clientDefaultPaths;
-          if (batchData.hasPathWarnings !== undefined) fullData.hasPathWarnings = batchData.hasPathWarnings;
-          const fullMsg = { type: 'batch-update', data: fullData };
-
-          this._cachedBatchUpdate = fullMsg;
-
-          this.broadcast(fullMsg, {
+          this.broadcast({ type: 'batch-update', data: fullData }, {
             transform: (msg, user) => this._transformSnapshotForUser(msg, user)
           });
         }
       }
+
+      // Always update cache (REST API + new WS client initial data)
+      this._cachedBatchUpdate = { type: 'batch-update', data: fullData };
 
     } catch (err) {
       // Client disconnected during stats fetch - will retry on next interval

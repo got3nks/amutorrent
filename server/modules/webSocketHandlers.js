@@ -1438,7 +1438,7 @@ class WebSocketHandlers extends BaseModule {
             instanceIdsToRefresh.add(instanceId);
           }
 
-          results.push({ fileHash: item.fileHash, success: true, instanceId, instanceName: manager.displayName });
+          results.push({ fileHash: item.fileHash, success: true, instanceId, instanceName: manager.displayName, clientType: manager.clientType });
         } catch (err) {
           context.log(`Delete failed for ${fileName || item.fileHash}: ${err.message}`);
           results.push({ fileHash: item.fileHash, fileName, success: false, error: err.message, instanceId, instanceName: manager?.displayName });
@@ -1468,14 +1468,15 @@ class WebSocketHandlers extends BaseModule {
           const name = result.fileName || ci?.name || 'Unknown';
           const fullPath = dir ? `${dir.replace(/\/+$/, '')}/${name}` : null;
 
-          const caps = clientMeta.get(reqItem?.clientType || ci?.client)?.capabilities;
+          const resolvedClientType = result.clientType || reqItem?.clientType || ci?.client;
+          const caps = resolvedClientType ? clientMeta.get(resolvedClientType)?.capabilities : {};
           const isShared = caps?.sharedFiles && (source === 'shared' || (ci && ci.shared && !ci.downloading));
 
           eventScriptingManager.emit('fileDeleted', {
             hash: result.fileHash?.toLowerCase(),
-            instanceId: ci?.instanceId || reqItem?.instanceId || null,
+            instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
-            clientType: reqItem?.clientType || ci?.client,
+            clientType: resolvedClientType,
             deletedFromDisk: deleteFiles === true || (caps?.cancelDeletesFiles && !isShared),
             category: ci?.category || null,
             path: fullPath,

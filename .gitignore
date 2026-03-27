@@ -61,5 +61,8 @@ tmp/
 temp/
 *.tmp
 
+# Tests
+server/tests/
+
 # Archived files
 .archive/

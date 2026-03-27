@@ -6,10 +6,12 @@
 const config = require('../modules/config');
 const response = require('../lib/responseFormatter');
 
+let userManager = null;
+
 /**
  * Require authentication middleware
  * Checks if auth is enabled and if user is authenticated
- * Redirects to login or returns 401 based on request type
+ * Supports session cookies and X-API-Key header
  */
 function requireAuth(req, res, next) {
   // Check if authentication is enabled
@@ -25,6 +27,21 @@ function requireAuth(req, res, next) {
     return next();
   }
 
+  // Check X-API-Key header (stateless auth for REST API)
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey && userManager) {
+    const user = userManager.getUserByApiKey(apiKey);
+    if (user && !user.disabled) {
+      // Populate session so downstream middleware/handlers work as normal
+      req.session.authenticated = true;
+      req.session.userId = user.id;
+      req.session.username = user.username;
+      req.session.isAdmin = user.is_admin;
+      req.session.capabilities = userManager.resolveCapabilities(user);
+      return next();
+    }
+  }
+
   // User is not authenticated
   // For API requests, return 401 JSON
   if (req.path.startsWith('/api/')) {
@@ -35,4 +52,12 @@ function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
+/**
+ * Set the UserManager instance (called during initialization)
+ */
+function setUserManager(um) {
+  userManager = um;
+}
+
 module.exports = requireAuth;
+module.exports.setUserManager = setUserManager;
