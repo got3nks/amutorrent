@@ -551,13 +551,15 @@ class ConfigAPI extends BaseModule {
     // All routes use JSON
     router.use(express.json());
 
+    // Unauthenticated — only returns { firstRun, isDocker }, needed before login
+    router.get('/status', this.getStatus.bind(this));
+
     // Read-only config routes — admin only (settings is not a capability, it's admin-only)
     router.get('/current', requireAdmin, this.getCurrent.bind(this));
     router.get('/defaults', requireAdmin, this.getDefaults.bind(this));
 
     // Admin-only config routes
     router.get('/interfaces', requireAdmin, this.getInterfaces.bind(this));
-    router.get('/status', requireAdmin, this.getStatus.bind(this));
     router.post('/check-path', requireAdmin, this.checkPath.bind(this));
     router.post('/test', requireAdmin, this.testConfig.bind(this));
     router.post('/test-script', requireAdmin, this.testScript.bind(this));

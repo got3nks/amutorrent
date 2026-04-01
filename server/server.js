@@ -520,13 +520,21 @@ async function startServer() {
     log('⚠️  Services will NOT be initialized until configuration is complete');
     log('📝 Please access the web interface to complete the setup');
 
-    // If auth is enabled via env vars, we need session middleware for login
+    // If auth is enabled via env vars, try to migrate existing credentials
     if (config.getAuthEnabled()) {
-      log('🔐 Auth enabled via environment - initializing session middleware');
       await userManager.migrateFromConfig(config, downloadHistory);
-      initializeSessionMiddleware();
-      authManager.start();
-      wireDisconnectCallback();
+
+      if (userManager.hasUsers()) {
+        // Credentials migrated — enable auth for the wizard
+        log('🔐 Auth enabled via environment - initializing session middleware');
+        initializeSessionMiddleware();
+        authManager.start();
+        wireDisconnectCallback();
+      } else {
+        // Auth enabled but no password set — disable auth so the wizard is accessible
+        log('⚠️  WEB_AUTH_ENABLED=true but no WEB_AUTH_PASSWORD set — disabling auth for setup wizard');
+        config.runtimeConfig.server.auth.enabled = false;
+      }
     }
 
     // In first-run mode, only start HTTP server and WebSocket

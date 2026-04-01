@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1] - IPv6 Fallback & Setup Wizard Auth Fix
+
+### 🐛 Fixed
+
+- **IPv6 fallback for server listen** — server now tries `::` (dual-stack) first and automatically falls back to `0.0.0.0` if IPv6 is not available (`EAFNOSUPPORT` / `EADDRNOTAVAIL`), fixing startup failures on IPv4-only hosts (#38)
+- **Setup wizard blocked by auth on first run** — when `WEB_AUTH_ENABLED=true` was set without a `WEB_AUTH_PASSWORD` (the default in the Unraid template), the login page blocked access to the setup wizard. Auth is now automatically disabled for the setup wizard when no password is configured, and re-enabled once the user sets one during setup (#39)
+- **Config status endpoint auth** — `/api/config/status` (returns only `firstRun` and `isDocker`) no longer requires admin authentication, allowing the frontend to detect first-run state before login
+
+---
+
 ## [3.5.0] - REST API v1, Reverse Proxy Support & Connection Improvements
 
 ### ✨ Added
