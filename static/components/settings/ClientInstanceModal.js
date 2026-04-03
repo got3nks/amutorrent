@@ -20,17 +20,19 @@ const { createElement: h, useState, useEffect } = React;
 /**
  * Type-specific field definitions (moved from ClientInstanceCard)
  */
+// Field definitions per client type. defaultValue is the source of truth for new instance defaults.
+// Mirrors server/lib/clientMeta.js connectionDefaults.
 const CLIENT_FIELDS = {
   amule: [
-    { field: 'host', label: 'Host', description: 'aMule External Connection (EC) host address', placeholder: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'aMule EC port (default: 4712)', placeholder: '4712', type: 'number', required: true },
+    { field: 'host', label: 'Host', description: 'aMule External Connection (EC) host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'aMule EC port (default: 4712)', placeholder: '4712', defaultValue: 4712, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 4712 },
     { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
     { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 }
   ],
   rtorrent: [
     { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
-    { field: 'host', label: 'Host', description: 'rTorrent host address', placeholder: '127.0.0.1', required: true, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
-    { field: 'port', label: 'Port', description: 'rTorrent port (default: 8000)', placeholder: '8000', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8000, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
+    { field: 'host', label: 'Host', description: 'rTorrent host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
+    { field: 'port', label: 'Port', description: 'rTorrent port (default: 8000)', placeholder: '8000', defaultValue: 8000, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8000, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
     { field: 'socketPath', label: 'Socket Path', description: 'Path to rTorrent SCGI Unix socket', placeholder: '/path/to/rtorrent.sock', required: true, hideWhen: form => (form.mode || 'http') !== 'scgi-socket' },
     { field: 'path', label: 'XML-RPC Path', description: 'Path for XML-RPC endpoint (default: /RPC2)', placeholder: '/RPC2', defaultValue: '/RPC2', hideWhen: form => (form.mode || 'http') !== 'http' },
     { field: 'username', label: 'Username (Optional)', description: 'Username for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', hideWhen: form => (form.mode || 'http') !== 'http' },
@@ -38,23 +40,23 @@ const CLIENT_FIELDS = {
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to rTorrent using HTTPS', toggle: true, hideWhen: form => (form.mode || 'http') !== 'http' }
   ],
   qbittorrent: [
-    { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'qBittorrent WebUI port (default: 8080)', placeholder: '8080', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8080 },
+    { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'qBittorrent WebUI port (default: 8080)', placeholder: '8080', defaultValue: 8080, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8080 },
     { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)', placeholder: 'Leave empty if not using a reverse proxy' },
     { field: 'username', label: 'Username', description: 'qBittorrent WebUI username (default: admin)', placeholder: 'admin', defaultValue: 'admin' },
     { field: 'password', label: 'Password', description: 'qBittorrent WebUI password', placeholder: 'Enter qBittorrent password', sensitive: true },
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to qBittorrent using HTTPS', toggle: true }
   ],
   deluge: [
-    { field: 'host', label: 'Host', description: 'Deluge Web UI host address', placeholder: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Deluge Web UI port (default: 8112)', placeholder: '8112', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8112 },
+    { field: 'host', label: 'Host', description: 'Deluge Web UI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'Deluge Web UI port (default: 8112)', placeholder: '8112', defaultValue: 8112, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8112 },
     { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /deluge)', placeholder: 'Leave empty if not using a reverse proxy' },
     { field: 'password', label: 'Password', description: 'Deluge Web UI password', placeholder: 'Enter Deluge password', sensitive: true },
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Deluge using HTTPS', toggle: true }
   ],
   transmission: [
-    { field: 'host', label: 'Host', description: 'Transmission RPC host address', placeholder: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Transmission RPC port (default: 9091)', placeholder: '9091', type: 'number', required: true, parseValue: v => parseInt(v, 10) || 9091 },
+    { field: 'host', label: 'Host', description: 'Transmission RPC host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'Transmission RPC port (default: 9091)', placeholder: '9091', defaultValue: 9091, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 9091 },
     { field: 'path', label: 'RPC Path', description: 'Path for RPC endpoint (default: /transmission/rpc)', placeholder: '/transmission/rpc', defaultValue: '/transmission/rpc' },
     { field: 'username', label: 'Username', description: 'Transmission RPC username', placeholder: 'Enter username' },
     { field: 'password', label: 'Password', description: 'Transmission RPC password', placeholder: 'Enter Transmission password', sensitive: true },
@@ -71,13 +73,16 @@ const TYPE_LABELS = {
 };
 
 
-const TYPE_DEFAULTS = {
-  amule: { host: '127.0.0.1', port: 4712, password: '', sharedFilesReloadIntervalHours: 3 },
-  rtorrent: { mode: 'http', host: '127.0.0.1', port: 8000, path: '/RPC2', socketPath: '', username: '', password: '', useSsl: false },
-  qbittorrent: { host: '127.0.0.1', port: 8080, username: 'admin', password: '', useSsl: false },
-  deluge: { host: '127.0.0.1', port: 8112, password: '', useSsl: false },
-  transmission: { host: '127.0.0.1', port: 9091, path: '/transmission/rpc', username: '', password: '', useSsl: false }
-};
+// Derived from CLIENT_FIELDS: defaultValue for valued fields, '' for sensitive, false for toggles.
+const TYPE_DEFAULTS = Object.fromEntries(
+  Object.entries(CLIENT_FIELDS).map(([type, fields]) => [
+    type,
+    Object.fromEntries(fields.map(f => [
+      f.field,
+      f.defaultValue !== undefined ? f.defaultValue : f.sensitive ? '' : f.toggle ? false : ''
+    ]))
+  ])
+);
 
 const INSTANCE_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#6c5ce7', '#00cec9', '#fd79a8'];
 
@@ -167,11 +172,15 @@ const ClientInstanceModal = ({ isOpen, onClose, onSave, onTest, editClient = nul
       while (existingNames.includes(`${baseName} ${n}`)) n++;
       name = `${baseName} ${n}`;
     }
+    const defaults = { ...TYPE_DEFAULTS[type] };
+    if (isDocker && defaults.host === '127.0.0.1') {
+      defaults.host = 'host.docker.internal';
+    }
     setFormState({
       type,
       name,
       enabled: true,
-      ...TYPE_DEFAULTS[type]
+      ...defaults
     });
     setStep(2);
   };

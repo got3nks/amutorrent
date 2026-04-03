@@ -1,6 +1,6 @@
 {
   "name": "amutorrent-web-controller",
-  "version": "3.5.1",
+  "version": "3.6.0",
   "description": "Web-based controller for aMule, rTorrent, qBittorrent, Deluge, and Transmission with real-time updates",
   "main": "server.js",
   "scripts": {

@@ -6,6 +6,7 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
+const { useState } = React;
 import { Icon, Table, ContextMenu, MoreButton, Button, IconButton, Select, SelectionModeSection, MobileCardHeader, EmptyState, ClientIcon, ItemMobileCard, MobileStatusTabs, MobileFilterPills, MobileFilterSheet, MobileFilterButton, MobileSortButton, ExpandableSearch, FilterInput, SelectionCheckbox, TrackerLabel, LoadingSpinner } from '../common/index.js';
 import { formatBytes, formatSpeed, getRowHighlightClass, getItemStatusInfo, calculateRatio, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildSizeColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildRatioColumn, buildUploadSpeedColumn, buildUploadTotalColumn, buildAddedAtColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
 import { itemKey } from '../../utils/itemKey.js';
@@ -16,6 +17,7 @@ import { useViewDeleteModal, useBatchExport, useViewFilters, usePageSelection, u
 import { useActions } from '../../contexts/ActionsContext.js';
 import { useStickyToolbar } from '../../contexts/StickyHeaderContext.js';
 import { useCapabilities } from '../../hooks/useCapabilities.js';
+import SharedDirsModal from '../modals/SharedDirsModal.js';
 
 const { createElement: h, useCallback, useMemo } = React;
 
@@ -39,6 +41,8 @@ const SharedView = () => {
   const amuleConfigEnabled = useMemo(() => {
     return Object.values(instances).some(inst => inst.type === 'amule' && inst.connected);
   }, [instances]);
+
+  const [showSharedDirsModal, setShowSharedDirsModal] = useState(false);
 
   // ============================================================================
   // DERIVED DATA
@@ -357,14 +361,14 @@ const SharedView = () => {
           title: 'Filter by tracker'
         }),
         amuleConfigEnabled && h(Button, {
-          key: 'reload',
+          key: 'shared-dirs',
           variant: 'success',
-          onClick: refreshSharedFiles,
+          onClick: () => setShowSharedDirsModal(true),
           disabled: !dataLoaded.items,
-          title: 'Reload Shared Files'
+          title: 'Manage Shared Directories'
         },
           dataLoaded.items && h(ClientIcon, { client: 'amule', size: 16, title: '' }),
-          dataLoaded.items ? 'Reload Files' : h('span', { className: 'flex items-center gap-2' }, h(LoadingSpinner, { size: 'sm' }), 'Loading...')
+          dataLoaded.items ? 'Manage Shared Dirs' : h('span', { className: 'flex items-center gap-2' }, h(LoadingSpinner, { size: 'sm' }), 'Loading...')
         ),
         hasAnyMutationCap && h(Button, {
           key: 'select',
@@ -587,7 +591,13 @@ const SharedView = () => {
     DeleteModalElement,
 
     // Column config modal
-    ColumnConfigElement
+    ColumnConfigElement,
+
+    // Shared dirs management modal
+    h(SharedDirsModal, {
+      show: showSharedDirsModal,
+      onClose: () => setShowSharedDirsModal(false)
+    })
   );
 };
 

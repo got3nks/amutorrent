@@ -568,6 +568,62 @@ Trigger a shared files rescan.
 }
 ```
 
+### Shared Directory Management (Experimental)
+
+Admin-only endpoints for managing aMule's `shareddir.dat` file.
+
+#### GET `/api/amule/shared-dirs?instanceId=...`
+
+Read current shared directories. Returns config roots as authoritative, merges any dat-only roots.
+
+**Response (configured):**
+```json
+{
+  "configured": true,
+  "path": "/home/amule/.aMule/shareddir.dat",
+  "exists": true,
+  "canWrite": true,
+  "roots": ["/downloads/movies", "/downloads/tv"],
+  "inaccessibleRoots": [],
+  "isDocker": false
+}
+```
+
+**Response (unconfigured):**
+```json
+{
+  "configured": false,
+  "path": null,
+  "isDocker": false
+}
+```
+
+#### PUT `/api/amule/shared-dirs?instanceId=...`
+
+Save shared directories. Persists roots to config.json, auto-expands each root to include all subdirectories via `find -type d`, writes to `shareddir.dat`, and reloads aMule shared files.
+
+**Request Body:**
+```json
+{
+  "directories": ["/downloads/movies", "/downloads/tv"]
+}
+```
+
+#### POST `/api/amule/shared-dirs/reload?instanceId=...`
+
+Rescan subdirectories using roots from config and reload. Picks up new subdirectories without changing root dirs.
+
+#### PUT `/api/amule/shared-dirs/config?instanceId=...`
+
+Save the `sharedDirDatPath` for an aMule instance. Send an empty string to clear the configuration (removes both `sharedDirDatPath` and `sharedDirRoots`).
+
+**Request Body:**
+```json
+{
+  "sharedDirDatPath": "/home/amule/.aMule/shareddir.dat"
+}
+```
+
 ### Logs
 
 #### GET `/api/v1/logs/app`

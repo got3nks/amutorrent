@@ -47,3 +47,4 @@ export { default as FilterCheckboxGroup } from './FilterCheckboxGroup.js';
 export { default as SelectionCheckbox } from './SelectionCheckbox.js';
 export { default as SelectionModeSection } from './SelectionModeSection.js';
 export { default as ColumnConfigModal } from './ColumnConfigModal.js';
+export { default as PathPicker } from './PathPicker.js';

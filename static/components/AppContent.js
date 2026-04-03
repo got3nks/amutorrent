@@ -340,8 +340,10 @@ const AppContentInner = () => {
       hasCap('add_downloads') && h(AddDownloadModal, {
         show: showAddDownload,
         onAddEd2kLinks: (links, categoryName) => actions.search.addEd2kLinks(links.join('\n'), categoryName, false),
-        onAddMagnetLinks: actions.search.addMagnetLinks,
-        onAddTorrentFile: actions.search.addTorrentFile,
+        onAddMagnetLinks: (links, label, instanceId, clientType, savePath) =>
+          actions.search.addMagnetLinks(links, label, instanceId, clientType, savePath),
+        onAddTorrentFile: (file, label, instanceId, clientType, savePath) =>
+          actions.search.addTorrentFile(file, label, instanceId, clientType, savePath),
         onClose: closeAddDownloadModal,
         initialTorrentFiles: initialFiles
       }),

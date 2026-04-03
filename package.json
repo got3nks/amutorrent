@@ -1,6 +1,6 @@
 {
   "name": "amutorrent-webapp-frontend",
-  "version": "3.5.1",
+  "version": "3.6.0",
   "description": "aMuTorrent Frontend Build",
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./static/output.css --minify",

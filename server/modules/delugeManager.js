@@ -485,6 +485,7 @@ class DelugeManager extends BaseClientManager {
 
     if (savePath) {
       addOptions.download_location = savePath;
+      addOptions.move_completed_path = savePath;
     }
     if (options.start === false) {
       addOptions.add_paused = true;

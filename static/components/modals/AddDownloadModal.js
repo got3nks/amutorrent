@@ -7,7 +7,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
-import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, AmuleInstanceSelector } from '../common/index.js';
+import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, AmuleInstanceSelector, PathPicker } from '../common/index.js';
 import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
@@ -70,7 +70,8 @@ const AddDownloadModal = ({
   const [useCustomCategory, setUseCustomCategory] = useState(false);
   const [torrentFiles, setTorrentFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
+  const [showSavePath, setShowSavePath] = useState(false);
+  const [customSavePath, setCustomSavePath] = useState('');
   const fileInputRef = useRef(null);
 
   // Seed torrent files from global drag-and-drop
@@ -111,6 +112,15 @@ const AddDownloadModal = ({
   const hasTorrentFiles = torrentFiles.length > 0 && hasBitTorrentClient;
   const canSubmit = hasEd2kLinks || hasMagnetLinks || hasTorrentFiles;
 
+  // Check if selected BT client supports custom save path
+  const selectedClientCaps = selectedClient ? (instances[selectedClientId]?.capabilities || {}) : {};
+  const supportsCustomPath = selectedClientCaps.customSavePath === true;
+
+  // Category paths for PathPicker quick links
+  const categoryPaths = categories
+    .filter(c => c.path && c.name !== 'Default')
+    .map(c => ({ name: c.title || c.name, path: c.path }));
+
   // Get final category name (for both ED2K and rtorrent)
   const getFinalCategory = () => useCustomCategory ? customCategory.trim() : selectedCategory;
   // For rtorrent, use category name as label (Default means empty label)
@@ -122,21 +132,23 @@ const AddDownloadModal = ({
   const handleSubmit = () => {
     const finalCategory = getFinalCategory();
     const finalLabel = getFinalLabel();
+    // Custom save path: only send if user explicitly set one and client supports it
+    const effectiveSavePath = (showSavePath && customSavePath && supportsCustomPath) ? customSavePath : null;
 
     // Add ED2K links if any (send category name - backend resolves to per-instance amuleId)
     if (ed2kLinks.length > 0 && amuleConnected && onAddEd2kLinks) {
       onAddEd2kLinks(ed2kLinks, finalCategory, false, effectiveAmuleInstance);
     }
 
-    // Add magnet links if any (pass instanceId + clientType)
+    // Add magnet links if any (pass instanceId + clientType + optional savePath)
     if (magnetLinks.length > 0 && hasBitTorrentClient && onAddMagnetLinks) {
-      onAddMagnetLinks(magnetLinks, finalLabel, selectedClientId, selectedClient?.type);
+      onAddMagnetLinks(magnetLinks, finalLabel, selectedClientId, selectedClient?.type, effectiveSavePath);
     }
 
-    // Add torrent files if any (pass instanceId + clientType)
+    // Add torrent files if any (pass instanceId + clientType + optional savePath)
     if (torrentFiles.length > 0 && hasBitTorrentClient && onAddTorrentFile) {
       torrentFiles.forEach(file => {
-        onAddTorrentFile(file, finalLabel, selectedClientId, selectedClient?.type);
+        onAddTorrentFile(file, finalLabel, selectedClientId, selectedClient?.type, effectiveSavePath);
       });
     }
 
@@ -146,7 +158,8 @@ const AddDownloadModal = ({
     setSelectedCategory('Default');
     setCustomCategory('');
     setUseCustomCategory(false);
-    setShowOptions(false);
+    setShowSavePath(false);
+    setCustomSavePath('');
     onClose();
   };
 
@@ -238,27 +251,43 @@ const AddDownloadModal = ({
       }
       parts.push(ed2kPart);
     }
+    // Resolve effective save path: custom override → category path → null
+    const effectiveCustomPath = (showSavePath && customSavePath) ? customSavePath : null;
+    const btCategoryPath = (() => {
+      const cat = categories.find(c => (c.name || c.title) === getFinalCategory());
+      return cat?.path || null;
+    })();
+    const btSavePath = effectiveCustomPath || btCategoryPath;
+
     if (magnetLinks.length > 0) {
-      let magnetPart = `${magnetLinks.length} magnet link${magnetLinks.length > 1 ? 's' : ''}`;
+      let prefix = `${magnetLinks.length} magnet link${magnetLinks.length > 1 ? 's' : ''}`;
       if (!hasBitTorrentClient) {
-        magnetPart += ' (no BitTorrent client)';
+        parts.push(`${prefix} (no BitTorrent client)`);
       } else {
         const finalLabel = getFinalLabel();
-        magnetPart += ` → ${selectedClientName}`;
-        if (finalLabel) magnetPart += ` (${finalLabel})`;
+        prefix += ` → ${selectedClientName}`;
+        if (finalLabel) prefix += ` (${finalLabel})`;
+        if (btSavePath) {
+          parts.push(h('span', null, `${prefix} → `, h('b', { className: 'font-mono' }, btSavePath)));
+        } else {
+          parts.push(prefix);
+        }
       }
-      parts.push(magnetPart);
     }
     if (torrentFiles.length > 0) {
-      let torrentPart = `${torrentFiles.length} torrent file${torrentFiles.length > 1 ? 's' : ''}`;
+      let prefix = `${torrentFiles.length} torrent file${torrentFiles.length > 1 ? 's' : ''}`;
       if (!hasBitTorrentClient) {
-        torrentPart += ' (no BitTorrent client)';
+        parts.push(`${prefix} (no BitTorrent client)`);
       } else {
         const finalLabel = getFinalLabel();
-        torrentPart += ` → ${selectedClientName}`;
-        if (finalLabel) torrentPart += ` (${finalLabel})`;
+        prefix += ` → ${selectedClientName}`;
+        if (finalLabel) prefix += ` (${finalLabel})`;
+        if (btSavePath) {
+          parts.push(h('span', null, `${prefix} → `, h('b', { className: 'font-mono' }, btSavePath)));
+        } else {
+          parts.push(prefix);
+        }
       }
-      parts.push(torrentPart);
     }
     if (invalidLinks.length > 0) {
       parts.push(`${invalidLinks.length} invalid link${invalidLinks.length > 1 ? 's' : ''}`);
@@ -437,28 +466,9 @@ const AddDownloadModal = ({
               return nameA.localeCompare(nameB);
             });
 
-            return h('div', null,
-              !showOptions
-                ? h(Button, {
-                    variant: 'secondary',
-                    onClick: () => setShowOptions(true),
-                    icon: 'folder',
-                    className: 'w-full'
-                  }, 'Select Category')
-                : h('div', { className: 'space-y-3' },
-                    // Header with collapse button
-                    h('div', { className: 'flex items-center justify-between' },
-                      h('span', { className: 'text-sm font-medium text-gray-700 dark:text-gray-300' },
-                        'Category'
-                      ),
-                      h(IconButton, {
-                        variant: 'secondary',
-                        icon: 'chevronUp',
-                        iconSize: 16,
-                        onClick: () => setShowOptions(false),
-                        title: 'Hide options',
-                        className: '!h-7 !w-7'
-                      })
+            return h('div', { className: 'space-y-3' },
+                    h('span', { className: 'text-sm font-medium text-gray-700 dark:text-gray-300' },
+                      'Category'
                     ),
                     // Unified category selector (applies to both ED2K and rtorrent)
                     h('div', null,
@@ -483,7 +493,49 @@ const AddDownloadModal = ({
                       placeholder: 'Enter new category name',
                       className: 'w-full'
                     })
-                  )
+            );
+          })(),
+
+          // Custom save path — independent section (only for capable BT clients with BT downloads)
+          (() => {
+            const hasBtDownloads = magnetLinks.length > 0 || torrentFiles.length > 0;
+            if (!supportsCustomPath || !hasBtDownloads) return null;
+
+            if (!showSavePath) {
+              return h(Button, {
+                variant: 'secondary',
+                onClick: () => {
+                  setShowSavePath(true);
+                  // Pre-fill with selected category's path
+                  const cat = categories.find(c => (c.name || c.title) === getFinalCategory());
+                  if (cat?.path) setCustomSavePath(cat.path);
+                },
+                icon: 'folderOpen',
+                className: 'w-full'
+              }, 'Edit Save Path');
+            }
+
+            return h('div', { className: 'space-y-2' },
+              h('div', { className: 'flex items-center justify-between' },
+                h('span', { className: 'text-sm font-medium text-gray-700 dark:text-gray-300' },
+                  'Save Path'
+                ),
+                h(IconButton, {
+                  variant: 'secondary',
+                  icon: 'chevronUp',
+                  iconSize: 16,
+                  onClick: () => { setShowSavePath(false); setCustomSavePath(''); },
+                  title: 'Use category default',
+                  className: '!h-7 !w-7'
+                })
+              ),
+              h(PathPicker, {
+                value: customSavePath,
+                onChange: setCustomSavePath,
+                categoryPaths,
+                label: 'Path',
+                hint: 'Path as seen by the download client'
+              })
             );
           })(),
 

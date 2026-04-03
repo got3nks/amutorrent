@@ -199,15 +199,15 @@ const useWebSocketActions = () => {
     });
   };
 
-  const handleAddMagnetLinks = (links, label = '', instanceId = null, clientType = 'rtorrent') => {
+  const handleAddMagnetLinks = (links, label = '', instanceId = null, clientType = 'rtorrent', savePath = null) => {
     if (!links || links.length === 0) {
       addAppError('No magnet links provided');
       return;
     }
-    sendMessage({ action: "addMagnetLinks", links, label, clientId: clientType, ...(instanceId && { instanceId }) });
+    sendMessage({ action: "addMagnetLinks", links, label, clientId: clientType, ...(instanceId && { instanceId }), ...(savePath && { savePath }) });
   };
 
-  const handleAddTorrentFile = async (file, label = '', instanceId = null, clientType = 'rtorrent') => {
+  const handleAddTorrentFile = async (file, label = '', instanceId = null, clientType = 'rtorrent', savePath = null) => {
     if (!file) {
       addAppError('No torrent file provided');
       return;
@@ -224,7 +224,8 @@ const useWebSocketActions = () => {
           fileName: file.name,
           label,
           clientId: clientType,
-          ...(instanceId && { instanceId })
+          ...(instanceId && { instanceId }),
+          ...(savePath && { savePath })
         });
       };
       reader.onerror = () => {

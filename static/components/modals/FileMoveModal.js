@@ -7,7 +7,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
-import { Button, Icon, AlertBox, LoadingSpinner } from '../common/index.js';
+import { Button, Icon, AlertBox, LoadingSpinner, PathPicker } from '../common/index.js';
 
 const { createElement: h, useState, useEffect, useCallback, useRef } = React;
 
@@ -85,7 +85,7 @@ const FileMoveModal = ({
         h('div', { className: 'flex-1 overflow-y-auto p-4 sm:p-6 space-y-4' },
           // File info
           fileCount === 1 && fileName && h('div', { className: 'text-sm text-gray-600 dark:text-gray-400' },
-            h('span', { className: 'font-medium text-gray-900 dark:text-gray-100' }, fileName)
+            h('span', { className: 'font-medium text-gray-900 dark:text-gray-100 break-all' }, fileName)
           ),
 
           // Current path
@@ -93,45 +93,16 @@ const FileMoveModal = ({
             'Current: ', h('span', { className: 'font-mono' }, currentPath)
           ),
 
-          // Category quick links
-          categoryPaths.length > 0 && h('div', { className: 'space-y-2' },
-            h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300' }, 'Quick destinations'),
-            h('div', { className: 'flex flex-wrap gap-2' },
-              ...categoryPaths.map(cat =>
-                h('button', {
-                  key: cat.path,
-                  onClick: () => handleQuickLink(cat.path),
-                  className: `px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                    destPath === cat.path
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                      : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:border-blue-400 dark:hover:border-blue-500'
-                  }`
-                },
-                  h('span', { className: 'font-medium' }, cat.name),
-                  h('span', { className: 'ml-1.5 text-gray-400 dark:text-gray-500 font-mono' }, cat.path)
-                )
-              )
-            )
-          ),
-
-          // Manual path input
-          h('div', { className: 'space-y-1' },
-            h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300' },
-              categoryPaths.length > 0 ? 'Or enter path' : 'Destination path'
-            ),
-            moveMode && h('p', { className: 'text-xs text-gray-500 dark:text-gray-500 italic' },
-              moveMode === 'native' ? 'Path as seen by the download client'
-                : moveMode === 'manual' ? 'Path as seen by aMuTorrent server'
-                : 'Path will be resolved per client'
-            ),
-            h('input', {
-              type: 'text',
-              value: destPath,
-              onChange: (e) => setDestPath(e.target.value),
-              placeholder: '/path/to/destination',
-              className: 'w-full px-3 py-2 text-sm font-mono bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-            })
-          ),
+          // Path selection (quick links + manual input)
+          h(PathPicker, {
+            value: destPath,
+            onChange: setDestPath,
+            onQuickLink: handleQuickLink,
+            categoryPaths,
+            hint: moveMode === 'native' ? 'Path as seen by the download client'
+              : moveMode === 'manual' ? 'Path as seen by aMuTorrent server'
+              : moveMode ? 'Path will be resolved per client' : null
+          }),
 
           // Permission check result — single unified status
           destPath && (

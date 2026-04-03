@@ -250,6 +250,7 @@ services:
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
 | `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders |
+| `AMULE_SHARED_DIR_DAT` | - | Path to aMule's `shareddir.dat` file (enables shared directory management) |
 
 #### rTorrent Connection
 

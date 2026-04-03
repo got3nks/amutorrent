@@ -25,6 +25,9 @@ const CLIENT_TYPES = {
       7: 'paused'
       // all other codes → 'active'
     },
+    connectionDefaults: {
+      host: '', port: 4712, password: '', sharedDirDatPath: ''
+    },
     defaults: {
       downloadPriority: null,
       uploadPriority: null,
@@ -56,7 +59,8 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: true, // needs refreshSharedFiles() after shared file deletion
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
-      renameFile: true             // can rename downloads and shared files
+      renameFile: true,            // can rename downloads and shared files
+      customSavePath: false        // ed2k uses category paths only
     }
   },
   rtorrent: {
@@ -75,6 +79,9 @@ const CLIENT_TYPES = {
       'hashing-queued': 'hashing-queued',
       'moving':      'moving',
       'unknown':     'active'
+    },
+    connectionDefaults: {
+      host: '', port: 8000, mode: 'http', path: '/RPC2', socketPath: '', username: '', password: '', useSsl: false
     },
     defaults: {
       downloadPriority: null,
@@ -106,7 +113,8 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: false,
       categories: false,           // uses labels, not named categories
       tracksPid: true,             // reports PID for restart detection
-      logs: false                  // no fetchable log API
+      logs: false,                 // no fetchable log API
+      customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['seeding'],
     // Maps unified category priority → rTorrent priority
@@ -143,6 +151,9 @@ const CLIENT_TYPES = {
       'missingFiles':      'error',
       'unknown':           'stopped'
     },
+    connectionDefaults: {
+      host: '', port: 8080, username: 'admin', password: '', useSsl: false
+    },
     defaults: {
       downloadPriority: null,
       tracker: null,
@@ -172,7 +183,8 @@ const CLIENT_TYPES = {
       apiDeletesFiles: true,       // removeDownload(hash, deleteFiles) handles it
       refreshSharedAfterDelete: false,
       categories: true,            // supports named categories
-      logs: true                   // has fetchable log output
+      logs: true,                  // has fetchable log output
+      customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['uploading', 'stalledUP', 'queuedUP', 'forcedUP']
   },
@@ -190,6 +202,9 @@ const CLIENT_TYPES = {
       'Queued':       'active',
       'Error':        'error',
       'Moving':       'moving'
+    },
+    connectionDefaults: {
+      host: '', port: 8112, password: '', useSsl: false
     },
     defaults: {
       downloadPriority: null,
@@ -220,7 +235,8 @@ const CLIENT_TYPES = {
       apiDeletesFiles: true,       // removeTorrent(hash, removeData) handles it
       refreshSharedAfterDelete: false,
       categories: false,           // uses labels via Label plugin, not named categories
-      logs: false                  // no fetchable log API
+      logs: false,                 // no fetchable log API
+      customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['Seeding']
   },
@@ -238,6 +254,9 @@ const CLIENT_TYPES = {
       'Downloading':      'active',
       'Seed Pending':     'seeding',
       'Seeding':          'seeding'
+    },
+    connectionDefaults: {
+      host: '', port: 9091, path: '/transmission/rpc', username: '', password: '', useSsl: false
     },
     defaults: {
       downloadPriority: null,
@@ -268,7 +287,8 @@ const CLIENT_TYPES = {
       apiDeletesFiles: true,         // torrent-remove with delete-local-data
       refreshSharedAfterDelete: false,
       categories: false,             // uses labels, not named categories
-      logs: false                    // no fetchable log API
+      logs: false,                   // no fetchable log API
+      customSavePath: true           // can set download directory per torrent
     },
     seedingStatuses: ['Seeding', 'Seed Pending']
   }
@@ -369,6 +389,15 @@ function getDefaults(type) {
 }
 
 /**
+ * Get the default connection settings for a client type.
+ * @param {string} type - Client type key
+ * @returns {Object} Default connection values (host, port, etc.)
+ */
+function getConnectionDefaults(type) {
+  return get(type).connectionDefaults;
+}
+
+/**
  * Get the display name for a client type.
  * @param {string} type - Client type key
  * @returns {string}
@@ -430,6 +459,7 @@ module.exports = {
   hasCapability,
   getStatusMap,
   getDefaults,
+  getConnectionDefaults,
   getDisplayName,
   mapPriority,
   getMetricsConfig,

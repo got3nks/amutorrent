@@ -54,6 +54,7 @@ class ConfigAPI extends BaseModule {
       amulePort: config.isFromEnv('amule.port'),
       amulePassword: config.isFromEnv('amule.password'),
       amuleSharedFilesReloadInterval: config.isFromEnv('amule.sharedFilesReloadIntervalHours'),
+      amuleSharedDirDatPath: config.isFromEnv('amule.sharedDirDatPath'),
       rtorrentEnabled: config.isFromEnv('rtorrent.enabled'),
       rtorrentMode: config.isFromEnv('rtorrent.mode'),
       rtorrentHost: config.isFromEnv('rtorrent.host'),

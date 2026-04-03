@@ -231,6 +231,13 @@ class AmuleManager extends BaseClientManager {
     }
 
     try {
+      // If shared dir roots are configured, rescan subdirectories before reloading
+      if (this._clientConfig?.sharedDirDatPath && this._clientConfig?.sharedDirRoots?.length > 0) {
+        this.log('📂 Auto-rescanning shared directories...');
+        const sharedDirAPI = require('./sharedDirAPI');
+        await sharedDirAPI.rescanAndWrite(this.instanceId);
+      }
+
       this.log('📂 Auto-reloading shared files...');
       await this.client.refreshSharedFiles();
       this.log('✅ Shared files auto-reload completed');

@@ -51,6 +51,7 @@ const basicRoutes = require('./modules/basicRoutes');
 const versionAPI = require('./modules/versionAPI');
 const moveOperationManager = require('./lib/MoveOperationManager');
 const filesystemAPI = require('./modules/filesystemAPI');
+const sharedDirAPI = require('./modules/sharedDirAPI');
 const eventScriptingManager = require('./lib/EventScriptingManager');
 const notificationManager = require('./lib/NotificationManager');
 const notificationsAPI = require('./modules/notificationsAPI');
@@ -267,6 +268,7 @@ rtorrentAPI.registerRoutes(app);    // rtorrent API (files, etc.)
 delugeAPI.registerRoutes(app);     // Deluge API (files, etc.)
 transmissionAPI.registerRoutes(app); // Transmission API (files, etc.)
 filesystemAPI.registerRoutes(app);  // Filesystem browsing API
+sharedDirAPI.registerRoutes(app);   // aMule shared directory management
 restAPI.registerRoutes(app);        // REST API (HTTP bridge to WS handlers)
 
 // Item detail API — serves raw/trackersDetailed stripped from broadcasts (Phase 0)
@@ -386,6 +388,21 @@ async function reinitializeClients() {
         await manager.onConnectSync(categoryManager, { qbittorrentAPI });
       } catch (err) {
         log(`[CategoryManager] Failed to sync on ${manager.clientType} connect (${instanceId}):`, err.message);
+      }
+    });
+  });
+
+  // Register onConnect callback for shared directory sync (aMule instances only)
+  registry.forEach((manager, instanceId) => {
+    if (manager.clientType !== 'amule' || !manager.onConnect) return;
+    manager.onConnect(async () => {
+      const clientConfig = config.getClientConfig(instanceId);
+      if (!clientConfig?.sharedDirDatPath || !clientConfig?.sharedDirRoots?.length) return;
+      try {
+        log(`📂 Syncing shared directories to shareddir.dat for ${instanceId}...`);
+        await sharedDirAPI.rescanAndWrite(instanceId);
+      } catch (err) {
+        log(`⚠️  Failed to sync shared dirs on connect (${instanceId}): ${err.message}`);
       }
     });
   });

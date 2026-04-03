@@ -727,8 +727,8 @@ class RtorrentHandler {
    */
   async addTorrentRaw(torrentData, options = {}) {
     const method = options.start !== false ? 'load.raw_start' : 'load.raw';
-    await this.call(method, ['', torrentData]);
-    await this._applyPostLoadProperties(options);
+    const cmds = this._buildLoadCommands(options);
+    await this.call(method, ['', torrentData, ...cmds]);
   }
 
   /**
@@ -738,36 +738,30 @@ class RtorrentHandler {
    */
   async addMagnet(magnetUri, options = {}) {
     const method = options.start !== false ? 'load.start' : 'load.normal';
-    await this.call(method, ['', magnetUri]);
-    await this._applyPostLoadProperties(options);
+    const cmds = this._buildLoadCommands(options);
+    await this.call(method, ['', magnetUri, ...cmds]);
   }
 
   /**
-   * Set label, directory, and priority on a torrent after loading.
-   * Called after load.raw_start / load.start to avoid rTorrent's 4KB
-   * execute arg buffer overflow (exec_file.cc buffer_size = 4096).
-   * @param {Object} options - { hash, label, directory, priority }
+   * Build inline command strings for rTorrent load.* calls.
+   * These are passed as extra args to load.start/load.normal and survive metadata resolution.
+   * Format: "d.custom1.set=value", "d.directory.set=/path"
+   * @param {Object} options - { label, directory, priority }
+   * @returns {string[]} Array of command strings
    */
-  async _applyPostLoadProperties(options) {
-    if (!options.hash) return;
-    const hasProps = options.label || options.directory || options.priority !== undefined;
-    if (!hasProps) return;
-
-    const hash = options.hash.toUpperCase();
-    const calls = [];
+  N_buildLoadCommands(options) {
+    const cmds = [];
     if (options.label) {
-      calls.push({ method: 'd.custom1.set', params: [hash, options.label] });
+      cmds.push(`d.custom1.set=${options.label}`);
     }
     if (options.directory) {
-      calls.push({ method: 'd.directory.set', params: [hash, options.directory] });
+      cmds.push(`d.directory.set=${options.directory}`);
     }
     if (options.priority !== undefined && options.priority !== null) {
       const validPriority = Math.max(0, Math.min(3, parseInt(options.priority, 10) || 2));
-      calls.push({ method: 'd.priority.set', params: [hash, validPriority] });
+      cmds.push(`d.priority.set=${validPriority}`);
     }
-    if (calls.length > 0) {
-      await this.multicall(calls);
-    }
+    return cmds;
   }
 
   /**

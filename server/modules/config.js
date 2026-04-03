@@ -92,6 +92,7 @@ const CLIENT_ENV_FIELDS = {
     PORT: { field: 'port', type: 'int' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
     SHARED_FILES_RELOAD_INTERVAL_HOURS: { field: 'sharedFilesReloadIntervalHours', type: 'int' },
+    SHARED_DIR_DAT: { field: 'sharedDirDatPath', type: 'string' },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }
   },
@@ -472,12 +473,18 @@ class Config extends BaseModule {
 
     // Build flat client sections from CLIENT_ENV_FIELDS for wizard consumption.
     // The wizard uses config.amule.host, config.rtorrent.port, etc.
+    // Connection defaults (ports, paths, etc.) come from clientMeta.js.
     for (const type of clientMeta.getAllTypes()) {
       const prefix = CLIENT_ENV_PREFIX[type];
       const fields = CLIENT_ENV_FIELDS[type];
       if (!prefix || !fields) continue;
 
-      const section = { enabled: false };
+      const defaults = clientMeta.getConnectionDefaults(type);
+      const section = { enabled: false, ...defaults };
+      // In Docker, default host to host.docker.internal (clients are typically on the host)
+      if (this.isDocker && section.host === '') {
+        section.host = 'host.docker.internal';
+      }
       for (const [suffix, def] of Object.entries(fields)) {
         const envVar = `${prefix}_${suffix}`;
         if (this.hasEnvValue(envVar)) {

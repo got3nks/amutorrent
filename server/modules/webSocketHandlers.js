@@ -689,7 +689,7 @@ class WebSocketHandlers extends BaseModule {
 
   async handleAddMagnetLinks(data, context) {
     try {
-      const { links, label, clientId = 'rtorrent', instanceId } = data;
+      const { links, label, clientId = 'rtorrent', instanceId, savePath: customSavePath } = data;
 
       // Resolve manager from registry
       const manager = this._getManager(instanceId, clientId);
@@ -715,7 +715,7 @@ class WebSocketHandlers extends BaseModule {
         const { categories: updatedCategories, clientDefaultPaths, hasPathWarnings } = context.categoryManager.getAllForFrontend();
         context.broadcast({ type: 'categories-update', data: updatedCategories, clientDefaultPaths, hasPathWarnings });
       }
-      const directory = category?.path || null;
+      const directory = customSavePath || category?.path || null;
 
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
       const results = [];
@@ -752,7 +752,7 @@ class WebSocketHandlers extends BaseModule {
 
   async handleAddTorrentFile(data, context) {
     try {
-      const { fileData, fileName, label, clientId = 'rtorrent', instanceId } = data;
+      const { fileData, fileName, label, clientId = 'rtorrent', instanceId, savePath: customSavePath } = data;
 
       // Resolve manager from registry
       const manager = this._getManager(instanceId, clientId);
@@ -778,7 +778,7 @@ class WebSocketHandlers extends BaseModule {
         const { categories: updatedCategories, clientDefaultPaths, hasPathWarnings } = context.categoryManager.getAllForFrontend();
         context.broadcast({ type: 'categories-update', data: updatedCategories, clientDefaultPaths, hasPathWarnings });
       }
-      const directory = category?.path || null;
+      const directory = customSavePath || category?.path || null;
 
       // fileData is base64 encoded - convert to Buffer
       const buffer = Buffer.from(fileData, 'base64');

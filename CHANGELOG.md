@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - Custom Save Path, aMule Shared Directory Management & Improvements
+
+### ✨ Added
+
+- **Custom save path for downloads** — "Edit Save Path" button in the Add Download modal lets you override the category's default download directory. Available for all BitTorrent clients (rTorrent, qBittorrent, Deluge, Transmission). Quick destination buttons reuse category paths, or enter a custom path manually. Summary line shows the effective path in bold
+- **aMule shared directory management (experimental)** — manage aMule's `shareddir.dat` from the Shared Files view via "Manage Shared Dirs". Add/remove root directories with automatic subdirectory expansion. Roots are persisted to config and survive aMule reboots — auto-synced on connect and periodic reload. Includes directory browser, instance selector for multi-aMule setups, and Docker-aware info box
+
+### ♻️ Improved
+
+- **rTorrent magnet handling** — properties (label, directory, priority) now passed as inline load commands instead of post-load RPC calls, fixing metadata resolution resetting properties
+- **rTorrent torrent file handling** — also uses inline load commands, removing the paused-load workaround
+- **Docker host detection for default hostname** — wizard and settings default client host to `host.docker.internal` when running in Docker
+- **Client connection defaults centralized** in `clientMeta.js` (`connectionDefaults`) — single source of truth for default ports, paths, and usernames. `config.js` and `ClientInstanceModal` both derive from it
+- **Move to... modal** — filename now uses `break-all` for long names
+
+### 🐛 Fixed
+
+- **Setup wizard test button stuck disabled** — Deluge/Transmission fields had no default port values in the API defaults response, causing the "Test BitTorrent Connections" button to stay disabled. Fixed by populating `connectionDefaults` for all client types
+
+---
+
 ## [3.5.1] - IPv6 Fallback & Setup Wizard Auth Fix
 
 ### 🐛 Fixed
