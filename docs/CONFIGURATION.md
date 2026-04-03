@@ -159,6 +159,7 @@ services:
       - AMULE_HOST=host.docker.internal
       - AMULE_PORT=4712
       - AMULE_PASSWORD=your_ec_password  # Locks UI editing
+      # - AMULE_SHARED_DIR_DAT=/home/amule/.aMule/shareddir.dat  # Optional: shared directory management
 
       # rTorrent Connection (optional)
       - RTORRENT_ENABLED=true

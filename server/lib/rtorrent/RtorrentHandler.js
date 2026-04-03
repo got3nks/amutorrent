@@ -749,7 +749,7 @@ class RtorrentHandler {
    * @param {Object} options - { label, directory, priority }
    * @returns {string[]} Array of command strings
    */
-  N_buildLoadCommands(options) {
+  _buildLoadCommands(options) {
     const cmds = [];
     if (options.label) {
       cmds.push(`d.custom1.set=${options.label}`);

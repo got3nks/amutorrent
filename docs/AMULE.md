@@ -85,11 +85,11 @@ services:
       - AMULE_PASSWORD=your_password
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Optional: shared directory management (path to your aMule shareddir.dat)
+      # - /path/to/.aMule/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
     ports:
       - "4000:4000"
-    # volumes:
-    #   # Optional: mount shareddir.dat for shared directory management (see below)
-    #   - /home/amule/.aMule/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
 ```
 
 ### aMule in Docker Container
@@ -126,6 +126,7 @@ services:
     volumes:
       # Download directories (optional): Required for moving/deleting files
       - ./data/aMule/incoming:/downloads
+      # Shared directory management (optional): mount aMule's shareddir.dat
       - ./data/aMule/config/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
     ports:
       - "4000:4000"
@@ -186,7 +187,7 @@ aMuTorrent can manage aMule's `shareddir.dat` file — the list of directories a
 - The UI shows **root directories** only (subdirectories are auto-collapsed)
 - When saving, aMuTorrent runs `find -type d` on each root to enumerate all subdirectories
 - The expanded list is written to `shareddir.dat` and aMule reloads shared files
-- The periodic auto-reload (configured via `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS`) also rescans subdirectories automatically, picking up new folders (e.g., new TV season directories)
+- The periodic auto-reload (configured via `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS`) also rescans subdirectories automatically, picking up new folders
 
 ### Configuration
 
@@ -200,12 +201,12 @@ Or click "Manage Shared Dirs" in the Shared Files view and configure the path in
 
 ### Docker Requirements
 
-1. **Mount the shareddir.dat file (or its parent directory)** — aMule sets `shareddir.dat` to read-only (444), so aMuTorrent needs to chmod it before writing:
+1. **Mount the shareddir.dat file** (or its parent directory) with write permissions — aMule sets `shareddir.dat` to read-only (444), so aMuTorrent needs to chmod it before writing:
    ```yaml
    volumes:
-     # Mount the file directly (recommended):
+     # Single file mount:
      - ./data/aMule/config/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
-     # Or mount the parent directory:
+     # Or directory mount:
      # - ./data/aMule/config:/home/amule/.aMule:rw
    ```
 
