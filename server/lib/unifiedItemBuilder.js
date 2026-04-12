@@ -101,6 +101,7 @@ function createBaseItem(hash, client) {
  */
 function applyDownloadData(item, download) {
   item.name = download.name || item.name;
+  item.rawName = download.rawName || item.rawName;
   item.size = download.size || item.size;
   item.sizeDownloaded = download.downloaded || item.sizeDownloaded;
   item.progress = download.progress ?? (item.size > 0 ? Math.round((item.sizeDownloaded / item.size) * 100) : 0);
@@ -220,6 +221,7 @@ function applyDownloadData(item, download) {
 function applySharedData(item, sharedFile) {
   item.shared = true;
   item.name = item.name || sharedFile.name || '';
+  item.rawName = item.rawName || sharedFile.rawName;
   item.size = item.size || sharedFile.size || 0;
 
   // Upload speed from aggregated aMule uploads or rtorrent stats

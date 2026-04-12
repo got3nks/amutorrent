@@ -112,6 +112,7 @@ function normalizeAmuleDownload(download, resolveCategoryName = () => 'Default')
     // Canonical field names (renamed from library names)
     hash: download.fileHash,
     name: download.fileName,
+    rawName: download.rawFileName,
     size: download.fileSize,
     downloaded: download.fileSizeDownloaded,
     category: catId,
@@ -151,6 +152,7 @@ function normalizeAmuleSharedFile(file, categories = []) {
     // Canonical field names (renamed from library names)
     hash: file.fileHash,
     name: file.fileName,
+    rawName: file.rawFileName,
     size: file.fileSize,
     uploadSpeed: 0,
     // Derived category from file path

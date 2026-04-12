@@ -1410,7 +1410,7 @@ class WebSocketHandlers extends BaseModule {
           // Build options for deleteItem
           const opts = { deleteFiles: !!deleteFiles, isShared };
           if (isShared && cachedItem?.raw?.path && cachedItem?.name) {
-            opts.filePath = path.join(cachedItem.raw.path, cachedItem.name);
+            opts.filePath = path.join(cachedItem.raw.path, cachedItem.rawName || cachedItem.name);
           }
 
           const result = await manager.deleteItem(item.fileHash, opts);
@@ -1603,7 +1603,7 @@ class WebSocketHandlers extends BaseModule {
                 await moveOperationManager.queueMove({
                   hash: fileHash,
                   instanceId: item?.instanceId,
-                  name: item?.name,
+                  name: item?.rawName || item?.name,
                   clientType: manager.clientType,
                   sourcePathRemote: sourcePath,
                   destPathLocal,
@@ -2073,7 +2073,7 @@ class WebSocketHandlers extends BaseModule {
           await moveOperationManager.queueMove({
             hash: fileHash,
             instanceId: item.instanceId,
-            name: item.name,
+            name: item.rawName || item.name,
             clientType: manager.clientType,
             sourcePathRemote: sourcePath,
             destPathLocal,

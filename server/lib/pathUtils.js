@@ -210,7 +210,8 @@ function resolveItemPath(item) {
   // For single files, join with filename
   // aMule is always single file, rTorrent/qBittorrent depend on multiFile flag
   const isMultiFile = clientMeta.hasCapability(clientType, 'multiFile') && item.multiFile;
-  const remotePath = isMultiFile ? baseDir : path.join(baseDir, item.name);
+  const diskName = item.rawName || item.name;
+  const remotePath = isMultiFile ? baseDir : path.join(baseDir, diskName);
 
   // Translate path using category mappings (per-instance when available)
   const localPath = getCategoryManager().translatePath(remotePath, clientType, item.instanceId);
