@@ -327,6 +327,29 @@ Rename a file.
 }
 ```
 
+#### POST `/api/v1/downloads/rating-comment`
+
+Set the rating and comment on a shared file. Currently supported only by aMule
+shared (completed) files — use the client capability `fileRatingComment` in
+`/api/v1/clients/instances` to detect support.
+
+aMule's EC handler writes both fields together; omitting one clears it. To
+preserve an existing value, pass it through unchanged. `rating` uses the
+scale: `0` = Not rated, `1` = Fake, `2` = Poor, `3` = Fair, `4` = Good,
+`5` = Excellent.
+
+**Capabilities:** `set_comment`
+
+**Request Body:**
+```json
+{
+  "fileHash": "abc123...",
+  "instanceId": "amule-host-4712",
+  "comment": "High-quality rip",
+  "rating": 4
+}
+```
+
 ### Permission Checks
 
 Pre-flight checks to verify paths are accessible before performing operations.

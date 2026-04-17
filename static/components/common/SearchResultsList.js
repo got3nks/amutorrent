@@ -6,7 +6,7 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Table, Icon, MobileCardHeader, Tooltip } from './index.js';
+import { Table, Icon, MobileCardHeader, Tooltip, StarRating } from './index.js';
 import { formatBytes, formatDateTime, getMobileCardRowClass } from '../../utils/index.js';
 
 const { createElement: h, useCallback, useMemo } = React;
@@ -27,6 +27,15 @@ export const SEARCH_RESULTS_COLUMNS = [
         className: 'font-medium text-xs break-words whitespace-normal',
         style: { wordBreak: 'break-all', overflowWrap: 'anywhere' }
       }, item.fileName)
+  },
+  {
+    key: 'rating',
+    label: 'Rating',
+    sortable: true,
+    width: '90px',
+    render: (item) => item.rating > 0
+      ? h(StarRating, { value: item.rating })
+      : h('span', { className: 'text-xs text-gray-400' }, '-')
   },
   {
     key: 'fileSize',
@@ -233,7 +242,9 @@ const SearchResultsList = ({
               ]
             : [
                 h(Icon, { key: 'icon', name: 'share', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
-                h('span', { key: 'sources', className: 'text-gray-900 dark:text-gray-100' }, `${item.sourceCount} sources`)
+                h('span', { key: 'sources', className: 'text-gray-900 dark:text-gray-100' }, `${item.sourceCount} sources`),
+                item.rating > 0 && h('span', { key: 'rating-sep', className: 'text-gray-400' }, '·'),
+                item.rating > 0 && h(StarRating, { key: 'rating', value: item.rating })
               ],
           // Prowlarr-specific: indexer and category
           isProwlarr && item.indexer && [

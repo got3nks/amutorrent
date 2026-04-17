@@ -17,11 +17,15 @@ RUN apk add --no-cache git bash curl python3 py3-pip jq && \
 # Create app directory
 WORKDIR /usr/src/app
 
-# Install app dependencies (only re-runs when package.json changes)
-# Build tools needed for better-sqlite3 native addon, removed after
-COPY server/package.json ./server/
+# Install app dependencies (only re-runs when package.json / package-lock.json change)
+# Copying the lockfile ensures: (a) deterministic installs via `npm ci`,
+# (b) bumping an unpinned git dep (e.g. amule-ec-node#main) by updating the
+# resolved SHA in the lockfile correctly invalidates this layer — without it,
+# Docker would reuse the cached npm install even when the upstream dep moved.
+# Build tools needed for better-sqlite3 native addon, removed after.
+COPY server/package.json server/package-lock.json ./server/
 RUN apk add --no-cache --virtual .build-deps make g++ python3 && \
-    npm install --prefix server --omit=dev && \
+    npm ci --prefix server --omit=dev && \
     apk del .build-deps
 
 # Copy server source code (changes here don't invalidate npm install cache)

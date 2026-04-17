@@ -7,7 +7,7 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Icon, Table, DeleteModal, Button, Select, Tooltip, TrackerLabel, MobileCardHeader, IconButton, SelectionModeSection, ContextMenu, MoreButton, EmptyState, MobileSortButton, ExpandableSearch, FilterInput, MobileFilterPills, MobileFilterSheet, MobileFilterButton, ItemMobileCard, MobileStatusTabs, SelectionCheckbox } from '../common/index.js';
+import { Icon, Table, DeleteModal, Button, Select, TrackerMultiSelect, Tooltip, TrackerLabel, MobileCardHeader, IconButton, SelectionModeSection, ContextMenu, MoreButton, EmptyState, MobileSortButton, ExpandableSearch, FilterInput, MobileFilterPills, MobileFilterSheet, MobileFilterButton, ItemMobileCard, MobileStatusTabs, SelectionCheckbox } from '../common/index.js';
 import { formatBytes, formatDateTime, formatTimeAgo, formatSpeed, formatRatio, getRowHighlightClass, HISTORY_STATUS_CONFIG, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, buildSpeedColumn, buildTransferColumn, buildSizeColumn, buildRatioColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildAddedAtColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
 import { itemKey, parseItemKey } from '../../utils/itemKey.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
@@ -76,9 +76,10 @@ const HistoryView = () => {
     // Category filter (unified)
     unifiedFilter,
     setUnifiedFilter,
-    // Tracker filter
-    trackerFilter,
-    setTrackerFilter,
+    // Tracker filter (array)
+    trackerFilters,
+    toggleTrackerFilter,
+    resetTrackerFilter,
     showTrackerFilter,
     trackerOptions,
     // Status filter
@@ -476,13 +477,12 @@ const HistoryView = () => {
           onClear: clearFilter || undefined,
           placeholder: 'Filter...'
         }),
-        showTrackerFilter && h(Select, {
-          value: trackerFilter || 'all',
-          onChange: (e) => {
-            setTrackerFilter(e.target.value);
-            resetLoaded();
-          },
-          options: trackerOptions
+        showTrackerFilter && h(TrackerMultiSelect, {
+          values: trackerFilters,
+          onToggle: (host) => { toggleTrackerFilter(host); resetLoaded(); },
+          onClear: () => { resetTrackerFilter(); resetLoaded(); },
+          options: trackerOptions,
+          title: 'Filter by tracker'
         }),
         canClearHistory && h(Button, {
           variant: selectionMode ? 'danger' : 'purple',

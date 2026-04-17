@@ -9,11 +9,33 @@
 import React from 'https://esm.sh/react@18.2.0';
 import Icon from './Icon.js';
 
-const { createElement: h, Fragment } = React;
+const { createElement: h, Fragment, useState, useEffect } = React;
+
+const PillIcon = ({ filter }) => {
+  const [imgOk, setImgOk] = useState(true);
+  useEffect(() => { setImgOk(true); }, [filter.iconSrc]);
+  if (filter.iconSrc && imgOk) {
+    return h('img', {
+      src: filter.iconSrc,
+      alt: '',
+      width: 10,
+      height: 10,
+      loading: 'lazy',
+      onError: () => setImgOk(false),
+      className: 'flex-shrink-0 rounded-sm'
+    });
+  }
+  if (filter.icon) {
+    return h(Icon, { name: filter.icon, size: 10, className: 'flex-shrink-0' });
+  }
+  return null;
+};
 
 /**
  * MobileFilterPills component
- * @param {Array} filters - Array of { key, label, icon? } for active filters
+ * @param {Array} filters - Array of { key, label, icon?, iconSrc? } for active filters.
+ *   `icon` picks an SVG from the Icon set; `iconSrc` renders an <img> (e.g. favicon)
+ *   and falls back to `icon` if the image errors.
  * @param {function} onRemove - Handler for removing a filter (receives key)
  * @param {boolean} inline - If true, renders pills without container (for inline use)
  */
@@ -25,7 +47,7 @@ const MobileFilterPills = ({ filters, onRemove, inline = false }) => {
       key: filter.key,
       className: 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 whitespace-nowrap'
     },
-      filter.icon && h(Icon, { name: filter.icon, size: 10, className: 'flex-shrink-0' }),
+      h(PillIcon, { filter }),
       filter.label,
       h('button', {
         onClick: () => onRemove(filter.key),

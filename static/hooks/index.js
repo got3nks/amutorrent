@@ -34,6 +34,7 @@ export { useFileInfoModal } from './useFileInfoModal.js';
 export { useFileCategoryModal } from './useFileCategoryModal.js';
 export { useFileMoveModal } from './useFileMoveModal.js';
 export { useFileRenameModal } from './useFileRenameModal.js';
+export { useFileRatingCommentModal } from './useFileRatingCommentModal.js';
 export { useNotifications } from './useNotifications.js';
 export { useBitTorrentClientSelector } from './useBitTorrentClientSelector.js';
 export { useAmuleInstanceSelector } from './useAmuleInstanceSelector.js';

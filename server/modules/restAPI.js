@@ -206,6 +206,10 @@ function registerRoutes(app) {
     bridge('handleRenameFile', req, res)
   );
 
+  router.post('/downloads/rating-comment', requireCapability('set_comment'), (req, res) =>
+    bridge('handleSetFileRatingComment', req, res)
+  );
+
   // ============================================================================
   // PERMISSIONS (pre-flight checks)
   // ============================================================================

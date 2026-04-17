@@ -17,6 +17,7 @@ const response = require('../lib/responseFormatter');
 const logger = require('../lib/logger');
 const UserManager = require('../modules/userManager');
 const ALL_CAPABILITIES = UserManager.ALL_CAPABILITIES;
+const SSO_DEFAULT_CAPABILITIES = UserManager.SSO_DEFAULT_CAPABILITIES;
 
 const log = (...args) => logger.log('[TrustedProxy]', ...args);
 
@@ -103,16 +104,6 @@ function isTrustedIP(ip, customCIDRs) {
 
   return false;
 }
-
-/**
- * Default capabilities for auto-provisioned SSO users.
- * Excludes admin-level capabilities: edit_all_downloads, manage_categories,
- * view_servers, and view_logs.
- */
-const SSO_EXCLUDED = ['edit_all_downloads', 'manage_categories', 'view_servers', 'view_logs'];
-const SSO_DEFAULT_CAPABILITIES = ALL_CAPABILITIES.filter(
-  c => !SSO_EXCLUDED.includes(c)
-);
 
 /**
  * Create trusted proxy SSO middleware.

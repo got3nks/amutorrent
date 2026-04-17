@@ -128,13 +128,15 @@ export const useColumnConfig = (viewKey, columns = [], { defaultHidden = [], def
         }
       }
 
-      // Then append any new columns that weren't in the saved order
+      // Then append any new columns that weren't in the saved order.
+      // Respect defaultHidden so columns added after a user already saved a config
+      // still start hidden when the view declares them as hidden-by-default.
       for (const col of columns) {
         if (!seenKeys.has(col.key)) {
           orderedColumns.push({
             key: col.key,
             label: col.label,
-            visible: true // New columns are visible by default
+            visible: !hiddenSet.has(col.key) && !defaultHidden.includes(col.key)
           });
         }
       }
@@ -170,9 +172,11 @@ export const useColumnConfig = (viewKey, columns = [], { defaultHidden = [], def
         }
       }
 
-      // Then append any new columns not in saved order (visible by default)
+      // Then append any new columns not in saved order. Respect defaultHidden
+      // so columns declared hidden-by-default stay hidden for users with a
+      // previously saved config from before this column existed.
       for (const col of columns) {
-        if (!seenKeys.has(col.key) && !hiddenSet.has(col.key)) {
+        if (!seenKeys.has(col.key) && !hiddenSet.has(col.key) && !defaultHidden.includes(col.key)) {
           orderedVisible.push(col);
         }
       }

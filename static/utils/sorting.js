@@ -72,6 +72,15 @@ export const sortFiles = (files, sortBy, sortDirection, secondarySort = null, op
     // Ratio
     else if (sortBy === 'ratio') result = (a.ratio || 0) - (b.ratio || 0);
 
+    // Rating (aMule search results — 0–5 integer, undefined on unrated/old results)
+    else if (sortBy === 'rating') result = (a.rating || 0) - (b.rating || 0);
+
+    // Download path — shared-file `filePath` takes precedence over generic `directory`
+    // (matches the resolution used by buildDownloadPathColumn's render).
+    else if (sortBy === 'downloadPath') {
+      result = ((a.directory || a.filePath || '')).localeCompare(b.directory || b.filePath || '');
+    }
+
     // Upload peer fields
     else if (sortBy === 'uploadRate') result = (a.uploadRate || 0) - (b.uploadRate || 0);
     else if (sortBy === 'software') result = (a.software || '').localeCompare(b.software || '');

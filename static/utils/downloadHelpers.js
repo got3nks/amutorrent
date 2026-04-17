@@ -356,13 +356,25 @@ export const extractUniqueTrackers = (items) => {
 };
 
 /**
- * Filter items by tracker domain
+ * Filter items by tracker domain(s).
+ * Accepts either an array of hostnames (empty = no filter, 'none' sentinel
+ * matches items with no tracker) or, for legacy callers, a single string
+ * ('all' / 'none' / hostname).
  * @param {Array} items - Array of items with tracker field
- * @param {string} trackerFilter - Tracker domain to filter by, or 'all'/'none'
+ * @param {Array<string>|string} trackerFilter - Selected tracker(s)
  * @returns {Array} Filtered items
  */
 export const filterByTracker = (items, trackerFilter) => {
   if (!trackerFilter || trackerFilter === 'all') return items;
+  if (Array.isArray(trackerFilter)) {
+    if (trackerFilter.length === 0) return items;
+    const set = new Set(trackerFilter);
+    const includeNone = set.has('none');
+    return items.filter(item => {
+      if (item.tracker) return set.has(item.tracker);
+      return includeNone;
+    });
+  }
   if (trackerFilter === 'none') {
     return items.filter(item => !item.tracker);
   }

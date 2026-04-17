@@ -120,6 +120,8 @@ Users can change their own password via the profile menu (click username in the 
 | `pause_resume` | Pause, resume, and stop downloads |
 | `assign_categories` | Change the category of a download |
 | `move_files` | Move download files to category paths |
+| `rename_files` | Rename download and shared files |
+| `set_comment` | Set rating and comment on shared files (aMule) |
 | `manage_categories` | Create, edit, and delete categories |
 | `view_history` | View download history |
 | `clear_history` | Delete history entries |

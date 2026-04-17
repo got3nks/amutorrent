@@ -99,7 +99,7 @@ function createBaseItem(hash, client) {
 /**
  * Apply download data (from the normalized downloads array) onto a unified item
  */
-function applyDownloadData(item, download) {
+function applyDownloadData(item, download, categoryManager = null) {
   item.name = download.name || item.name;
   item.rawName = download.rawName || item.rawName;
   item.size = download.size || item.size;
@@ -147,6 +147,22 @@ function applyDownloadData(item, download) {
     // Shared flag — download is also being shared (seeding while downloading)
     if (download.isShared) {
       item.shared = true;
+    }
+
+    // aMule partfiles don't carry a directory — derive it from the category's
+    // configured path so the Download Path column has something to show for
+    // in-progress downloads. The Default category typically has no explicit
+    // path, so fall back to the client's reported default download directory.
+    // Shared/completed files override this later via applySharedData, which
+    // sets item.filePath from the real on-disk location.
+    if (categoryManager) {
+      const cat = item.category ? categoryManager.getByName(item.category) : null;
+      const derived = cat?.path
+        || (item.instanceId && categoryManager.getClientDefaultPath?.(item.instanceId))
+        || null;
+      if (derived) {
+        item.directory = derived;
+      }
     }
 
     // Links
@@ -260,6 +276,10 @@ function applySharedData(item, sharedFile) {
     // Upload priority
     item.uploadPriority = sharedFile.priority ?? item.uploadPriority;
 
+    // User-supplied metadata (aMule stores a comment + rating per shared file)
+    item.comment = sharedFile.comment ?? item.comment ?? '';
+    item.rating = sharedFile.rating ?? item.rating ?? 0;
+
     // Links
     item.ed2kLink = sharedFile.ed2kLink || item.ed2kLink;
 
@@ -367,7 +387,7 @@ function assembleUnifiedItems(downloads, sharedFiles, categoryManager = null) {
   // ── Step 1: Process downloads (peers copied in applyDownloadData) ──────
   for (const download of (downloads || [])) {
     const item = getOrCreate(download.hash, download.clientType, download.instanceId);
-    if (item) applyDownloadData(item, download);
+    if (item) applyDownloadData(item, download, categoryManager);
   }
 
   // ── Step 2: Process shared files (peers copied in applySharedData) ─────

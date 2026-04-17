@@ -314,7 +314,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
     );
   } else {
     // ed2k-shared
-    const allFields = categorizeSharedFields(raw);
+    const allFields = categorizeSharedFields(raw, liveItem);
     const categoryOrder = ['File Identification', 'Upload Statistics', 'Source Information'];
     categorizedFields = Object.fromEntries(
       categoryOrder
@@ -330,7 +330,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
       onClick: onClose
     },
     h('div', {
-      className: 'modal-full bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden',
+      className: 'modal-full bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-5xl w-full max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden',
       onClick: (e) => e.stopPropagation()
     },
       // Header
@@ -378,7 +378,12 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
         ),
 
         // --- ed2k-download: Segments visualization ---
-        variant === 'ed2k-download' && liveItem.partStatus && h('div', { className: 'bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700' },
+        // Render whenever we have gap data (aMule always emits gapStatus for
+        // active partfiles). `partStatus` may be missing when the file has 0
+        // connected sources contributing part-frequency data — SegmentsBar
+        // falls back to red for gap regions in that case, which is exactly
+        // the right "missing, no sources" signal.
+        variant === 'ed2k-download' && (liveItem.partStatus || liveItem.gapStatus) && h('div', { className: 'bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700' },
           h('div', { className: 'text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2' }, 'Segments'),
           h('div', { className: 'w-full overflow-hidden rounded-full h-6' },
             h(SegmentsBar, {

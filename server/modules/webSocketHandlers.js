@@ -52,6 +52,7 @@ const ACTION_CAPABILITIES = {
   getStatsTree: ['view_statistics'],
   refreshSharedFiles: ['view_shared'],
   renameFile: ['rename_files'],
+  setFileRatingComment: ['set_comment'],
   checkDeletePermissions: ['remove_downloads'],
   checkMovePermissions: ['move_files'],
 };
@@ -331,6 +332,7 @@ class WebSocketHandlers extends BaseModule {
         case 'batchSetFileCategory': await this.handleBatchSetFileCategory(data, context); break;
         case 'batchMoveFiles': await this.handleBatchMoveFiles(data, context); break;
         case 'renameFile': await this.handleRenameFile(data, context); break;
+        case 'setFileRatingComment': await this.handleSetFileRatingComment(data, context); break;
         case 'checkDeletePermissions': await this.handleCheckDeletePermissions(data, context); break;
         case 'checkMovePermissions': await this.handleCheckMovePermissions(data, context); break;
         case 'checkMoveToPermissions': await this.handleCheckMoveToPermissions(data, context); break;
@@ -1317,6 +1319,47 @@ class WebSocketHandlers extends BaseModule {
     } catch (err) {
       context.log('Rename error:', err.message);
       context.send({ type: 'rename-complete', success: false, error: err.message });
+    }
+  }
+
+  async handleSetFileRatingComment(data, context) {
+    try {
+      const { fileHash, comment, rating, instanceId } = data;
+      if (!fileHash) {
+        throw new Error('fileHash is required');
+      }
+      if (typeof comment !== 'string') {
+        throw new Error('comment must be a string');
+      }
+      if (!Number.isInteger(rating) || rating < 0 || rating > 5) {
+        throw new Error('rating must be an integer between 0 and 5');
+      }
+
+      const key = itemKey(instanceId, fileHash);
+      if (!this._canMutateItem(context, key)) {
+        context.send({ type: 'rating-comment-complete', success: false, error: 'Permission denied' });
+        return;
+      }
+
+      const manager = registry.get(instanceId);
+      if (!manager || !manager.isConnected()) {
+        throw new Error('Client not connected');
+      }
+      if (!manager.setFileRatingComment) {
+        throw new Error('Rating/comment not supported by this client');
+      }
+
+      const result = await manager.setFileRatingComment(fileHash, comment, rating);
+      if (result.success === false) {
+        context.send({ type: 'rating-comment-complete', success: false, error: result.error || 'Update failed' });
+      } else {
+        context.log(`Set rating/comment for ${fileHash} (rating=${rating}, comment="${comment}")`);
+        await this.broadcastItemsUpdate(context);
+        context.send({ type: 'rating-comment-complete', success: true });
+      }
+    } catch (err) {
+      context.log('Rating/comment error:', err.message);
+      context.send({ type: 'rating-comment-complete', success: false, error: err.message });
     }
   }
 

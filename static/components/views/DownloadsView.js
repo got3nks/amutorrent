@@ -7,8 +7,8 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { Table, ContextMenu, MoreButton, Button, Select, IconButton, SelectionModeSection, EmptyState, DownloadMobileCard, MobileStatusTabs, MobileFilterPills, MobileFilterSheet, MobileFilterButton, MobileSortButton, ExpandableSearch, FilterInput, SelectionCheckbox, Tooltip, Icon } from '../common/index.js';
-import { getRowHighlightClass, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildSpeedColumn, buildSizeColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildProgressColumn, buildSourcesColumn, buildAddedAtColumn, buildETAColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
+import { Table, ContextMenu, MoreButton, Button, Select, TrackerMultiSelect, IconButton, SelectionModeSection, EmptyState, DownloadMobileCard, MobileStatusTabs, MobileFilterPills, MobileFilterSheet, MobileFilterButton, MobileSortButton, ExpandableSearch, FilterInput, SelectionCheckbox, Tooltip, Icon } from '../common/index.js';
+import { getRowHighlightClass, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildSpeedColumn, buildSizeColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildProgressColumn, buildSourcesColumn, buildAddedAtColumn, buildETAColumn, buildDownloadPathColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
 import { itemKey } from '../../utils/itemKey.js';
 import { useViewDeleteModal, useBatchExport, useViewFilters, usePageSelection, useItemActions, useCategoryFilterOptions, useItemContextMenu, useColumnConfig, getSecondarySortConfig, useFileInfoModal, useFileCategoryModal, useFileMoveModal, useFileRenameModal } from '../../hooks/index.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
@@ -69,9 +69,10 @@ const DownloadsView = () => {
     // Client filter (ED2K/BT toggle)
     unifiedFilter,
     setUnifiedFilter,
-    // Tracker filter
-    trackerFilter,
-    setTrackerFilter,
+    // Tracker filter (array)
+    trackerFilters,
+    toggleTrackerFilter,
+    resetTrackerFilter,
     showTrackerFilter,
     trackerOptions,
     // Status filter
@@ -258,7 +259,8 @@ const DownloadsView = () => {
       categories: dataCategories,
       onCategoryClick: hasCap('assign_categories') ? openCategoryModal : null,
       disabled: (item) => selectionMode || !canMutateItem(item)
-    })
+    }),
+    buildDownloadPathColumn()
   ], [handleShowInfo, statusFilter, setStatusFilter, resetLoaded, statusOptions, theme, unifiedFilter, setUnifiedFilter, categoryFilterOptions, dataCategories, openCategoryModal, selectionMode, hasCap, canMutateItem]);
 
   // ============================================================================
@@ -269,7 +271,7 @@ const DownloadsView = () => {
     setShowConfig,
     ColumnConfigElement
   } = useColumnConfig('downloads', columns, {
-    defaultHidden: ['size'],
+    defaultHidden: ['size', 'downloadPath'],
     defaultSecondarySort: DEFAULT_SECONDARY_SORT_CONFIG['downloads'],
     defaultPrimarySort: DEFAULT_SORT_CONFIG['downloads'],
     onSortChange
@@ -362,10 +364,11 @@ const DownloadsView = () => {
           placeholder: 'Filter by file name...',
           className: 'w-56'
         }),
-        showTrackerFilter && h(Select, {
+        showTrackerFilter && h(TrackerMultiSelect, {
           key: 'tracker',
-          value: trackerFilter,
-          onChange: (e) => setTrackerFilter(e.target.value),
+          values: trackerFilters,
+          onToggle: toggleTrackerFilter,
+          onClear: resetTrackerFilter,
           options: trackerOptions,
           title: 'Filter by tracker'
         }),

@@ -20,11 +20,20 @@ const CURRENT_VERSION = 1;
 
 const ALL_CAPABILITIES = [
   'search', 'add_downloads', 'remove_downloads', 'pause_resume',
-  'assign_categories', 'move_files', 'rename_files', 'manage_categories',
+  'assign_categories', 'move_files', 'rename_files', 'set_comment',
+  'manage_categories',
   'view_history', 'clear_history', 'view_shared', 'view_uploads',
   'view_statistics', 'view_logs', 'view_servers',
   'view_all_downloads', 'edit_all_downloads'
 ];
+
+// Capabilities withheld from auto-provisioned SSO users and history-imported
+// users. Everything else in ALL_CAPABILITIES is granted by default to keep
+// self-service actions usable without admin intervention.
+const SSO_EXCLUDED_CAPABILITIES = ['edit_all_downloads', 'manage_categories', 'view_servers', 'view_logs'];
+const SSO_DEFAULT_CAPABILITIES = ALL_CAPABILITIES.filter(
+  c => !SSO_EXCLUDED_CAPABILITIES.includes(c)
+);
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,32}$/;
 
@@ -524,12 +533,7 @@ class UserManager {
             this.createUser(username, {
               passwordHash: null,
               isAdmin: false,
-              capabilities: [
-                'search', 'add_downloads', 'remove_downloads', 'pause_resume',
-                'assign_categories', 'move_files',
-                'view_history', 'view_shared', 'view_uploads',
-                'view_statistics', 'view_logs', 'view_servers'
-              ]
+              capabilities: SSO_DEFAULT_CAPABILITIES
             });
             logger.log(`👤 Imported history user "${username}" as SSO-only`);
           } catch (err) {
@@ -577,4 +581,6 @@ class UserManager {
 }
 
 UserManager.ALL_CAPABILITIES = ALL_CAPABILITIES;
+UserManager.SSO_DEFAULT_CAPABILITIES = SSO_DEFAULT_CAPABILITIES;
+UserManager.SSO_EXCLUDED_CAPABILITIES = SSO_EXCLUDED_CAPABILITIES;
 module.exports = UserManager;

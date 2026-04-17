@@ -7,13 +7,13 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 const { useState } = React;
-import { Icon, Table, ContextMenu, MoreButton, Button, IconButton, Select, SelectionModeSection, MobileCardHeader, EmptyState, ClientIcon, ItemMobileCard, MobileStatusTabs, MobileFilterPills, MobileFilterSheet, MobileFilterButton, MobileSortButton, ExpandableSearch, FilterInput, SelectionCheckbox, TrackerLabel, LoadingSpinner } from '../common/index.js';
-import { formatBytes, formatSpeed, getRowHighlightClass, getItemStatusInfo, calculateRatio, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildSizeColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildRatioColumn, buildUploadSpeedColumn, buildUploadTotalColumn, buildAddedAtColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
+import { Icon, Table, ContextMenu, MoreButton, Button, IconButton, Select, TrackerMultiSelect, SelectionModeSection, MobileCardHeader, EmptyState, ClientIcon, ItemMobileCard, MobileStatusTabs, MobileFilterPills, MobileFilterSheet, MobileFilterButton, MobileSortButton, ExpandableSearch, FilterInput, SelectionCheckbox, TrackerLabel, LoadingSpinner } from '../common/index.js';
+import { formatBytes, formatSpeed, getRowHighlightClass, getItemStatusInfo, calculateRatio, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildSizeColumn, buildFileNameColumn, buildStatusColumn, buildCategoryColumn, buildRatioColumn, buildUploadSpeedColumn, buildUploadTotalColumn, buildAddedAtColumn, buildDownloadPathColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter } from '../../utils/index.js';
 import { itemKey } from '../../utils/itemKey.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
-import { useViewDeleteModal, useBatchExport, useViewFilters, usePageSelection, useItemActions, useCategoryFilterOptions, useItemContextMenu, useColumnConfig, getSecondarySortConfig, useFileInfoModal, useFileCategoryModal, useFileMoveModal, useFileRenameModal } from '../../hooks/index.js';
+import { useViewDeleteModal, useBatchExport, useViewFilters, usePageSelection, useItemActions, useCategoryFilterOptions, useItemContextMenu, useColumnConfig, getSecondarySortConfig, useFileInfoModal, useFileCategoryModal, useFileMoveModal, useFileRenameModal, useFileRatingCommentModal } from '../../hooks/index.js';
 import { useActions } from '../../contexts/ActionsContext.js';
 import { useStickyToolbar } from '../../contexts/StickyHeaderContext.js';
 import { useCapabilities } from '../../hooks/useCapabilities.js';
@@ -65,9 +65,10 @@ const SharedView = () => {
     // Client filter (ED2K/BT toggle)
     unifiedFilter,
     setUnifiedFilter,
-    // Tracker filter
-    trackerFilter,
-    setTrackerFilter,
+    // Tracker filter (array)
+    trackerFilters,
+    toggleTrackerFilter,
+    resetTrackerFilter,
     showTrackerFilter,
     trackerOptions,
     // Status filter
@@ -144,6 +145,7 @@ const SharedView = () => {
   const { openFileInfo, FileInfoElement } = useFileInfoModal();
   // Rename modal
   const { openRenameModal, FileRenameElement } = useFileRenameModal();
+  const { openRatingCommentModal, FileRatingCommentElement } = useFileRatingCommentModal();
 
   // Delete modal with batch support and permission checking
   const {
@@ -225,6 +227,7 @@ const SharedView = () => {
     onResume: handleResume,
     onStop: handleStop,
     onRename: openRenameModal,
+    onSetRatingComment: openRatingCommentModal,
     onCopyLink: handleCopyLink,
     copiedHash,
     actionsForBittorrentOnly: true,
@@ -259,7 +262,8 @@ const SharedView = () => {
       categories: dataCategories,
       onCategoryClick: hasCap('assign_categories') ? openCategoryModal : null,
       disabled: (item) => selectionMode || !canMutateItem(item)
-    })
+    }),
+    buildDownloadPathColumn()
   ], [handleShowInfo, statusFilter, setStatusFilter, resetLoaded, statusOptions, unifiedFilter, setUnifiedFilter, categoryFilterOptions, dataCategories, openCategoryModal, selectionMode, hasCap, canMutateItem]);
 
   // ============================================================================
@@ -270,7 +274,7 @@ const SharedView = () => {
     setShowConfig,
     ColumnConfigElement
   } = useColumnConfig('shared', columns, {
-    defaultHidden: ['addedAt'],
+    defaultHidden: ['addedAt', 'downloadPath'],
     defaultSecondarySort: DEFAULT_SECONDARY_SORT_CONFIG['shared'],
     defaultPrimarySort: DEFAULT_SORT_CONFIG['shared'],
     onSortChange
@@ -353,10 +357,11 @@ const SharedView = () => {
           placeholder: 'Filter by file name...',
           className: 'w-56'
         }),
-        showTrackerFilter && h(Select, {
+        showTrackerFilter && h(TrackerMultiSelect, {
           key: 'tracker',
-          value: trackerFilter,
-          onChange: (e) => setTrackerFilter(e.target.value),
+          values: trackerFilters,
+          onToggle: toggleTrackerFilter,
+          onClear: resetTrackerFilter,
           options: trackerOptions,
           title: 'Filter by tracker'
         }),
@@ -563,6 +568,8 @@ const SharedView = () => {
     FileInfoElement,
 
     FileRenameElement,
+
+    FileRatingCommentElement,
 
     FileCategoryModalElement,
 

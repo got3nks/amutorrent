@@ -397,8 +397,8 @@ export const PeersTable = ({ peers, variant, isAmule = false }) => {
           h(SortableHeader, { label: 'Client', sortKey: 'client', currentSort: sort, onSort: handleSort }),
           // Flags column (torrents only)
           !isAmuleMode && h('th', { className: 'px-2 py-1.5 text-center font-medium text-gray-600 dark:text-gray-300' }, 'Flags'),
-          // Done column (torrents only)
-          !isAmuleMode && h(SortableHeader, { label: 'Done', sortKey: 'completedPercent', currentSort: sort, onSort: handleSort, align: 'right' }),
+          // Done column (shown for all clients — aMule peers get a computed percent from availableParts / totalParts)
+          h(SortableHeader, { label: 'Done', sortKey: 'completedPercent', currentSort: sort, onSort: handleSort, align: 'right' }),
           // Downloaded column (torrents only)
           !isAmuleMode && h(SortableHeader, { label: 'Downloaded', sortKey: 'downloadTotal', currentSort: sort, onSort: handleSort, align: 'right' }),
           // State column (aMule sources: download state, aMule uploads: upload state)
@@ -474,8 +474,8 @@ export const PeersTable = ({ peers, variant, isAmule = false }) => {
                 title: `${peer.isEncrypted ? 'Encrypted' : ''}${peer.isEncrypted && peer.isIncoming ? ', ' : ''}${peer.isIncoming ? 'Incoming' : ''}`
               }, peer.flags)
             ),
-            // Done column (torrents only)
-            !isAmuleMode && h('td', { className: 'px-2 py-1.5 text-right text-gray-600 dark:text-gray-400' },
+            // Done column (all clients — '-' when a peer's completion isn't known)
+            h('td', { className: 'px-2 py-1.5 text-right text-gray-600 dark:text-gray-400' },
               peer.completedPercent != null ? `${peer.completedPercent}%` : '-'
             ),
             // Downloaded column (torrents only)

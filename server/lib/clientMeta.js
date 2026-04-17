@@ -60,6 +60,7 @@ const CLIENT_TYPES = {
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
       renameFile: true,            // can rename downloads and shared files
+      fileRatingComment: true,     // can set a per-file rating + comment (shared files only in aMule)
       customSavePath: false        // ed2k uses category paths only
     }
   },
@@ -114,6 +115,7 @@ const CLIENT_TYPES = {
       categories: false,           // uses labels, not named categories
       tracksPid: true,             // reports PID for restart detection
       logs: false,                 // no fetchable log API
+      fileRatingComment: false,
       customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['seeding'],
@@ -184,6 +186,7 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: false,
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
+      fileRatingComment: false,
       customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['uploading', 'stalledUP', 'queuedUP', 'forcedUP']
@@ -236,6 +239,7 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: false,
       categories: false,           // uses labels via Label plugin, not named categories
       logs: false,                 // no fetchable log API
+      fileRatingComment: false,
       customSavePath: true         // can set download directory per torrent
     },
     seedingStatuses: ['Seeding']
@@ -288,6 +292,7 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: false,
       categories: false,             // uses labels, not named categories
       logs: false,                   // no fetchable log API
+      fileRatingComment: false,
       customSavePath: true           // can set download directory per torrent
     },
     seedingStatuses: ['Seeding', 'Seed Pending']

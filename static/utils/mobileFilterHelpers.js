@@ -53,6 +53,15 @@ export const createCategoryLabelFilter = ({
  * @param {boolean} options.show - Whether to show this filter (default: true)
  * @returns {Object|false} Filter group config or false if hidden
  */
+const VALID_HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
+export const trackerFaviconUrl = (host) => {
+  if (!host || typeof host !== 'string') return null;
+  const lower = host.toLowerCase();
+  if (!VALID_HOST.test(lower)) return null;
+  return `/api/favicon/tracker/${encodeURIComponent(lower)}`;
+};
+
 export const createTrackerFilter = ({
   trackerOptions = [],
   selectedValues,
@@ -67,7 +76,9 @@ export const createTrackerFilter = ({
       .filter(opt => opt.value !== 'all')
       .map(opt => ({
         value: `tracker:${opt.value}`,
-        label: opt.label
+        label: opt.label,
+        iconSrc: trackerFaviconUrl(opt.value),
+        icon: 'server'
       })),
     selectedValues,
     onToggle

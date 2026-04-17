@@ -1,11 +1,10 @@
 /**
  * useTrackerFilter Hook
  *
- * Centralized hook for tracker filtering functionality.
- * - Gets known trackers from StaticDataContext (extracted from all BitTorrent data)
- * - Gets isBittorrentEnabled from ClientFilterContext (combines user preference AND connection status)
- * - Provides filter state, options, and filter function
- * - Only shows tracker filter when BitTorrent is enabled (configured, connected, and user hasn't hidden it)
+ * Centralized hook for tracker filtering.
+ * - State is an array of hostnames — empty means "no filter" (all trackers).
+ * - `'none'` sentinel in the array matches items with no tracker.
+ * - Exposes toggle/clear helpers so views don't reimplement array math.
  */
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
@@ -15,44 +14,49 @@ import { filterByTracker, buildTrackerFilterOptions } from '../utils/downloadHel
 
 /**
  * Hook for tracker filtering
- * @param {Object} options - Configuration options
- * @param {boolean} options.includeNoTracker - Whether to include "(no tracker)" option (default: false)
+ * @param {Object} options
+ * @param {boolean} options.includeNoTracker - Include the "(no tracker)" option (default: false)
  * @returns {Object} Tracker filter state and utilities
  */
 export const useTrackerFilter = ({ includeNoTracker = false } = {}) => {
   const { knownTrackers } = useStaticData();
-  const { isBittorrentEnabled } = useClientFilter();  // network-type-level enabled
+  const { isBittorrentEnabled } = useClientFilter();
 
-  // Filter state
-  const [trackerFilter, setTrackerFilter] = useState('all');
+  // Array of selected tracker hostnames (or 'none' sentinel). Empty = all.
+  const [trackerFilters, setTrackerFilters] = useState([]);
 
-  // Only show tracker filter when BitTorrent is enabled (includes connection check)
   const showTrackerFilter = isBittorrentEnabled;
 
-  // Build filter options from known trackers
+  // Full list of options (sans the synthetic 'all' entry used by the legacy
+  // native <select>; the multi-select treats "no selection" as "all").
   const trackerOptions = useMemo(() => {
     if (!showTrackerFilter) return [];
-    return buildTrackerFilterOptions(knownTrackers, includeNoTracker);
+    const options = buildTrackerFilterOptions(knownTrackers, includeNoTracker);
+    return options.filter(o => o.value !== 'all');
   }, [knownTrackers, includeNoTracker, showTrackerFilter]);
 
-  // Filter function - filters items by tracker
   const filterDataByTracker = useCallback((items) => {
-    if (!showTrackerFilter || trackerFilter === 'all') return items;
-    return filterByTracker(items, trackerFilter);
-  }, [showTrackerFilter, trackerFilter]);
+    if (!showTrackerFilter || trackerFilters.length === 0) return items;
+    return filterByTracker(items, trackerFilters);
+  }, [showTrackerFilter, trackerFilters]);
 
-  // Reset filter to 'all'
-  const resetTrackerFilter = useCallback(() => {
-    setTrackerFilter('all');
+  const toggleTrackerFilter = useCallback((host) => {
+    setTrackerFilters(prev =>
+      prev.includes(host) ? prev.filter(h => h !== host) : [...prev, host]
+    );
   }, []);
 
-  // Check if filter is active (not 'all')
-  const isTrackerFilterActive = trackerFilter !== 'all';
+  const resetTrackerFilter = useCallback(() => {
+    setTrackerFilters([]);
+  }, []);
+
+  const isTrackerFilterActive = trackerFilters.length > 0;
 
   return {
-    // State
-    trackerFilter,
-    setTrackerFilter,
+    // State (array)
+    trackerFilters,
+    setTrackerFilters,
+    toggleTrackerFilter,
 
     // Derived
     showTrackerFilter,

@@ -61,13 +61,15 @@ export const useViewFilters = ({
     disabledInstances
   } = useClientFilteredData({ data });
 
-  // 2. Tracker filter
+  // 2. Tracker filter (multi-select — state is an array of hostnames)
   const {
-    trackerFilter,
-    setTrackerFilter,
+    trackerFilters,
+    setTrackerFilters,
+    toggleTrackerFilter,
     showTrackerFilter,
     trackerOptions,
-    filterDataByTracker
+    filterDataByTracker,
+    resetTrackerFilter
   } = useTrackerFilter();
 
   // 3. Apply tracker filter
@@ -130,8 +132,8 @@ export const useViewFilters = ({
     setStatusFilter,
     unifiedFilter,
     setUnifiedFilter,
-    trackerFilter,
-    setTrackerFilter
+    trackerFilters,
+    setTrackerFilters
   });
   const mobileFilteredData = mobileFilters.filteredData;
 
@@ -194,9 +196,11 @@ export const useViewFilters = ({
     isEd2kEnabled,
     isBittorrentEnabled,
 
-    // Tracker filter
-    trackerFilter,
-    setTrackerFilter,
+    // Tracker filter (array-based multi-select)
+    trackerFilters,
+    setTrackerFilters,
+    toggleTrackerFilter,
+    resetTrackerFilter,
     showTrackerFilter,
     trackerOptions,
 

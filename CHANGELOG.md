@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - Tracker Favicons, Multi-Select Filter, Ratings & Download Path Column
+
+### ✨ Added
+
+- **Set Rating & Comment on shared files (aMule)** — new action in the Shared files context menu opens a star-picker + textarea modal. Exposed via WebSocket (`setFileRatingComment`) and HTTP (`POST /api/v1/downloads/rating-comment`). Guarded by a new `set_comment` capability
+- **`set_comment` capability** — new sibling to `rename_files`, added to `ALL_CAPABILITIES`, `SSO_DEFAULT_CAPABILITIES`, the "Full" preset, CAPABILITY_GROUPS (Downloads), and the history-import migration defaults. Shown in the User Management UI
+- **Star rating column on aMule search results** (desktop, sortable) — rendered when aMule emits a rating (requires aMule PR #452). Mobile cards show the rating in the detail row alongside size and sources
+- **Canonical `comment` / `rating` fields** on unified shared items replace the raw `EC_TAG_KNOWNFILE_*` plumbing in the File Info modal. Rating + Comment rows are always shown under "File Identification" with "Not rated" / "No comment" placeholders when unset
+- **Peer completion percentage for aMule** in the File Info modal — the "Done" column now renders for aMule peers too, matching the native aMule GUI's segment-bar semantics. Download sources use `EC_TAG_CLIENT_AVAILABLE_PARTS` directly; upload peers use the peer-reported `EC_TAG_CLIENT_UPLOAD_PART_STATUS` bitmap (bits counted on our side) because aMule's `availableParts` reads the download-side bitmap and is always 0 for pure uploaders.
+- **Download Path column** in Downloads and Shared Files views (desktop, hidden by default, togglable via "Configure columns"). For aMule partfiles without a filesystem path, falls back to the category's configured path or the client's default download directory
+- **Tracker favicons** across the app — fetched on first use, cached to disk under `data/favicons/` with a 24h TTL and stale-on-failure fallback, served via `GET /api/favicon/tracker/:host`. Rendered in tracker labels, desktop filter trigger/dropdown, mobile filter sheet, and mobile filter pills; falls back to a `server` icon when a favicon isn't reachable. 1MB per-blob cap, single-flight per host to dedupe concurrent fetches
+- **Multi-select tracker filter (desktop)** — custom popover dropdown with per-row favicons, summary count in the trigger, click-outside/Escape dismissal, and "Clear" action. Multiple trackers use OR logic; selections reflect into the mobile pills/sheet
+
+### ♻️ Improved
+
+- **`shareddir.dat` reload fires on connect** — `rescanAndWrite()` now threads the manager into `expandAndWrite()`, so aMule re-reads the refreshed file after the server-side sync on connect (previously wrote the file but never triggered the reload)
+- **Segments bar renders for aMule files with 0 sources** — both in the File Info modal and on the Downloads-view progress bar hover. aMule skips emitting `EC_TAG_PARTFILE_PART_STATUS` when no sources are contributing part-frequency data, but still emits `EC_TAG_PARTFILE_GAP_STATUS`. We now fall back to gap-only rendering: completed regions stay green, missing regions show solid red (the "missing, no sources" color in aMule's own palette)
+- **File Info modal is wider on desktop** — bumped from `max-w-4xl` to `max-w-5xl` so long tracker URLs, paths, and peer comment lists breathe a bit more. Mobile is unchanged (still `w-full`)
+- **Multiple peer ratings now rendered** in the Download Info modal — aMule emits `EC_TAG_PARTFILE_COMMENTS` as a flat sequence of 4 child tags per peer (username, filename, rating, comment), all under the same tag ID. The formatter now chunks the array back into tuples and renders one card per peer (previously silently truncated to the first peer only)
+- **Column config respects `defaultHidden` for newly-added columns** — previously, once a user saved a column configuration, any column added in a later release was forced visible. Now columns declared hidden-by-default stay hidden for existing users too
+- **SSO / history-import capability defaults unified** — `userManager.js` is the single source of truth for `SSO_DEFAULT_CAPABILITIES`; `trustedProxy.js` and the legacy history-user import both consume the same list, so adding a default-on capability only requires one edit
+- **Dockerfile copies `server/package-lock.json` and uses `npm ci`** — ensures deterministic installs and that lockfile bumps (e.g. git-dep SHA updates) actually invalidate the Docker layer instead of serving cached `node_modules`
+
+### 📦 Dependencies
+
+- **amule-ec-node** — four updates since 3.6.1:
+  - **Mojibake filename correction** — non-ASCII filenames (CJK, accented European, etc.) that aMule reports in the wrong encoding are now decoded correctly. The raw value is preserved as `rawFileName` so move/category commands still address the file by the name aMule expects
+  - **Canonical `comment` / `rating` parsing plus a new `setFileRatingComment` method** for shared files (8da8eaa)
+  - **Aggregated user rating on search results** (95879bb, requires aMule PR #452 to be merged upstream or applied to your aMule build for the tag to actually be emitted)
+  - **`EC_TAG_CLIENT_UPLOAD_PART_STATUS` parsing** (df97f5e) — exposes the peer-reported part bitmap for upload peers so we can compute their real completion %, matching what aMule's native GUI shows
+
+---
+
 ## [3.6.1] - Upload Peers, Chart Improvements & Fixes
 
 ### ✨ Added

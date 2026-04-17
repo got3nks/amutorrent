@@ -161,6 +161,8 @@ function normalizeAmuleSharedFile(file, categories = []) {
     // Map EC_TAG fields to canonical names
     priority: file.priority ?? file.EC_TAG_KNOWNFILE_PRIO ?? file.raw?.EC_TAG_KNOWNFILE_PRIO ?? null,
     ed2kLink: file.ed2kLink || file.EC_TAG_PARTFILE_ED2K_LINK || file.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
+    comment: file.comment ?? file.EC_TAG_KNOWNFILE_COMMENT ?? file.raw?.EC_TAG_KNOWNFILE_COMMENT ?? '',
+    rating: file.rating ?? file.EC_TAG_KNOWNFILE_RATING ?? file.raw?.EC_TAG_KNOWNFILE_RATING ?? 0,
     // Explicit pass-through of library-mapped fields used by the builder
     transferredTotal: file.transferredTotal || 0,
     transferred: file.transferred ?? null,
@@ -205,7 +207,10 @@ function normalizeAmuleUpload(client) {
     uploadSession: client.uploadSession ?? null,
     uploadState: client.uploadState,
     sourceFrom: client.sourceFrom,
+    // Populated at link-time in amuleManager — needs the target file's total
+    // part count, which isn't available here.
     completedPercent: null,
+    availableParts: client.availableParts ?? null,
     isEncrypted: client.obfuscation > 0,
     isIncoming: false
   };
@@ -235,6 +240,10 @@ function normalizeAmuleDownloadSource(client) {
     downloadState: client.downloadState,
     sourceFrom: client.sourceFrom,
     remoteQueueRank: client.remoteQueueRank ?? null,
+    // Populated at link-time in amuleManager once we know the file's total
+    // part count (needs fileSize from the target download — not available here).
+    completedPercent: null,
+    availableParts: client.availableParts ?? null,
     isEncrypted: client.obfuscation > 0,
     isIncoming: false
   };

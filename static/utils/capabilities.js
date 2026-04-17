@@ -6,7 +6,8 @@
 // Must match server/modules/userManager.js ALL_CAPABILITIES
 export const ALL_CAPABILITIES = [
   'search', 'add_downloads', 'remove_downloads', 'pause_resume',
-  'assign_categories', 'move_files', 'rename_files', 'manage_categories',
+  'assign_categories', 'move_files', 'rename_files', 'set_comment',
+  'manage_categories',
   'view_history', 'clear_history', 'view_shared', 'view_uploads',
   'view_statistics', 'view_logs', 'view_servers',
   'view_all_downloads', 'edit_all_downloads'
@@ -20,6 +21,7 @@ export const CAPABILITY_LABELS = {
   assign_categories: 'Assign categories',
   move_files: 'Move files',
   rename_files: 'Rename files',
+  set_comment: 'Set rating & comment',
   manage_categories: 'Manage categories',
   view_history: 'View history',
   clear_history: 'Clear history',
@@ -33,7 +35,7 @@ export const CAPABILITY_LABELS = {
 };
 
 export const CAPABILITY_GROUPS = [
-  { label: 'Downloads', caps: ['search', 'add_downloads', 'remove_downloads', 'pause_resume', 'assign_categories', 'move_files', 'rename_files'] },
+  { label: 'Downloads', caps: ['search', 'add_downloads', 'remove_downloads', 'pause_resume', 'assign_categories', 'move_files', 'rename_files', 'set_comment'] },
   { label: 'System', caps: ['manage_categories', 'view_history', 'view_logs', 'clear_history', 'view_servers'] },
   { label: 'Viewing', caps: ['view_shared', 'view_uploads', 'view_statistics'] },
   { label: 'Multi-User', caps: ['view_all_downloads', 'edit_all_downloads'] }
@@ -44,7 +46,8 @@ export const PRESETS = {
   readonly: ['search', 'view_history', 'view_shared', 'view_uploads', 'view_statistics', 'view_logs', 'view_all_downloads']
 };
 
-// SSO default: all except edit_all_downloads and manage_categories (must match server/middleware/trustedProxy.js SSO_DEFAULT_CAPABILITIES)
+// SSO + history-import default capabilities. Frontend mirror — must match
+// SSO_EXCLUDED_CAPABILITIES in server/modules/userManager.js.
 const SSO_EXCLUDED = ['edit_all_downloads', 'manage_categories', 'view_servers', 'view_logs'];
 export const SSO_DEFAULT_CAPABILITIES = ALL_CAPABILITIES.filter(c => !SSO_EXCLUDED.includes(c));
 

@@ -25,6 +25,7 @@ import { useCapabilities } from './useCapabilities.js';
  * @param {Function} options.onResume - Handler for resuming item (optional)
  * @param {Function} options.onStop - Handler for stopping item (optional - rtorrent only)
  * @param {Function} options.onRename - Handler for renaming item (optional - shows menu item if provided)
+ * @param {Function} options.onSetRatingComment - Handler for editing rating/comment (optional - shared files only, clients with fileRatingComment capability)
  * @param {Function} options.onCopyLink - Handler for copying export link (optional)
  * @param {string|null} options.copiedHash - Hash of recently copied item for "Copied!" feedback
  * @param {string} options.infoLabel - Label for info menu item (default: 'File Details')
@@ -46,6 +47,7 @@ export const useItemContextMenu = ({
   onResume,
   onStop,
   onRename,
+  onSetRatingComment,
   onCopyLink,
   copiedHash = null,
   infoLabel = 'File Details',
@@ -164,6 +166,19 @@ export const useItemContextMenu = ({
       });
     }
 
+    // Set Rating & Comment (clients with fileRatingComment capability, shared files only, gated on ownership)
+    if (onSetRatingComment && caps.fileRatingComment && hasCap('set_comment') && canMutate && item.shared) {
+      menuItems.push({
+        label: 'Set Rating & Comment',
+        icon: 'star',
+        iconColor: 'text-yellow-500 dark:text-yellow-400',
+        onClick: () => {
+          onSetRatingComment(item);
+          closeContextMenu?.();
+        }
+      });
+    }
+
     // Export link (read-only action, not gated on ownership)
     if (onCopyLink) {
       const hasExportLink = isBittorrent || !!item.ed2kLink || !!getExportLink(item);
@@ -222,6 +237,7 @@ export const useItemContextMenu = ({
     onResume,
     onStop,
     onRename,
+    onSetRatingComment,
     onCopyLink,
     onDelete,
     deleteLabel,

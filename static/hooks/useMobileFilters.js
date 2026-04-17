@@ -13,7 +13,7 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { STATUS_LABELS } from '../utils/index.js';
+import { STATUS_LABELS, trackerFaviconUrl } from '../utils/index.js';
 
 const { useState, useMemo, useCallback, useRef } = React;
 
@@ -24,8 +24,8 @@ const { useState, useMemo, useCallback, useRef } = React;
  * @param {function} options.setStatusFilter - Status filter setter (for pill removal)
  * @param {string} options.unifiedFilter - Current unified filter value
  * @param {function} options.setUnifiedFilter - Unified filter setter (for pill removal)
- * @param {string} options.trackerFilter - Current tracker filter value
- * @param {function} options.setTrackerFilter - Tracker filter setter (for pill removal)
+ * @param {string[]} options.trackerFilters - Selected tracker hostnames (empty = all)
+ * @param {function} options.setTrackerFilters - Tracker filter setter (for pill removal)
  * @returns {Object}
  */
 export function useMobileFilters({
@@ -34,8 +34,8 @@ export function useMobileFilters({
   setStatusFilter,
   unifiedFilter,
   setUnifiedFilter,
-  trackerFilter,
-  setTrackerFilter
+  trackerFilters,
+  setTrackerFilters
 }) {
   // Internal ref for page reset — set after useTableState via pageResetRef
   const pageResetRef = useRef(null);
@@ -93,16 +93,23 @@ export function useMobileFilters({
       const filterLabel = getCategoryLabel(unifiedFilter);
       pills.push({ key: 'unifiedFilter', label: filterLabel, icon: 'folder' });
     }
-    if (trackerFilter !== 'all') {
-      pills.push({ key: 'tracker', label: trackerFilter, icon: 'server' });
-    }
+    (trackerFilters || []).forEach(host => {
+      pills.push({
+        key: `tracker-${host}`,
+        label: host === 'none' ? '(no tracker)' : host,
+        icon: 'server',
+        iconSrc: host === 'none' ? null : trackerFaviconUrl(host)
+      });
+    });
     mobileCategoryFilters.forEach(f => {
-      const label = f.startsWith('tracker:') ? f.slice(8) : getCategoryLabel(f);
-      const icon = f.startsWith('tracker:') ? 'server' : 'folder';
-      pills.push({ key: `mobile-${f}`, label, icon });
+      const isTracker = f.startsWith('tracker:');
+      const label = isTracker ? f.slice(8) : getCategoryLabel(f);
+      const icon = isTracker ? 'server' : 'folder';
+      const iconSrc = isTracker ? trackerFaviconUrl(f.slice(8)) : null;
+      pills.push({ key: `mobile-${f}`, label, icon, iconSrc });
     });
     return pills;
-  }, [statusFilter, unifiedFilter, trackerFilter, mobileCategoryFilters, getCategoryLabel]);
+  }, [statusFilter, unifiedFilter, trackerFilters, mobileCategoryFilters, getCategoryLabel]);
 
   // Filter sheet callbacks
   const handleFilterSheetOpen = useCallback(() => {
@@ -134,13 +141,14 @@ export function useMobileFilters({
     } else if (key === 'unifiedFilter') {
       setUnifiedFilter('all');
       if (pageResetRef.current) pageResetRef.current(0);
-    } else if (key === 'tracker') {
-      setTrackerFilter('all');
+    } else if (key.startsWith('tracker-')) {
+      const host = key.slice(8);
+      setTrackerFilters(prev => prev.filter(h => h !== host));
     } else if (key.startsWith('mobile-')) {
       const filterVal = key.slice(7);
       setMobileCategoryFilters(prev => prev.filter(f => f !== filterVal));
     }
-  }, [setStatusFilter, setUnifiedFilter, setTrackerFilter]);
+  }, [setStatusFilter, setUnifiedFilter, setTrackerFilters]);
 
   return {
     // Filter sheet state

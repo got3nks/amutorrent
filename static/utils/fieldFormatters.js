@@ -12,6 +12,7 @@ import {
   FIELD_LABELS, FIELD_TYPES, SKIP_FIELDS, FIELD_CATEGORIES,
   CATEGORIZE_SKIP, CATEGORIZE_CONDITIONAL_SKIP, CATEGORY_ORDER,
 } from './fieldRegistry.js';
+import StarRating from '../components/common/StarRating.js';
 
 const { createElement: h } = React;
 
@@ -202,18 +203,33 @@ const SPECIAL_FORMATTERS = {
   'EC_TAG_PARTFILE_COMMENTS': (value) => {
     if (typeof value !== 'object' || Array.isArray(value)) return null;
     const commentsArray = value['EC_TAG_PARTFILE_COMMENTS'];
-    if (!Array.isArray(commentsArray)) return null;
-    if (commentsArray.length === 0) {
+    if (!Array.isArray(commentsArray) || commentsArray.length === 0) {
       return h('span', { className: 'text-gray-400 dark:text-gray-500 italic' }, 'No comments');
     }
-    const [clientName, fileName, rating, commentText] = commentsArray;
-    return h('div', { className: 'p-2 bg-gray-100 dark:bg-gray-900 rounded text-xs' },
-      h('div', { className: 'flex items-center gap-2 mb-1' },
-        h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, clientName || 'Unknown'),
-        rating > 0 && h('span', { className: 'text-yellow-500' }, '★'.repeat(rating) + '☆'.repeat(5 - rating))
-      ),
-      fileName && h('div', { className: 'text-gray-600 dark:text-gray-400 mb-1' }, fileName),
-      commentText && h('div', { className: 'text-gray-800 dark:text-gray-200' }, commentText)
+    // aMule emits this tag as a flat sequence of 4 child tags per peer
+    // (username, filename, rating, comment) all under the same tag ID — see
+    // ECSpecialCoreTags.cpp line ~193. Chunk the array back into tuples.
+    const comments = [];
+    for (let i = 0; i + 4 <= commentsArray.length; i += 4) {
+      comments.push({
+        clientName: commentsArray[i],
+        fileName: commentsArray[i + 1],
+        rating: commentsArray[i + 2],
+        commentText: commentsArray[i + 3]
+      });
+    }
+    if (comments.length === 0) return null;
+    return h('div', { className: 'space-y-2' },
+      comments.map((c, idx) =>
+        h('div', { key: idx, className: 'p-2 bg-gray-100 dark:bg-gray-900 rounded text-xs' },
+          h('div', { className: 'flex items-center gap-2 mb-1' },
+            h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, c.clientName || 'Unknown'),
+            h(StarRating, { value: c.rating })
+          ),
+          c.fileName && h('div', { className: 'text-gray-600 dark:text-gray-400 mb-1' }, c.fileName),
+          c.commentText && h('div', { className: 'text-gray-800 dark:text-gray-200' }, c.commentText)
+        )
+      )
     );
   },
   // aMule priority/status/category/rating/comment
@@ -230,12 +246,14 @@ const SPECIAL_FORMATTERS = {
   'EC_TAG_PARTFILE_STATUS': (value) => h('span', null, formatStatus(value)),
   'EC_TAG_PARTFILE_CAT': (value) =>
     h('span', null, typeof value === 'string' ? value : (value === 0 ? 'Default' : `#${value}`)),
-  'EC_TAG_KNOWNFILE_RATING': (value) => {
-    if (value === 0) return null;
-    return h('span', null, `${'★'.repeat(value)}${'☆'.repeat(5 - value)}`);
+  'rating': (value) => {
+    if (!value || value === 0) return h('span', { className: 'text-gray-400 dark:text-gray-500 italic' }, 'Not rated');
+    return h(StarRating, { value });
   },
-  'EC_TAG_KNOWNFILE_COMMENT': (value) => {
-    if (!value || (typeof value === 'string' && value.trim() === '')) return null;
+  'comment': (value) => {
+    if (!value || (typeof value === 'string' && value.trim() === '')) {
+      return h('span', { className: 'text-gray-400 dark:text-gray-500 italic' }, 'No comment');
+    }
     return undefined; // fall through to default rendering
   },
   // rtorrent peers summary object
@@ -378,9 +396,11 @@ export const formatFieldValue = (key, value) => {
 // ─── Categorize Functions ────────────────────────────────────────────────────
 
 /**
- * Categorize shared file fields for display (aMule only, already clean)
+ * Categorize shared file fields for display (aMule only, already clean).
+ * `item` is the unified item, used to surface canonical fields
+ * (`comment`, `rating`) instead of the raw EC_TAG values.
  */
-export const categorizeSharedFields = (raw) => {
+export const categorizeSharedFields = (raw, item = null) => {
   const fieldCategories = {
     'File Identification': [],
     'Upload Statistics': [],
@@ -390,11 +410,13 @@ export const categorizeSharedFields = (raw) => {
   Object.entries(raw).forEach(([key, value]) => {
     if (key === 'EC_TAG_PARTFILE_ED2K_LINK') return;
     if (key === 'EC_TAG_PARTFILE_PART_STATUS') return;
+    // Canonical comment/rating are emitted below from the unified item;
+    // skip the raw EC_TAG variants so they don't render twice.
+    if (key === 'EC_TAG_KNOWNFILE_COMMENT' || key === 'EC_TAG_KNOWNFILE_RATING') return;
 
     if (key === 'EC_TAG_PARTFILE_NAME' || key === 'EC_TAG_PARTFILE_HASH' ||
         key === 'EC_TAG_PARTFILE_SIZE_FULL' || key === 'EC_TAG_KNOWNFILE_FILENAME' ||
-        key === 'EC_TAG_KNOWNFILE_AICH_MASTERHASH' || key === 'EC_TAG_KNOWNFILE_COMMENT' ||
-        key === 'EC_TAG_KNOWNFILE_RATING') {
+        key === 'EC_TAG_KNOWNFILE_AICH_MASTERHASH') {
       fieldCategories['File Identification'].push([key, value]);
     } else if (key.includes('KNOWNFILE_REQ_COUNT') || key.includes('KNOWNFILE_ACCEPT_COUNT') ||
                key.includes('KNOWNFILE_XFERRED') || key === 'EC_TAG_KNOWNFILE_PRIO' ||
@@ -405,7 +427,36 @@ export const categorizeSharedFields = (raw) => {
     }
   });
 
-  return fieldCategories;
+  // Always surface rating + comment for shared files (even when empty),
+  // since they're user-editable metadata now.
+  if (item) {
+    fieldCategories['File Identification'].push(['rating', item.rating ?? 0]);
+    fieldCategories['File Identification'].push(['comment', item.comment ?? '']);
+  }
+
+  return applySectionPins(fieldCategories);
+};
+
+// Keys that should be pinned to the top of their section (in this order),
+// overriding the natural insertion order driven by the raw object.
+const SECTION_PINNED_TOP = {
+  'Source Information': ['EC_TAG_PARTFILE_SOURCE_NAMES']
+};
+
+const applySectionPins = (result) => {
+  for (const [section, pinnedKeys] of Object.entries(SECTION_PINNED_TOP)) {
+    const entries = result[section];
+    if (!entries || entries.length === 0) continue;
+    const pinned = [];
+    const rest = [];
+    for (const entry of entries) {
+      (pinnedKeys.includes(entry[0]) ? pinned : rest).push(entry);
+    }
+    // Preserve declaration order for pinned keys
+    pinned.sort((a, b) => pinnedKeys.indexOf(a[0]) - pinnedKeys.indexOf(b[0]));
+    result[section] = [...pinned, ...rest];
+  }
+  return result;
 };
 
 /**
@@ -430,5 +481,5 @@ export const categorizeDownloadFields = (raw) => {
       result['Uncategorized'].push([key, value]);
     }
   }
-  return result;
+  return applySectionPins(result);
 };

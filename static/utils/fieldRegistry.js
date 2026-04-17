@@ -157,8 +157,9 @@ export const FIELD_LABELS = {
   'EC_TAG_KNOWNFILE_COMPLETE_SOURCES': 'Complete Sources',
   'EC_TAG_KNOWNFILE_ON_QUEUE': 'Clients in Queue',
   'EC_TAG_KNOWNFILE_FILENAME': 'File Path',
-  'EC_TAG_KNOWNFILE_COMMENT': 'Comment',
-  'EC_TAG_KNOWNFILE_RATING': 'Rating',
+  // Canonical fields (normalized from EC_TAG_KNOWNFILE_COMMENT / _RATING)
+  'comment': 'Comment',
+  'rating': 'Rating',
   // Part file (download) fields
   'EC_TAG_PARTFILE_NAME': 'File Name',
   'EC_TAG_PARTFILE_HASH': 'ED2K Hash',
@@ -325,8 +326,8 @@ export const SPECIAL_FORMATTER_KEYS = new Set([
   'EC_TAG_PARTFILE_PRIO',
   'EC_TAG_PARTFILE_STATUS',
   'EC_TAG_PARTFILE_CAT',
-  'EC_TAG_KNOWNFILE_RATING',
-  'EC_TAG_KNOWNFILE_COMMENT',
+  'rating',
+  'comment',
   'peers',
   'priority',
   'state',
@@ -378,8 +379,8 @@ export const FIELD_CATEGORIES = {
     'EC_TAG_KNOWNFILE_XFERRED': 'Upload Statistics',
     'EC_TAG_KNOWNFILE_XFERRED_ALL': 'Upload Statistics',
     'EC_TAG_KNOWNFILE_ON_QUEUE': 'Upload Statistics',
-    'EC_TAG_KNOWNFILE_RATING': 'Upload Statistics',
-    'EC_TAG_KNOWNFILE_COMMENT': 'Upload Statistics',
+    'rating': 'File Identification',
+    'comment': 'File Identification',
     // Source Information
     'EC_TAG_PARTFILE_SOURCE_COUNT': 'Source Information',
     'EC_TAG_PARTFILE_SOURCE_COUNT_NOT_CURRENT': 'Source Information',
@@ -599,6 +600,8 @@ export const CATEGORIZE_SKIP = {
     'clientType', 'files', 'peersDetailed', 'trackersDetailed', 'trackers', 'message',
     'EC_TAG_PARTFILE_ED2K_LINK', 'EC_TAG_PARTFILE_STOPPED',
     'EC_TAG_PARTFILE_A4AFAUTO', 'EC_TAG_PARTFILE_PARTMETID',
+    // Superseded by canonical `comment` / `rating` fields (same values, cleaner names)
+    'EC_TAG_KNOWNFILE_COMMENT', 'EC_TAG_KNOWNFILE_RATING',
   ]),
   deluge: new Set(['progress']),
   qbittorrent: new Set(['magnet_uri']),

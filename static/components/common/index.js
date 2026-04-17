@@ -31,6 +31,8 @@ export { default as Portal } from './Portal.js';
 export { default as VersionBadge } from './VersionBadge.js';
 export { default as ExpandableSearch } from './ExpandableSearch.js';
 export { Button, Input, Select, IconButton, Textarea, SegmentedControl, BUTTON_VARIANTS, BASE_HEIGHT } from './FormControls.js';
+export { default as TrackerMultiSelect } from './TrackerMultiSelect.js';
+export { default as StarRating } from './StarRating.js';
 export { default as SelectionModeFooter } from './SelectionModeFooter.js';
 export { default as MobileCardHeader } from './MobileCardHeader.js';
 export { default as SortableHeaderPart } from './SortableHeaderPart.js';

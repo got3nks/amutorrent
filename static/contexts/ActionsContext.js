@@ -305,6 +305,16 @@ const useWebSocketActions = () => {
     sendMessage({ action: 'renameFile', fileHash, newName, instanceId });
   };
 
+  const handleSetFileRatingComment = (fileHash, comment, rating, instanceId) => {
+    sendMessage({
+      action: 'setFileRatingComment',
+      fileHash,
+      comment: typeof comment === 'string' ? comment : '',
+      rating: Number.isInteger(rating) ? rating : 0,
+      instanceId
+    });
+  };
+
   return {
     categories: {
       create: handleCreateCategory,
@@ -329,7 +339,8 @@ const useWebSocketActions = () => {
       resume: handleResumeDownload,
       stop: handleStopDownload,
       deleteFile: handleDeleteFile,
-      renameFile: handleRenameFile
+      renameFile: handleRenameFile,
+      setFileRatingComment: handleSetFileRatingComment
     }
   };
 };

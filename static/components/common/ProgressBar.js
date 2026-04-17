@@ -47,13 +47,17 @@ const ProgressBar = ({ item, theme, variant = 'mobile' }) => {
   const display = STATUS_DISPLAY_MAP[statusInfo.key] || STATUS_DISPLAY_MAP.active;
   const barColor = getStatusBarColor(statusInfo.key);
 
-  // Hover/touch state for SegmentsBar toggle (aMule only - has partStatus data)
-  const isAmuleWithParts = !!item.partStatus;
+  // Hover/touch state for SegmentsBar toggle. Enabled when aMule gave us any
+  // part-level signal — either `partStatus` (source counts per part) or
+  // `gapStatus` (missing byte ranges). Files with 0 sources get only gapStatus;
+  // SegmentsBar colors gap regions red ("missing, no sources") in that case,
+  // which still conveys useful information so we keep the hover enabled.
+  const hasSegmentData = !!(item.partStatus || item.gapStatus);
   const [showSegments, setShowSegments] = useState(false);
 
   const handlePointerEnter = useCallback(() => {
-    if (isAmuleWithParts) setShowSegments(true);
-  }, [isAmuleWithParts]);
+    if (hasSegmentData) setShowSegments(true);
+  }, [hasSegmentData]);
 
   const handlePointerLeave = useCallback(() => {
     setShowSegments(false);
@@ -89,7 +93,7 @@ const ProgressBar = ({ item, theme, variant = 'mobile' }) => {
   },
     h('div', { className: 'w-full bg-gray-200 dark:bg-gray-700 rounded-full h-5 relative overflow-hidden border border-gray-300 dark:border-gray-600' },
       // Show SegmentsBar on hover/touch for aMule items, gradient bar otherwise
-      showSegments && isAmuleWithParts
+      showSegments && hasSegmentData
         ? h(SegmentsBar, {
             fileSize: parseInt(item.size),
             fileSizeDownloaded: parseInt(item.sizeDownloaded),

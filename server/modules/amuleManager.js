@@ -328,15 +328,56 @@ class AmuleManager extends BaseClientManager {
       };
     });
 
+    // ED2K chunk size — one "part" in aMule parlance. See aMule's
+    // src/include/protocol/ed2k/Constants.h: `const uint64 PARTSIZE = 9728000ull;`
+    const ED2K_PARTSIZE = 9728000;
+    // Count set bits in a bit-packed buffer (LSB-first per byte, matching
+    // aMule's BitVector layout — bit 0 of byte 0 is part 0, etc.).
+    const countSetBits = (buf, totalParts) => {
+      if (!buf || !buf.length) return 0;
+      let count = 0;
+      const limit = Math.min(totalParts, buf.length * 8);
+      for (let i = 0; i < limit; i++) {
+        if (buf[i >> 3] & (1 << (i & 7))) count++;
+      }
+      return count;
+    };
+    // Map a raw part count → 0–100 completion for a peer on a file of the
+    // given size. Returns null when we don't have enough data to compute it.
+    const computePeerPercent = (partsHeld, fileSize) => {
+      if (partsHeld == null || !fileSize || fileSize <= 0) return null;
+      const totalParts = Math.ceil(fileSize / ED2K_PARTSIZE);
+      if (totalParts <= 0) return null;
+      return Math.min(100, Math.round((partsHeld * 100) / totalParts));
+    };
+    // Resolve the numerator for a peer on a file of `fileSize`:
+    //   - Download sources: aMule's `availableParts` is the canonical count.
+    //   - Upload peers: `availableParts` is always 0 because aMule computes it
+    //     from the download-side bitmap. Instead count set bits in the
+    //     peer-reported `uploadPartStatus` bitmap (requires amule-ec-node
+    //     df97f5e or later parsing EC_TAG_CLIENT_UPLOAD_PART_STATUS).
+    const peerPartsHeld = (client, fileSize) => {
+      if (client.uploadPartStatus && client.uploadPartStatus.length) {
+        const totalParts = Math.ceil((fileSize || 0) / ED2K_PARTSIZE);
+        return countSetBits(client.uploadPartStatus, totalParts);
+      }
+      return client.availableParts ?? null;
+    };
+
     // ── Embed upload peers into their shared file objects ─────────────────
-    const sharedByName = new Map();
+    // Link via ECID — mirrors download-source logic and avoids fragile name
+    // matching (aMule emits the upload filename via GetPrintable() which can
+    // diverge from the canonical KNOWNFILE name after mojibake correction).
+    const sharedByEcid = new Map();
     for (const sf of sharedFiles) {
-      if (sf.name) sharedByName.set(sf.name, sf);
+      if (sf.ecid != null) sharedByEcid.set(sf.ecid, sf);
     }
     for (const client of uploadingClients) {
-      const normalized = normalizeAmuleUpload(client);
-      const sf = sharedByName.get(normalized.fileName);
+      if (client.uploadFileEcid == null) continue;
+      const sf = sharedByEcid.get(client.uploadFileEcid);
       if (!sf) continue;
+      const normalized = normalizeAmuleUpload(client);
+      normalized.completedPercent = computePeerPercent(peerPartsHeld(client, sf.size), sf.size);
       if (!sf.peers) sf.peers = [];
       sf.peers.push(normalized);
     }
@@ -348,8 +389,10 @@ class AmuleManager extends BaseClientManager {
       if (!client.requestFileEcid || !client.ip) continue;
       const download = downloadsByEcid.get(client.requestFileEcid);
       if (!download) continue;
+      const normalized = normalizeAmuleDownloadSource(client);
+      normalized.completedPercent = computePeerPercent(peerPartsHeld(client, download.size), download.size);
       if (!download.peers) download.peers = [];
-      download.peers.push(normalizeAmuleDownloadSource(client));
+      download.peers.push(normalized);
     }
 
     // Stamp instanceId on all normalized items
@@ -501,6 +544,23 @@ class AmuleManager extends BaseClientManager {
       throw new Error('aMule not connected');
     }
     return await this.client.renameFile(hash, newName);
+  }
+
+  /**
+   * Set rating and comment on a shared file.
+   * aMule's EC handler writes both fields together — missing tags are treated
+   * as "clear". Callers must supply current values for any field to preserve.
+   * @param {string} hash - File hash
+   * @param {string} comment - Comment text (empty string clears)
+   * @param {number} rating - Rating 0–5 (0 = not rated)
+   * @returns {Promise<{success: boolean}>}
+   */
+  async setFileRatingComment(hash, comment, rating) {
+    if (!this.client) {
+      throw new Error('aMule not connected');
+    }
+    const success = await this.client.setFileRatingComment(hash, comment, rating);
+    return { success };
   }
 
   /**

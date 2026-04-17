@@ -229,7 +229,7 @@ class SharedDirAPI {
     if (!datPath || roots.length === 0) return { added: 0, removed: 0 };
 
     try {
-      const result = await this.expandAndWrite(datPath, roots, null);
+      const result = await this.expandAndWrite(datPath, roots, manager);
       return { added: result.added, removed: result.removed };
     } catch {
       return { added: 0, removed: 0 };

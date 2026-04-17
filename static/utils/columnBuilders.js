@@ -726,6 +726,40 @@ export const buildAddedAtColumn = ({
 });
 
 /**
+ * Create a Download Path column showing the on-disk directory/file path.
+ * Reads `item.directory` (rtorrent/qBittorrent/Deluge/Transmission) falling back
+ * to `item.filePath` (aMule shared files). Truncates to `maxChars` with the full
+ * path surfaced in a tooltip.
+ * @param {Object} options
+ * @param {string} options.label - Column label (default 'Download Path')
+ * @param {string} options.width - Column width (default '220px')
+ * @param {number} options.maxChars - Max characters to show before ellipsis (default 30)
+ * @returns {Object} Column definition
+ */
+export const buildDownloadPathColumn = ({
+  label = 'Download Path',
+  width = '220px',
+  maxChars = 30
+} = {}) => ({
+  label,
+  key: 'downloadPath',
+  sortable: true,
+  width,
+  render: (item) => {
+    const path = item.directory || item.filePath || '';
+    if (!path) {
+      return h('span', { className: 'text-xs text-gray-400' }, '-');
+    }
+    const truncated = path.length > maxChars;
+    const display = truncated ? `${path.slice(0, maxChars)}…` : path;
+    const pathEl = h('span', {
+      className: `text-xs font-mono whitespace-nowrap${truncated ? ' cursor-help' : ''}`
+    }, display);
+    return truncated ? h(Tooltip, { content: path, position: 'top' }, pathEl) : pathEl;
+  }
+});
+
+/**
  * Create an ETA column showing estimated time to completion
  * Uses pre-calculated eta field from server (in seconds)
  * @param {Object} options

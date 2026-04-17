@@ -168,12 +168,14 @@ export {
   buildUploadTotalColumn,
   buildClientColumn,
   buildAddedAtColumn,
-  buildETAColumn
+  buildETAColumn,
+  buildDownloadPathColumn
 } from './columnBuilders.js';
 
 // Mobile Filter Helpers
 export {
   createCategoryLabelFilter,
   createTrackerFilter,
-  createIndexerFilter
+  createIndexerFilter,
+  trackerFaviconUrl
 } from './mobileFilterHelpers.js';

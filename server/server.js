@@ -52,6 +52,7 @@ const versionAPI = require('./modules/versionAPI');
 const moveOperationManager = require('./lib/MoveOperationManager');
 const filesystemAPI = require('./modules/filesystemAPI');
 const sharedDirAPI = require('./modules/sharedDirAPI');
+const faviconAPI = require('./modules/faviconAPI');
 const eventScriptingManager = require('./lib/EventScriptingManager');
 const notificationManager = require('./lib/NotificationManager');
 const notificationsAPI = require('./modules/notificationsAPI');
@@ -269,6 +270,7 @@ delugeAPI.registerRoutes(app);     // Deluge API (files, etc.)
 transmissionAPI.registerRoutes(app); // Transmission API (files, etc.)
 filesystemAPI.registerRoutes(app);  // Filesystem browsing API
 sharedDirAPI.registerRoutes(app);   // aMule shared directory management
+faviconAPI.registerRoutes(app);     // Tracker favicon proxy + disk cache
 restAPI.registerRoutes(app);        // REST API (HTTP bridge to WS handlers)
 
 // Item detail API — serves raw/trackersDetailed stripped from broadcasts (Phase 0)
