@@ -250,7 +250,11 @@ class DataFetchService extends BaseModule {
       priority: c.priority
     }));
 
-    // Fetch data from all connected clients via unified fetchData() interface
+    // Fetch data from all connected clients via unified fetchData() interface.
+    // On fetch failure, fall back to the manager's last successful frame so
+    // a single cycle tripping (EC timeout, transient I/O error) doesn't wipe
+    // the UI. The connection health itself is tracked by the manager — this
+    // layer only cares about preserving what the user last saw.
     for (const manager of registry.getConnected()) {
       try {
         const fetchStart = Date.now();
@@ -272,11 +276,21 @@ class DataFetchService extends BaseModule {
           this.log(`⚠️  ${manager.instanceId} returned empty data (downloads: ${prevDl}→${dlCount}, shared: ${prevShared}→${sharedCount}) — client may have lost connection`);
         }
         manager._lastFetchCounts = { downloads: dlCount, shared: sharedCount };
+        manager._lastFetchData = data;
+        manager._lastFetchFailures = 0;
 
         allDownloads = allDownloads.concat(data.downloads);
         allShared = allShared.concat(data.sharedFiles);
       } catch (err) {
-        this.log(`❌ Error fetching ${manager.instanceId} data:`, err.message);
+        manager._lastFetchFailures = (manager._lastFetchFailures || 0) + 1;
+        const prev = manager._lastFetchData;
+        if (prev) {
+          this.log(`⚠️  ${manager.instanceId} fetchData failed (${manager._lastFetchFailures}×): ${err.message} — reusing last known frame`);
+          allDownloads = allDownloads.concat(prev.downloads || []);
+          allShared = allShared.concat(prev.sharedFiles || []);
+        } else {
+          this.log(`❌ ${manager.instanceId} fetchData failed with no cached frame: ${err.message}`);
+        }
       }
     }
 

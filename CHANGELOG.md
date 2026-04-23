@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.1] - Shared Files Auto-Reload & aMule State Resync Fixes
+
+### 🐛 Fixed
+
+- **Doubled `refreshSharedFiles()` every auto-reload cycle** — the v3.7.0 fix that made `rescanAndWrite()` reload aMule on connect also unintentionally caused the hourly auto-reload scheduler to call `refreshSharedFiles()` twice per cycle (once inside `rescanAndWrite()`, once standalone right after). Over many hours with large shared libraries this could wedge aMule's EC handler. The scheduler now delegates the reload to `rescanAndWrite()` when shared-dir roots are configured, or does a standalone refresh when not — never both.
+- **Silent `getUpdate()` failure masking state drift** — the aMule fetch loop was swallowing `getUpdate()` errors and returning empty arrays, making the UI show "no items" while on-demand calls (search, logs, categories) still worked. Worse, aMule's server-side `CValueMap` flips to "delivered" even when our request times out, permanently desyncing the incremental diff state for any fields that changed in that cycle. Now: a failed `getUpdate()` explicitly closes the stale socket (resetting aMule's valuemap), clears the client, and schedules a 1 s reconnect — so the next full-state fetch resynchronizes both sides cleanly.
+- **Transient fetch failures no longer flash the UI to empty** — `DataFetchService` now caches the last successful frame per client manager and reuses it for one cycle on a transient fetch exception (aMule reconnecting, a BitTorrent client's HTTP timeout, etc.). The next cycle reflects whatever real state then returns. Applies to all managers, not just aMule.
+
+---
+
 ## [3.7.0] - Tracker Favicons, Multi-Select Filter, Ratings & Download Path Column
 
 ### ✨ Added

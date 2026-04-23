@@ -231,15 +231,19 @@ class AmuleManager extends BaseClientManager {
     }
 
     try {
-      // If shared dir roots are configured, rescan subdirectories before reloading
-      if (this._clientConfig?.sharedDirDatPath && this._clientConfig?.sharedDirRoots?.length > 0) {
+      // If shared dir roots are configured, rescan subdirectories and let
+      // rescanAndWrite handle the reload — it calls refreshSharedFiles()
+      // internally so we don't need to (and mustn't) double-refresh here.
+      const hasRoots = this._clientConfig?.sharedDirDatPath
+        && this._clientConfig?.sharedDirRoots?.length > 0;
+      if (hasRoots) {
         this.log('📂 Auto-rescanning shared directories...');
         const sharedDirAPI = require('./sharedDirAPI');
         await sharedDirAPI.rescanAndWrite(this.instanceId);
+      } else {
+        this.log('📂 Auto-reloading shared files...');
+        await this.client.refreshSharedFiles();
       }
-
-      this.log('📂 Auto-reloading shared files...');
-      await this.client.refreshSharedFiles();
       this.log('✅ Shared files auto-reload completed');
     } catch (err) {
       this.log('❌ Shared files auto-reload failed:', logger.errorDetail(err));
@@ -281,16 +285,31 @@ class AmuleManager extends BaseClientManager {
       return { downloads: [], sharedFiles: [] };
     }
 
-    let updateData = null;
-
+    // EC_OP_GET_UPDATE is stateful on both sides — aMule's CValueMap only
+    // diff-emits each field after it's been "sent" once. A timed-out response
+    // still flips the server-side state to "delivered", permanently desyncing
+    // us for any fields that changed in that cycle. So a failure here must
+    // trigger a reconnect (not just a retry) to reset both sides' state.
+    // DataFetchService reuses the last-known frame for the single failing
+    // cycle so the UI doesn't flash empty during the reconnect window.
+    let updateData;
     try {
       updateData = await this.client.getUpdate();
+      if (!updateData) {
+        throw new Error('getUpdate() returned no data — aMule may be unresponsive');
+      }
     } catch (err) {
-      this.log('❌ Error fetching update:', err.message);
-    }
-
-    if (!updateData) {
-      this.log('⚠️  getUpdate() returned no data — aMule may be unresponsive');
+      this.log(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
+      const failedClient = this.client;
+      this.client = null;
+      this._setConnectionError(err);
+      // Close the stale socket so aMule drops its per-connection valuemap.
+      // Best-effort — the connection may already be broken.
+      if (failedClient && typeof failedClient.disconnect === 'function') {
+        Promise.resolve(failedClient.disconnect()).catch(() => {});
+      }
+      this.scheduleReconnect(1000);
+      throw err;
     }
 
     const rawDownloads = updateData?.downloads || [];
