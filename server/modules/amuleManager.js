@@ -288,10 +288,23 @@ class AmuleManager extends BaseClientManager {
     // EC_OP_GET_UPDATE is stateful on both sides — aMule's CValueMap only
     // diff-emits each field after it's been "sent" once. A timed-out response
     // still flips the server-side state to "delivered", permanently desyncing
-    // us for any fields that changed in that cycle. So a failure here must
-    // trigger a reconnect (not just a retry) to reset both sides' state.
+    // us for any fields that changed in that cycle. A malformed/partial
+    // response also triggers `_updateState` pruning in the library, collapsing
+    // our cache to empty even though data exists on aMule's side. Either way,
+    // the only clean recovery is a full reconnect so both sides' state reset.
     // DataFetchService reuses the last-known frame for the single failing
     // cycle so the UI doesn't flash empty during the reconnect window.
+    const triggerReconnect = (err) => {
+      this.log(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
+      const failedClient = this.client;
+      this.client = null;
+      this._setConnectionError(err);
+      if (failedClient && typeof failedClient.disconnect === 'function') {
+        Promise.resolve(failedClient.disconnect()).catch(() => {});
+      }
+      this.scheduleReconnect(1000);
+    };
+
     let updateData;
     try {
       updateData = await this.client.getUpdate();
@@ -299,18 +312,24 @@ class AmuleManager extends BaseClientManager {
         throw new Error('getUpdate() returned no data — aMule may be unresponsive');
       }
     } catch (err) {
-      this.log(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
-      const failedClient = this.client;
-      this.client = null;
-      this._setConnectionError(err);
-      // Close the stale socket so aMule drops its per-connection valuemap.
-      // Best-effort — the connection may already be broken.
-      if (failedClient && typeof failedClient.disconnect === 'function') {
-        Promise.resolve(failedClient.disconnect()).catch(() => {});
-      }
-      this.scheduleReconnect(1000);
+      triggerReconnect(err);
       throw err;
     }
+
+    // Desync detection: if shared-file count collapses from non-zero to zero
+    // without a user-initiated refresh, the library's state cache has been
+    // pruned by a partial response. Treat the same as a hard failure — force
+    // a reconnect to resync from scratch. Shared-file count is the stablest
+    // signal (downloads legitimately come and go; shared libraries don't
+    // vanish spontaneously).
+    const sharedCount = updateData.sharedFiles?.length ?? 0;
+    const prevShared = this._lastSharedCount ?? 0;
+    if (prevShared > 0 && sharedCount === 0) {
+      const err = new Error(`shared files dropped ${prevShared}→0 — state desync detected`);
+      triggerReconnect(err);
+      throw err;
+    }
+    this._lastSharedCount = sharedCount;
 
     const rawDownloads = updateData?.downloads || [];
     const rawSharedFiles = updateData?.sharedFiles || [];
