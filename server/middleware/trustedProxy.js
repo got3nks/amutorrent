@@ -19,7 +19,14 @@ const UserManager = require('../modules/userManager');
 const ALL_CAPABILITIES = UserManager.ALL_CAPABILITIES;
 const SSO_DEFAULT_CAPABILITIES = UserManager.SSO_DEFAULT_CAPABILITIES;
 
-const log = (...args) => logger.log('[TrustedProxy]', ...args);
+// Trusted-proxy log helpers — same source tag, level-aware so security
+// events (rejected headers, session save failures) surface at the right
+// severity rather than blending into INFO.
+const log = {
+  info: (...args) => logger.infoFor('TrustedProxy', ...args),
+  warn: (...args) => logger.warnFor('TrustedProxy', ...args),
+  error: (...args) => logger.errorFor('TrustedProxy', ...args)
+};
 
 /**
  * Default trusted CIDR ranges for SSO header acceptance.
@@ -130,7 +137,7 @@ function createTrustedProxyMiddleware(userManager) {
       : null;
 
     if (!isTrustedIP(remoteAddr, customCIDRs)) {
-      log(`⚠️ Rejected SSO header from untrusted IP: ${remoteAddr} (header: ${headerName}=${headerValue})`);
+      log.warn(`⚠️ Rejected SSO header from untrusted IP: ${remoteAddr} (header: ${headerName}=${headerValue})`);
       return next(); // Fall through to normal login — don't reveal SSO exists
     }
 
@@ -155,7 +162,7 @@ function createTrustedProxyMiddleware(userManager) {
         capabilities: caps
       });
       userManager.setCapabilities(user.id, caps);
-      log(`Auto-provisioned SSO user: ${username}`);
+      log.info(`Auto-provisioned SSO user: ${username}`);
     }
 
     if (!user) return next();  // Fall through to normal login
@@ -170,7 +177,7 @@ function createTrustedProxyMiddleware(userManager) {
     userManager.updateLastLogin(user.id);
 
     req.session.save((err) => {
-      if (err) log('Session save error:', err.message);
+      if (err) log.error('Session save error:', err.message);
       next();
     });
   };

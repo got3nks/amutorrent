@@ -90,7 +90,7 @@ function createHttpContext(req) {
 }
 
 // Handlers that take only (context), not (data, context)
-const CONTEXT_ONLY = new Set(['handleGetCategories', 'handleGetAppLog', 'handleRequestFullSnapshot']);
+const CONTEXT_ONLY = new Set(['handleGetCategories', 'handleRequestFullSnapshot']);
 // Subset of CONTEXT_ONLY that are synchronous (don't need await)
 const SYNC_HANDLERS = new Set(['handleRequestFullSnapshot']);
 

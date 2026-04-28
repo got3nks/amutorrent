@@ -99,7 +99,7 @@ class FilesystemAPI extends BaseModule {
 
       res.json(result);
     } catch (err) {
-      this.log('❌ Error browsing directory:', err.message);
+      this.error('❌ Error browsing directory:', err.message);
       response.serverError(res, 'Failed to browse directory');
     }
   }

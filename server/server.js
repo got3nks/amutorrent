@@ -73,9 +73,13 @@ const logger = require('./lib/logger');
 // LOGGING SETUP
 // ============================================================================
 
-// Initialize centralized logger
+// Initialize centralized logger.
+// Default level is `debug` so high-cadence trace lines (HTTP middleware,
+// WS message receipts) reach the ring buffer + file; the LogsView UI filters
+// them out by default and lets users opt in. Override via the `LOG_LEVEL`
+// env var when the file size or console noise becomes a concern.
 const logDir = config.getLogDir();
-logger.init(logDir);
+logger.init(logDir, process.env.LOG_LEVEL || 'debug');
 
 // Create bound log function for local use
 const log = logger.log.bind(logger);

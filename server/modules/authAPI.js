@@ -124,7 +124,7 @@ class AuthAPI extends BaseModule {
 
         req.session.save((err) => {
           if (err) {
-            this.log('❌ Session save error:', err);
+            this.error('❌ Session save error:', err);
             return response.serverError(res, 'Failed to save session');
           }
 
@@ -132,7 +132,7 @@ class AuthAPI extends BaseModule {
           response.success(res, { message: 'Login successful' });
         });
       } catch (err) {
-        this.log('❌ Login error:', err);
+        this.error('❌ Login error:', err);
         response.serverError(res, 'Login failed: ' + err.message);
       }
     });
@@ -144,7 +144,7 @@ class AuthAPI extends BaseModule {
 
         req.session.destroy((err) => {
           if (err) {
-            this.log('❌ Logout error:', err);
+            this.error('❌ Logout error:', err);
             return response.serverError(res, 'Logout failed');
           }
 
@@ -152,7 +152,7 @@ class AuthAPI extends BaseModule {
           response.success(res, { message: 'Logout successful' });
         });
       } catch (err) {
-        this.log('❌ Logout error:', err);
+        this.error('❌ Logout error:', err);
         response.serverError(res, 'Logout failed: ' + err.message);
       }
     });
@@ -195,7 +195,7 @@ class AuthAPI extends BaseModule {
 
         res.json(result);
       } catch (err) {
-        this.log('❌ Auth status error:', err);
+        this.error('❌ Auth status error:', err);
         res.json({
           authEnabled: false,
           authenticated: false
@@ -260,7 +260,7 @@ class AuthAPI extends BaseModule {
         this.log(`👤 User ${user.username} updated their profile`);
         response.success(res, { message: 'Profile updated' });
       } catch (err) {
-        this.log('❌ Profile update error:', err);
+        this.error('❌ Profile update error:', err);
         response.serverError(res, 'Failed to update profile');
       }
     });

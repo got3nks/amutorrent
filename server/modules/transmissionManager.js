@@ -83,7 +83,7 @@ class TransmissionManager extends BaseClientManager {
         this.cachedSession = await newClient.getSession();
         this.cachedListenPort = this.cachedSession['peer-port'] || 0;
       } catch (err) {
-        this.log('Could not fetch session info:', logger.errorDetail(err));
+        this.warn('Could not fetch session info:', logger.errorDetail(err));
       }
 
       // Start tracker cache refresh
@@ -97,7 +97,7 @@ class TransmissionManager extends BaseClientManager {
 
       return true;
     } catch (err) {
-      this.log('Failed to connect to Transmission:', logger.errorDetail(err));
+      this.error('Failed to connect to Transmission:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.stopTrackerRefresh();
@@ -143,7 +143,7 @@ class TransmissionManager extends BaseClientManager {
     try {
       this._portOpen = await this.client.portTest();
     } catch (err) {
-      this.log('Port test failed:', logger.errorDetail(err));
+      this.error('Port test failed:', logger.errorDetail(err));
     }
   }
 
@@ -191,7 +191,7 @@ class TransmissionManager extends BaseClientManager {
       this.lastTorrents = torrents;
       return torrents;
     } catch (err) {
-      this.log('Error fetching Transmission torrents:', logger.errorDetail(err));
+      this.error('Error fetching Transmission torrents:', logger.errorDetail(err));
       this._setConnectionError(err);
       if (this.client) {
         this.client.connected = false;
@@ -309,7 +309,7 @@ class TransmissionManager extends BaseClientManager {
         listenPort: this.cachedListenPort
       };
     } catch (err) {
-      this.log('❌ Error fetching Transmission stats:', logger.errorDetail(err));
+      this.error('❌ Error fetching Transmission stats:', logger.errorDetail(err));
       this._setConnectionError(err);
       if (this.client) this.client.connected = false;
       this.scheduleReconnect(30000);
@@ -539,7 +539,7 @@ class TransmissionManager extends BaseClientManager {
         const id = added.hashString || added.id;
         await this.client.setTorrents([id], { labels: [label] });
       } catch (err) {
-        this.log(`Could not set label "${label}" for magnet: ${err.message}`);
+        this.warn(`Could not set label "${label}" for magnet: ${err.message}`);
       }
     }
 
@@ -570,7 +570,7 @@ class TransmissionManager extends BaseClientManager {
         const id = added.hashString || added.id;
         await this.client.setTorrents([id], { labels: [label] });
       } catch (err) {
-        this.log(`Could not set label "${label}" for torrent: ${err.message}`);
+        this.warn(`Could not set label "${label}" for torrent: ${err.message}`);
       }
     }
 
@@ -630,7 +630,7 @@ class TransmissionManager extends BaseClientManager {
       }
       return categories;
     } catch (err) {
-      this.log('Error fetching Transmission labels:', logger.errorDetail(err));
+      this.error('Error fetching Transmission labels:', logger.errorDetail(err));
       return {};
     }
   }
@@ -713,7 +713,7 @@ class TransmissionManager extends BaseClientManager {
         }
       }
     } catch (err) {
-      this.log(`Failed to fetch labels for sync: ${err.message}`);
+      this.error(`Failed to fetch labels for sync: ${err.message}`);
       return;
     }
 
@@ -757,7 +757,7 @@ class TransmissionManager extends BaseClientManager {
       this.cachedSession = session;
       return session['download-dir'] || null;
     } catch (err) {
-      this.log('Failed to get Transmission default directory:', logger.errorDetail(err));
+      this.error('Failed to get Transmission default directory:', logger.errorDetail(err));
       return null;
     }
   }
@@ -789,7 +789,7 @@ class TransmissionManager extends BaseClientManager {
       try {
         await this.client.disconnect();
       } catch (err) {
-        this.log('Error during Transmission client shutdown:', logger.errorDetail(err));
+        this.error('Error during Transmission client shutdown:', logger.errorDetail(err));
       }
       this.client = null;
     }

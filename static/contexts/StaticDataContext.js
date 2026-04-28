@@ -31,7 +31,10 @@ export const StaticDataProvider = ({ children }) => {
   const [instances, setInstances] = useState({});  // Per-instance metadata from backend (keyed by instanceId)
   const [dataLogs, setDataLogs] = useState('');
   const [dataServerInfo, setDataServerInfo] = useState('');
-  const [dataAppLogs, setDataAppLogs] = useState('');
+  // App logs: array of structured records emitted by the server's logger.
+  // [{ ts: ISO, level: 'info'|'warn'|'error'|'debug', source: string|null, message: string }]
+  const [dataAppLogs, setDataAppLogs] = useState([]);
+  const [dataAppLogSources, setDataAppLogSources] = useState([]);
   const [dataQbittorrentLogs, setDataQbittorrentLogs] = useState('');
   const [dataStatsTree, setDataStatsTree] = useState(null);
   // Map<hash, Set<instanceId>> — tracks which instances have each download
@@ -156,6 +159,7 @@ export const StaticDataProvider = ({ children }) => {
     dataLogs,
     dataServerInfo,
     dataAppLogs,
+    dataAppLogSources,
     dataQbittorrentLogs,
     dataStatsTree,
     dataDownloadedFiles,
@@ -176,6 +180,7 @@ export const StaticDataProvider = ({ children }) => {
     setDataLogs,
     setDataServerInfo,
     setDataAppLogs,
+    setDataAppLogSources,
     setDataQbittorrentLogs,
     setDataStatsTree,
     setDataDownloadedFiles,

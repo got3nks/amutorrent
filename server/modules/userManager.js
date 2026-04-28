@@ -479,7 +479,7 @@ class UserManager {
         logger.log(`👤 Backfilled ${inserted} ownership records from download history`);
       }
     } catch (err) {
-      logger.log(`👤 Could not backfill ownership from history: ${err.message}`);
+      logger.warn(`👤 Could not backfill ownership from history: ${err.message}`);
     }
   }
 
@@ -542,7 +542,7 @@ class UserManager {
           }
         }
       } catch (err) {
-        logger.log(`👤 Could not import history users: ${err.message}`);
+        logger.warn(`👤 Could not import history users: ${err.message}`);
       }
     }
 

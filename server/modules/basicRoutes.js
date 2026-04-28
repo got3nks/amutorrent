@@ -53,13 +53,17 @@ class BasicRoutes extends BaseModule {
     const geoData = geoIPManager.getGeoIPData(clientIp);
     const locationInfo = geoIPManager.formatLocationInfo(geoData);
 
-    this.log(`[HTTP] ${req.method} ${req.url} from ${clientIp}${locationInfo} (${userAgent})`);
+    // Every HTTP request — including page loads, static assets, and API
+    // polls — fires this once. INFO is too loud for that cadence; promote
+    // the log level back up to `debug` while still keeping the data shape
+    // useful for offline grep when investigating a specific request.
+    this.debug(`[HTTP] ${req.method} ${req.url} from ${clientIp}${locationInfo} (${userAgent})`);
 
     if (Object.keys(req.query).length > 0) {
-      this.log(`[HTTP] Query params: ${JSON.stringify(req.query)}`);
+      this.debug(`[HTTP] Query params: ${JSON.stringify(req.query)}`);
     }
     if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
-      this.log(`[HTTP] Body params: ${JSON.stringify(req.body)}`);
+      this.debug(`[HTTP] Body params: ${JSON.stringify(req.body)}`);
     }
     next();
   }

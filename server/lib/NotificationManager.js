@@ -150,7 +150,7 @@ class NotificationManager extends BaseModule {
         this.log('[NotificationManager] Created default configuration');
       }
     } catch (err) {
-      this.log(`[NotificationManager] Error loading config: ${err.message}`);
+      this.error(`[NotificationManager] Error loading config: ${err.message}`);
       this.notificationConfig = {
         enabled: false,
         events: {},
@@ -170,7 +170,7 @@ class NotificationManager extends BaseModule {
       }
       fs.writeFileSync(this.configPath, JSON.stringify(this.notificationConfig, null, 2));
     } catch (err) {
-      this.log(`[NotificationManager] Error saving config: ${err.message}`);
+      this.error(`[NotificationManager] Error saving config: ${err.message}`);
       throw err;
     }
   }
@@ -215,7 +215,7 @@ class NotificationManager extends BaseModule {
     const cfgValues = Object.values(cfg || {});
     for (const val of cfgValues) {
       if (typeof val === 'string' && !this._isSafeUrlComponent(val)) {
-        this.log('[NotificationManager] Rejected service config with control characters');
+        this.warn('[NotificationManager] Rejected service config with control characters');
         return null;
       }
     }
@@ -259,7 +259,7 @@ class NotificationManager extends BaseModule {
       case 'webhook':
         if (!cfg.url) return null;
         if (!this._isValidUrl(cfg.url)) {
-          this.log('[NotificationManager] Rejected invalid webhook URL');
+          this.warn('[NotificationManager] Rejected invalid webhook URL');
           return null;
         }
         // JSON webhook
@@ -268,7 +268,7 @@ class NotificationManager extends BaseModule {
       case 'custom':
         if (!cfg.url) return null;
         if (!this._isValidUrl(cfg.url)) {
-          this.log('[NotificationManager] Rejected invalid custom URL');
+          this.warn('[NotificationManager] Rejected invalid custom URL');
           return null;
         }
         return cfg.url;
@@ -517,7 +517,7 @@ class NotificationManager extends BaseModule {
       await this._sendApprise(title, body, urls);
       this.log(`[NotificationManager] Notification sent for ${eventType}`);
     } catch (err) {
-      this.log(`[NotificationManager] Failed to send notification: ${err.message}`);
+      this.error(`[NotificationManager] Failed to send notification: ${err.message}`);
     }
   }
 
@@ -548,7 +548,7 @@ class NotificationManager extends BaseModule {
       await this._sendApprise(title, body, urls);
       this.log(`[NotificationManager] Notification sent for ${eventType}: ${eventData.instanceName || eventData.instanceId}`);
     } catch (err) {
-      this.log(`[NotificationManager] Failed to send ${eventType} notification: ${err.message}`);
+      this.error(`[NotificationManager] Failed to send ${eventType} notification: ${err.message}`);
     }
   }
 

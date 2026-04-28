@@ -275,7 +275,7 @@ class HistoryAPI extends BaseModule {
           trackUsername
         });
       } catch (err) {
-        this.log('Error fetching history:', err.message);
+        this.error('Error fetching history:', err.message);
         res.status(500).json({ error: 'Failed to fetch history' });
       }
     });
@@ -316,7 +316,7 @@ class HistoryAPI extends BaseModule {
           trackUsername
         });
       } catch (err) {
-        this.log('Error fetching all history:', err.message);
+        this.error('Error fetching all history:', err.message);
         res.status(500).json({ error: 'Failed to fetch history' });
       }
     });
@@ -344,7 +344,7 @@ class HistoryAPI extends BaseModule {
         const stats = this.downloadHistoryDB.getStats();
         res.json(stats);
       } catch (err) {
-        this.log('Error fetching history stats:', err.message);
+        this.error('Error fetching history stats:', err.message);
         res.status(500).json({ error: 'Failed to fetch history stats' });
       }
     });
@@ -381,7 +381,7 @@ class HistoryAPI extends BaseModule {
 
         res.json(enrichedEntries[0]);
       } catch (err) {
-        this.log('Error fetching history entry:', err.message);
+        this.error('Error fetching history entry:', err.message);
         res.status(500).json({ error: 'Failed to fetch history entry' });
       }
     });
@@ -403,7 +403,7 @@ class HistoryAPI extends BaseModule {
           res.status(404).json({ error: 'Entry not found' });
         }
       } catch (err) {
-        this.log('Error deleting history entry:', err.message);
+        this.error('Error deleting history entry:', err.message);
         res.status(500).json({ error: 'Failed to delete history entry' });
       }
     });
@@ -423,7 +423,7 @@ class HistoryAPI extends BaseModule {
         const deleted = this.downloadHistoryDB.cleanup(retentionDays);
         res.json({ deleted, message: `Cleaned up ${deleted} entries older than ${retentionDays} days` });
       } catch (err) {
-        this.log('Error during cleanup:', err.message);
+        this.error('Error during cleanup:', err.message);
         res.status(500).json({ error: 'Cleanup failed' });
       }
     });

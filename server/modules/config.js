@@ -520,7 +520,7 @@ class Config extends BaseModule {
       }
       // File exists but is corrupted
       if (this.log) {
-        this.log('⚠️  Config file exists but is invalid, falling back to environment variables');
+        this.warn('⚠️  Config file exists but is invalid, falling back to environment variables');
       }
       return null;
     }
@@ -550,7 +550,7 @@ class Config extends BaseModule {
       this.fileConfig = configToSave;
       if (this.log) this.log(logMessage);
     } catch (err) {
-      if (this.log) this.log(`⚠️  Failed to write config.json: ${err.message}`);
+      if (this.log) this.warn(`⚠️  Failed to write config.json: ${err.message}`);
     }
   }
 
@@ -862,7 +862,7 @@ class Config extends BaseModule {
       return { success: true };
     } catch (err) {
       if (this.log) {
-        this.log('❌ Failed to save configuration:', err.message);
+        this.error('❌ Failed to save configuration:', err.message);
       }
       throw err;
     }
@@ -1048,7 +1048,7 @@ class Config extends BaseModule {
       .filter(entry => {
         if (!entry.type || !allTypes.includes(entry.type)) {
           if (this.log) {
-            this.log(`⚠️  Skipping client entry with invalid type: "${entry.type}"`);
+            this.warn(`⚠️  Skipping client entry with invalid type: "${entry.type}"`);
           }
           return false;
         }
@@ -1060,7 +1060,7 @@ class Config extends BaseModule {
         const validation = instanceId.validateId(resolvedId);
         if (!validation.valid) {
           if (this.log) {
-            this.log(`⚠️  ${validation.error}, falling back to generated ID`);
+            this.warn(`⚠️  ${validation.error}, falling back to generated ID`);
           }
           resolvedId = instanceId.generateId(type, rest.host, rest.port);
         }
@@ -1323,7 +1323,7 @@ class Config extends BaseModule {
       if (!this.runtimeConfig.server.auth) this.runtimeConfig.server.auth = {};
       this.runtimeConfig.server.auth.sessionSecret = secret;
       if (this.log) {
-        this.log('⚠️  No session secret configured — generated random secret for this session');
+        this.warn('⚠️  No session secret configured — generated random secret for this session');
       }
     }
     return secret;

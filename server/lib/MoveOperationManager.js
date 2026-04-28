@@ -202,7 +202,7 @@ class MoveOperationManager extends BaseModule {
       this.log(`✅ Move completed: ${name}`);
 
     } catch (err) {
-      this.log(`❌ Move failed for ${name}: ${err.message}`);
+      this.error(`❌ Move failed for ${name}: ${err.message}`);
 
       // Update status to failed
       this.db.updateStatus(hash, instanceId, 'failed', err.message);
@@ -214,7 +214,7 @@ class MoveOperationManager extends BaseModule {
           await this.resumeDownload(operation);
           this.log(`🔄 Resumed download at original location: ${name}`);
         } catch (startErr) {
-          this.log(`⚠️ Failed to resume download: ${startErr.message}`);
+          this.warn(`⚠️ Failed to resume download: ${startErr.message}`);
         }
 
         // Cleanup any partial destination files
@@ -288,7 +288,7 @@ class MoveOperationManager extends BaseModule {
         this.db.updateStatus(hash, instanceId, 'moving');
         this.updateActiveOperation(hash, instanceId);
       } catch (pollErr) {
-        this.log(`⚠️ Error polling move status: ${pollErr.message}`);
+        this.warn(`⚠️ Error polling move status: ${pollErr.message}`);
       }
     }
 
@@ -350,7 +350,7 @@ class MoveOperationManager extends BaseModule {
         await manager.refreshSharedFiles();
         await this.sleep(500); // Give aMule time to process
       } catch (err) {
-        this.log(`⚠️ Failed to refresh aMule shared files: ${err.message}`);
+        this.warn(`⚠️ Failed to refresh aMule shared files: ${err.message}`);
       }
     }
   }
@@ -459,7 +459,7 @@ class MoveOperationManager extends BaseModule {
         throw err; // Re-throw if not cross-device error
       }
       // Cross-filesystem move - fall back to copy
-      this.log(`⚠️ Directory rename failed (${err.code}: ${err.message}), falling back to copy: ${name}`);
+      this.warn(`⚠️ Directory rename failed (${err.code}: ${err.message}), falling back to copy: ${name}`);
     }
 
     // Fall back to file-by-file copy for cross-filesystem moves
@@ -517,7 +517,7 @@ class MoveOperationManager extends BaseModule {
         throw err; // Re-throw if not cross-device error
       }
       // Fall back to copy for cross-filesystem
-      this.log(`⚠️ File rename failed (${err.code}: ${err.message}), falling back to copy: ${path.basename(src)}`);
+      this.warn(`⚠️ File rename failed (${err.code}: ${err.message}), falling back to copy: ${path.basename(src)}`);
       await this.copyFileWithProgress(src, dest, operation, baseBytes);
       return true; // Copy was used
     }
@@ -662,7 +662,7 @@ class MoveOperationManager extends BaseModule {
       }
     } catch (err) {
       // Log but don't fail - files might be in use
-      this.log(`⚠️ Could not cleanup source: ${err.message}`);
+      this.warn(`⚠️ Could not cleanup source: ${err.message}`);
     }
   }
 
@@ -688,7 +688,7 @@ class MoveOperationManager extends BaseModule {
         await fs.unlink(destFilePath).catch(() => {});
       }
     } catch (err) {
-      this.log(`⚠️ Could not cleanup partial destination: ${err.message}`);
+      this.warn(`⚠️ Could not cleanup partial destination: ${err.message}`);
     }
   }
 
@@ -725,7 +725,7 @@ class MoveOperationManager extends BaseModule {
         try {
           await this.resumeDownload(op);
         } catch (err) {
-          this.log(`⚠️ Could not resume download: ${err.message}`);
+          this.warn(`⚠️ Could not resume download: ${err.message}`);
         }
       }
     }
@@ -800,7 +800,7 @@ class MoveOperationManager extends BaseModule {
         });
       }
     } catch (err) {
-      this.log(`⚠️ Could not trigger batch update: ${err.message}`);
+      this.warn(`⚠️ Could not trigger batch update: ${err.message}`);
     }
   }
 

@@ -16,14 +16,11 @@ class BaseClientManager extends BaseModule {
   constructor() {
     super();
 
-    // Override log to auto-prefix with instanceId when available
-    const baseLog = this.log;
-    this.log = (...args) => {
-      if (this.instanceId && typeof args[0] === 'string') {
-        args[0] = `[${this.instanceId}] ${args[0]}`;
-      }
-      baseLog(...args);
-    };
+    // Note: BaseModule already binds level-aware loggers (this.log/info/warn/
+    // error/debug) and uses `logSource()` to tag each record with this
+    // module's source — defaulting to `instanceId` when present. So we don't
+    // need a separate prefixing override here; the source surfaces in the
+    // log file's `[source]` slot and on the LogsView.
 
     // Client connection
     this.client = null;
@@ -229,7 +226,7 @@ class BaseClientManager extends BaseModule {
         }
       }
     } catch (err) {
-      this.log('❌ Error refreshing tracker/peer cache:', logger.errorDetail(err));
+      this.error('❌ Error refreshing tracker/peer cache:', logger.errorDetail(err));
     }
   }
 

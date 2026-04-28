@@ -72,6 +72,7 @@ export const WebSocketProvider = ({ children }) => {
     setDataLogs,
     setDataServerInfo,
     setDataAppLogs,
+    setDataAppLogSources,
     setDataQbittorrentLogs,
     setDataStatsTree,
     setDataServersEd2kLinks,
@@ -377,7 +378,9 @@ export const WebSocketProvider = ({ children }) => {
         markStaticDataLoaded('serverInfo');
       },
       'app-log-update': () => {
-        setDataAppLogs(data.data || '');
+        // Structured records: [{ ts, level, source, message }, ...]
+        setDataAppLogs(data.data || []);
+        setDataAppLogSources(data.sources || []);
         markStaticDataLoaded('appLogs');
       },
       'qbittorrent-log-update': () => {
@@ -480,7 +483,7 @@ export const WebSocketProvider = ({ children }) => {
     markLiveDataLoaded,
     // Static data setters
     setDataServers, setDataCategories, setClientDefaultPaths, setProwlarrEnabled,
-    setKnownTrackers, setHistoryTrackUsername, setInstances, setDataLogs, setDataServerInfo, setDataQbittorrentLogs,
+    setKnownTrackers, setHistoryTrackUsername, setInstances, setDataLogs, setDataServerInfo, setDataAppLogs, setDataAppLogSources, setDataQbittorrentLogs,
     setDataStatsTree, setDataServersEd2kLinks,
     markStaticDataLoaded, resetStaticDataLoaded,
     // Search setters

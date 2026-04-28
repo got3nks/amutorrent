@@ -99,7 +99,7 @@ class AuthManager extends BaseModule {
         this.log(`🧹 Cleaned ${result.changes} expired failed attempt record(s)`);
       }
     } catch (err) {
-      this.log('⚠️  Error cleaning expired attempts:', err.message);
+      this.warn('⚠️  Error cleaning expired attempts:', err.message);
     }
   }
 
@@ -134,7 +134,7 @@ class AuthManager extends BaseModule {
 
       return true;
     } catch (err) {
-      this.log('⚠️  Error checking IP block:', err.message);
+      this.warn('⚠️  Error checking IP block:', err.message);
       return false;
     }
   }
@@ -152,7 +152,7 @@ class AuthManager extends BaseModule {
       const row = stmt.get(ip);
       return row ? row.count : 0;
     } catch (err) {
-      this.log('⚠️  Error getting attempt count:', err.message);
+      this.warn('⚠️  Error getting attempt count:', err.message);
       return 0;
     }
   }
@@ -190,7 +190,7 @@ class AuthManager extends BaseModule {
           VALUES (?, ?, ?, ?, ?)
         `);
         insertStmt.run(ip, 1, now, now, null);
-        this.log(`⚠️  Failed login attempt from ${ip} (1 attempt)`);
+        this.warn(`⚠️  Failed login attempt from ${ip} (1 attempt)`);
       } else {
         // Increment attempt count
         const newCount = existing.count + 1;
@@ -201,7 +201,7 @@ class AuthManager extends BaseModule {
           blockedUntil = now + minutesToMs(15);
           this.log(`🚫 IP ${ip} blocked for 15 minutes after ${newCount} failed attempts`);
         } else {
-          this.log(`⚠️  Failed login attempt from ${ip} (${newCount} attempts)`);
+          this.warn(`⚠️  Failed login attempt from ${ip} (${newCount} attempts)`);
         }
 
         const updateStmt = db.prepare(`
@@ -212,7 +212,7 @@ class AuthManager extends BaseModule {
         updateStmt.run(newCount, now, blockedUntil, ip);
       }
     } catch (err) {
-      this.log('⚠️  Error recording failed attempt:', err.message);
+      this.warn('⚠️  Error recording failed attempt:', err.message);
     }
   }
 
@@ -231,7 +231,7 @@ class AuthManager extends BaseModule {
         this.log(`✅ Successful login from ${ip}, cleared failed attempts`);
       }
     } catch (err) {
-      this.log('⚠️  Error clearing failed attempts:', err.message);
+      this.warn('⚠️  Error clearing failed attempts:', err.message);
     }
   }
 
@@ -277,7 +277,7 @@ class AuthManager extends BaseModule {
       const sess = JSON.parse(row.sess);
       return sess.authenticated === true;
     } catch (err) {
-      this.log('Error validating session:', err.message);
+      this.warn('Error validating session:', err.message);
       return false;
     }
   }
@@ -308,7 +308,7 @@ class AuthManager extends BaseModule {
         capabilities: Array.isArray(sess.capabilities) ? sess.capabilities : []
       };
     } catch (err) {
-      this.log('Error reading session user:', err.message);
+      this.warn('Error reading session user:', err.message);
       return null;
     }
   }
@@ -326,7 +326,7 @@ class AuthManager extends BaseModule {
       const row = stmt.get(fifteenMinutesAgo);
       return row.total >= 50;
     } catch (err) {
-      this.log('⚠️  Error checking global rate limit:', err.message);
+      this.warn('⚠️  Error checking global rate limit:', err.message);
       return false;
     }
   }
@@ -350,7 +350,7 @@ class AuthManager extends BaseModule {
       const remaining = row.blocked_until - Date.now();
       return remaining > 0 ? remaining : null;
     } catch (err) {
-      this.log('⚠️  Error getting block time:', err.message);
+      this.warn('⚠️  Error getting block time:', err.message);
       return null;
     }
   }
@@ -399,7 +399,7 @@ class AuthManager extends BaseModule {
 
       return sidsToDelete.length;
     } catch (err) {
-      this.log('⚠️  Error invalidating user sessions:', err.message);
+      this.warn('⚠️  Error invalidating user sessions:', err.message);
       return 0;
     }
   }

@@ -52,7 +52,7 @@ class GeoIPManager extends BaseModule {
         this.log('✅ GeoIP feature enabled with available databases');
       }
     } catch (err) {
-      this.log('⚠️  GeoIP initialization failed:', err.message);
+      this.warn('⚠️  GeoIP initialization failed:', err.message);
       this.log('ℹ️  Server will continue without GeoIP functionality');
     }
   }
@@ -107,7 +107,7 @@ class GeoIPManager extends BaseModule {
 
       return null;
     } catch (err) {
-      this.log('⚠️  Error getting GeoIP data for', ip, ':', err.message);
+      this.warn('⚠️  Error getting GeoIP data for', ip, ':', err.message);
       return null;
     }
   }
@@ -160,7 +160,7 @@ class GeoIPManager extends BaseModule {
             this.cityReader = await maxmind.open(filePath);
             this.log(`✅ ${dbType} database reloaded successfully:`, filePath);
           } else {
-            this.log(`⚠️  ${dbType} database file not found after change:`, filePath);
+            this.warn(`⚠️  ${dbType} database file not found after change:`, filePath);
           }
         }
         else if (dbType === 'Country') {
@@ -172,11 +172,11 @@ class GeoIPManager extends BaseModule {
             this.countryReader = await maxmind.open(filePath);
             this.log(`✅ ${dbType} database reloaded successfully:`, filePath);
           } else {
-            this.log(`⚠️  ${dbType} database file not found after change:`, filePath);
+            this.warn(`⚠️  ${dbType} database file not found after change:`, filePath);
           }
         }
       } catch (err) {
-        this.log(`❌ Failed to reload ${dbType} database:`, err.message);
+        this.error(`❌ Failed to reload ${dbType} database:`, err.message);
       }
     };
 
@@ -191,7 +191,7 @@ class GeoIPManager extends BaseModule {
         });
         this.log('👀 Watching City database for changes:', cityDbPath);
       } catch (err) {
-        this.log('⚠️  Failed to watch City database:', err.message);
+        this.warn('⚠️  Failed to watch City database:', err.message);
       }
     } else {
       this.log('ℹ️  City database file not found - not watching for changes');
@@ -208,7 +208,7 @@ class GeoIPManager extends BaseModule {
         });
         this.log('👀 Watching Country database for changes:', countryDbPath);
       } catch (err) {
-        this.log('⚠️  Failed to watch Country database:', err.message);
+        this.warn('⚠️  Failed to watch Country database:', err.message);
       }
     } else {
       this.log('ℹ️  Country database file not found - not watching for changes');

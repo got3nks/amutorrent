@@ -181,7 +181,7 @@ class MetricsAPI extends BaseModule {
       if (this._isAborted(req)) return;
       res.json(data);
     } catch (err) {
-      this.log('Error fetching metrics:', err);
+      this.error('Error fetching metrics:', err);
       response.serverError(res, 'Failed to fetch metrics');
     }
   }
@@ -199,7 +199,7 @@ class MetricsAPI extends BaseModule {
       if (this._isAborted(req)) return;
       res.json(data);
     } catch (err) {
-      this.log('Error fetching speed metrics:', err);
+      this.error('Error fetching speed metrics:', err);
       response.serverError(res, 'Failed to fetch speed metrics');
     }
   }
@@ -217,7 +217,7 @@ class MetricsAPI extends BaseModule {
       if (this._isAborted(req)) return;
       res.json(data);
     } catch (err) {
-      this.log('Error fetching stats:', err);
+      this.error('Error fetching stats:', err);
       response.serverError(res, 'Failed to fetch stats');
     }
   }
@@ -247,7 +247,7 @@ class MetricsAPI extends BaseModule {
 
       res.json({ speedData, historicalData, historicalStats });
     } catch (err) {
-      this.log('Error fetching dashboard metrics:', err);
+      this.error('Error fetching dashboard metrics:', err);
       response.serverError(res, 'Failed to fetch dashboard metrics');
     }
   }

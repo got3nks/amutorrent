@@ -71,7 +71,7 @@ class QBittorrentAPI extends BaseModule {
       res.setHeader('WWW-Authenticate', 'Basic realm="qBittorrent"');
       res.status(401).send('Unauthorized: Invalid credentials');
     } catch (err) {
-      this.log('qBittorrent Basic Auth error:', err);
+      this.error('qBittorrent Basic Auth error:', err);
       res.status(500).send('Internal server error');
     }
   }
@@ -101,7 +101,7 @@ class QBittorrentAPI extends BaseModule {
           amuleMgr = registry.get(configuredId);
           if (!amuleMgr) {
             amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.log(`⚠️ [QBittorrentAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
+            if (amuleMgr) this.warn(`⚠️ [QBittorrentAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
           }
         } else {
           amuleMgr = registry.getByType('amule').find(m => m.isConnected());
@@ -179,7 +179,7 @@ class QBittorrentAPI extends BaseModule {
 
         res.json({ files: normalizedFiles });
       } catch (err) {
-        this.log('Error fetching qBittorrent files:', err.message);
+        this.error('Error fetching qBittorrent files:', err.message);
         res.status(500).json({ error: err.message });
       }
     });

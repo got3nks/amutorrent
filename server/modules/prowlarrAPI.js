@@ -92,7 +92,7 @@ class ProwlarrAPI extends BaseModule {
         }))
       });
     } catch (err) {
-      this.log('❌ Error fetching indexers:', err.message);
+      this.error('❌ Error fetching indexers:', err.message);
       response.serverError(res, 'Failed to fetch indexers: ' + err.message);
     }
   }
@@ -132,7 +132,7 @@ class ProwlarrAPI extends BaseModule {
 
         // Warn if no download URL found
         if (!r.downloadUrl && !magnetUrl) {
-          this.log(`⚠️ No download URL for "${r.title}" from ${r.indexer}`);
+          this.warn(`⚠️ No download URL for "${r.title}" from ${r.indexer}`);
         }
 
         return {
@@ -163,7 +163,7 @@ class ProwlarrAPI extends BaseModule {
         results
       });
     } catch (err) {
-      this.log('❌ Search error:', err.message);
+      this.error('❌ Search error:', err.message);
       response.serverError(res, 'Search failed: ' + err.message);
     }
   }
@@ -190,7 +190,7 @@ class ProwlarrAPI extends BaseModule {
 
       return originalUrl.toString();
     } catch (err) {
-      this.log(`⚠️ Failed to rewrite URL: ${err.message}`);
+      this.warn(`⚠️ Failed to rewrite URL: ${err.message}`);
       return url;
     }
   }
@@ -267,7 +267,7 @@ class ProwlarrAPI extends BaseModule {
         clientManager = registry.get(instanceId);
       } else {
         clientManager = registry.getByType(clientId).find(m => m.isConnected());
-        if (clientManager) this.log(`⚠️ [ProwlarrAPI.addTorrent] No instanceId provided, falling back to first ${clientId} instance "${clientManager.instanceId}"`);
+        if (clientManager) this.warn(`⚠️ [ProwlarrAPI.addTorrent] No instanceId provided, falling back to first ${clientId} instance "${clientManager.instanceId}"`);
       }
       if (!clientManager || !clientManager.isConnected()) {
         return response.badRequest(res, `${clientManager?.displayName || clientId} is not connected`);
@@ -347,7 +347,7 @@ class ProwlarrAPI extends BaseModule {
         ...(infoHash && { hash: infoHash })
       });
     } catch (err) {
-      this.log('❌ Error adding torrent:', err.message);
+      this.error('❌ Error adding torrent:', err.message);
       response.serverError(res, 'Failed to add torrent: ' + err.message);
     } finally {
       // Clean up temp file

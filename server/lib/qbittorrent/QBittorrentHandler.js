@@ -468,7 +468,7 @@ class QBittorrentHandler {
 
             logger.log(`[qBittorrent] Successfully added download: ${ed2kHash}`);
           } else {
-            logger.log(`[qBittorrent] Failed to add download`);
+            logger.error(`[qBittorrent] Failed to add download`);
           }
 
           results.push({ magnetLink, success });

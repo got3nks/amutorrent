@@ -163,7 +163,7 @@ class FaviconCache {
       return null;
     } catch (err) {
       // Network / I/O error — preserve the previous blob if any
-      logger.log(`[favicon] fetch error for ${host}:`, err.message);
+      logger.warn(`[favicon] fetch error for ${host}:`, err.message);
       if (prevMeta?.status === 'ok' && prevMeta.contentType) {
         const buffer = await this._readBlob(host);
         if (buffer) return { buffer, contentType: prevMeta.contentType, status: 'stale' };

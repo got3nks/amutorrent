@@ -27,7 +27,7 @@ class NotificationsAPI extends BaseModule {
       const status = notificationManager.getAppriseStatus();
       res.json(status);
     } catch (err) {
-      this.log('Error getting Apprise status:', err.message);
+      this.error('Error getting Apprise status:', err.message);
       response.serverError(res, 'Failed to get Apprise status');
     }
   }
@@ -41,7 +41,7 @@ class NotificationsAPI extends BaseModule {
       const cfg = notificationManager.getConfig();
       res.json(cfg);
     } catch (err) {
-      this.log('Error getting notification config:', err.message);
+      this.error('Error getting notification config:', err.message);
       response.serverError(res, 'Failed to get notification configuration');
     }
   }
@@ -62,7 +62,7 @@ class NotificationsAPI extends BaseModule {
         message: 'Notification configuration saved'
       });
     } catch (err) {
-      this.log('Error saving notification config:', err.message);
+      this.error('Error saving notification config:', err.message);
       response.serverError(res, 'Failed to save notification configuration');
     }
   }
@@ -76,7 +76,7 @@ class NotificationsAPI extends BaseModule {
       const services = notificationManager.getServices();
       res.json({ services });
     } catch (err) {
-      this.log('Error getting notification services:', err.message);
+      this.error('Error getting notification services:', err.message);
       response.serverError(res, 'Failed to get notification services');
     }
   }
@@ -115,7 +115,7 @@ class NotificationsAPI extends BaseModule {
         service
       });
     } catch (err) {
-      this.log('Error adding notification service:', err.message);
+      this.error('Error adding notification service:', err.message);
       response.serverError(res, 'Failed to add notification service');
     }
   }
@@ -145,7 +145,7 @@ class NotificationsAPI extends BaseModule {
         service
       });
     } catch (err) {
-      this.log('Error updating notification service:', err.message);
+      this.error('Error updating notification service:', err.message);
       response.serverError(res, 'Failed to update notification service');
     }
   }
@@ -168,7 +168,7 @@ class NotificationsAPI extends BaseModule {
         message: 'Service deleted'
       });
     } catch (err) {
-      this.log('Error deleting notification service:', err.message);
+      this.error('Error deleting notification service:', err.message);
       response.serverError(res, 'Failed to delete notification service');
     }
   }
@@ -182,7 +182,7 @@ class NotificationsAPI extends BaseModule {
       const result = await notificationManager.testServices(null);
       res.json(result);
     } catch (err) {
-      this.log('Error testing notifications:', err.message);
+      this.error('Error testing notifications:', err.message);
       response.serverError(res, 'Failed to test notifications');
     }
   }
@@ -198,7 +198,7 @@ class NotificationsAPI extends BaseModule {
       const result = await notificationManager.testServices(id);
       res.json(result);
     } catch (err) {
-      this.log('Error testing notification service:', err.message);
+      this.error('Error testing notification service:', err.message);
       response.serverError(res, 'Failed to test notification service');
     }
   }

@@ -78,7 +78,7 @@ class AmuleManager extends BaseClientManager {
 
     // Prevent concurrent connection attempts
     if (this.connectionInProgress) {
-      this.log('⚠️  Connection attempt already in progress, skipping...');
+      this.warn('⚠️  Connection attempt already in progress, skipping...');
       return false;
     }
 
@@ -95,7 +95,7 @@ class AmuleManager extends BaseClientManager {
           }
         } catch (err) {
           // Ignore disconnect errors
-          this.log('⚠️  Error disconnecting old client:', logger.errorDetail(err));
+          this.warn('⚠️  Error disconnecting old client:', logger.errorDetail(err));
         }
         this.client = null;
       }
@@ -107,7 +107,7 @@ class AmuleManager extends BaseClientManager {
 
       // Set up error handler for the client
       newClient.onError((err) => {
-        this.log('❌ aMule client error:', logger.errorDetail(err));
+        this.error('❌ aMule client error:', logger.errorDetail(err));
         // Only set client to null if this is still the active client
         if (this.client === newClient) {
           this._setConnectionError(err);
@@ -135,7 +135,7 @@ class AmuleManager extends BaseClientManager {
 
       return true;
     } catch (err) {
-      this.log('❌ Failed to connect to aMule:', logger.errorDetail(err));
+      this.error('❌ Failed to connect to aMule:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       return false;
@@ -226,7 +226,7 @@ class AmuleManager extends BaseClientManager {
    */
   async performSharedFilesReload() {
     if (!this.client) {
-      this.log('⚠️  Cannot reload shared files: aMule client not connected');
+      this.warn('⚠️  Cannot reload shared files: aMule client not connected');
       return;
     }
 
@@ -246,7 +246,7 @@ class AmuleManager extends BaseClientManager {
       }
       this.log('✅ Shared files auto-reload completed');
     } catch (err) {
-      this.log('❌ Shared files auto-reload failed:', logger.errorDetail(err));
+      this.error('❌ Shared files auto-reload failed:', logger.errorDetail(err));
     }
   }
 
@@ -295,7 +295,7 @@ class AmuleManager extends BaseClientManager {
     // DataFetchService reuses the last-known frame for the single failing
     // cycle so the UI doesn't flash empty during the reconnect window.
     const triggerReconnect = (err) => {
-      this.log(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
+      this.error(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
       const failedClient = this.client;
       this.client = null;
       this._setConnectionError(err);
@@ -457,7 +457,7 @@ class AmuleManager extends BaseClientManager {
       const stats = await this.client.getStats();
       return stats || {};
     } catch (err) {
-      this.log('❌ Error fetching aMule stats:', logger.errorDetail(err));
+      this.error('❌ Error fetching aMule stats:', logger.errorDetail(err));
       return {};
     }
   }
@@ -771,7 +771,7 @@ class AmuleManager extends BaseClientManager {
         return result.amuleId;
       }
     } catch (err) {
-      this.log(`⚠️ Failed to ensure aMule category "${categoryName}": ${err.message}`);
+      this.warn(`⚠️ Failed to ensure aMule category "${categoryName}": ${err.message}`);
     }
     return null;
   }
@@ -827,7 +827,7 @@ class AmuleManager extends BaseClientManager {
       const savedCat = amuleCategories?.find(c => c.id === id);
 
       if (!savedCat) {
-        this.log(`⚠️ Verify: Category with ID ${id} not found after update`);
+        this.warn(`⚠️ Verify: Category with ID ${id} not found after update`);
         return { success: true, verified: false, mismatches: ['Category not found after update'] };
       }
 
@@ -839,14 +839,14 @@ class AmuleManager extends BaseClientManager {
       if ((savedCat.priority ?? 0) !== priority) mismatches.push(`priority: expected ${priority}, got ${savedCat.priority ?? 0}`);
 
       if (mismatches.length > 0) {
-        this.log(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
+        this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
         return { success: true, verified: false, mismatches };
       }
 
       this.log(`✅ Verify: Category "${name}" saved correctly in aMule`);
       return { success: true, verified: true, mismatches: [] };
     } catch (err) {
-      this.log(`⚠️ Failed to update category in aMule: ${err.message}`);
+      this.warn(`⚠️ Failed to update category in aMule: ${err.message}`);
       return { success: false, verified: false, mismatches: [err.message] };
     }
   }
@@ -893,10 +893,10 @@ class AmuleManager extends BaseClientManager {
         return { amuleId: result.categoryId };
       }
       if (result.success) {
-        this.log(`⚠️ Category "${name}" created in aMule but ID not found`);
+        this.warn(`⚠️ Category "${name}" created in aMule but ID not found`);
       }
     } catch (err) {
-      this.log(`⚠️ Failed to ensure category in aMule: ${err.message}`);
+      this.warn(`⚠️ Failed to ensure category in aMule: ${err.message}`);
     }
     return { amuleId: null };
   }
@@ -928,11 +928,11 @@ class AmuleManager extends BaseClientManager {
             this.log(`📤 Propagated category "${cat.name}" to aMule (ID: ${result.categoryId})`);
           }
         } catch (err) {
-          this.log(`⚠️ Failed to propagate "${cat.name}" to aMule: ${err.message}`);
+          this.warn(`⚠️ Failed to propagate "${cat.name}" to aMule: ${err.message}`);
         }
       }
     } catch (err) {
-      this.log(`⚠️ Failed to fetch aMule categories for batch propagation: ${err.message}`);
+      this.warn(`⚠️ Failed to fetch aMule categories for batch propagation: ${err.message}`);
     }
     return results;
   }
@@ -1060,7 +1060,7 @@ class AmuleManager extends BaseClientManager {
       try {
         await qbittorrentAPI.handler.syncCategories();
       } catch (err) {
-        this.log(`⚠️ Failed to sync qBittorrent categories on connect: ${err.message}`);
+        this.warn(`⚠️ Failed to sync qBittorrent categories on connect: ${err.message}`);
       }
     }
 
@@ -1164,7 +1164,7 @@ class AmuleManager extends BaseClientManager {
           this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
         }
       } catch (err) {
-        this.log(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
+        this.warn(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
       }
     }
     if (pushed > 0) await categoryManager.save();
@@ -1205,7 +1205,7 @@ class AmuleManager extends BaseClientManager {
           await this.client.disconnect();
         }
       } catch (err) {
-        this.log('⚠️  Error during aMule client shutdown:', logger.errorDetail(err));
+        this.warn('⚠️  Error during aMule client shutdown:', logger.errorDetail(err));
       }
       this.client = null;
     }

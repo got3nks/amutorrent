@@ -26,7 +26,7 @@ class VersionAPI extends BaseModule {
         lastSeenVersion
       });
     } catch (err) {
-      this.log('Error fetching version info:', err.message);
+      this.error('Error fetching version info:', err.message);
       res.status(500).json({
         error: 'Failed to fetch version info',
         version: versionManager.getVersion()
@@ -48,7 +48,7 @@ class VersionAPI extends BaseModule {
         lastSeenVersion: currentVersion
       });
     } catch (err) {
-      this.log('Error marking version as seen:', err.message);
+      this.error('Error marking version as seen:', err.message);
       res.status(500).json({
         error: 'Failed to mark version as seen'
       });

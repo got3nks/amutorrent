@@ -134,7 +134,7 @@ class CategoryManager extends BaseModule {
     const result = this.clientDefaultPaths[instanceId];
     if (result !== undefined) return result;
     if (instanceId) {
-      this.log(`⚠️ getClientDefaultPath: no path for instanceId "${instanceId}"`);
+      this.warn(`⚠️ getClientDefaultPath: no path for instanceId "${instanceId}"`);
     }
     return null;
   }
@@ -202,16 +202,16 @@ class CategoryManager extends BaseModule {
 
     if (hasWarnings) {
       const warningCount = Object.keys(this.pathWarnings).length;
-      this.log(`⚠️ Path validation: ${warningCount} category/ies with path issues`);
+      this.warn(`⚠️ Path validation: ${warningCount} category/ies with path issues`);
       for (const [catName, warns] of Object.entries(this.pathWarnings)) {
         if (warns.path) {
           const cat = this.categories.get(catName);
-          this.log(`   ⚠️ "${catName}" path (${cat?.path || '(unknown)'}): ${warns.path}`);
+          this.warn(`   ⚠️ "${catName}" path (${cat?.path || '(unknown)'}): ${warns.path}`);
         }
         for (const [client, msg] of Object.entries(warns.mappings || {})) {
           const cat = this.categories.get(catName);
           const mappedPath = cat?.pathMappings?.[client] || this.getClientDefaultPath(client) || '(unknown)';
-          this.log(`   ⚠️ "${catName}" ${client} path mapping (${mappedPath}): ${msg}`);
+          this.warn(`   ⚠️ "${catName}" ${client} path mapping (${mappedPath}): ${msg}`);
         }
       }
     } else {
@@ -417,7 +417,7 @@ class CategoryManager extends BaseModule {
         await this.save();
         this._loaded = true;
       } else {
-        this.log('❌ Error loading categories:', err.message);
+        this.error('❌ Error loading categories:', err.message);
         // Initialize with default on error
         this._ensureDefaultCategory();
         this._loaded = true;
@@ -460,7 +460,7 @@ class CategoryManager extends BaseModule {
       await fs.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
       this.log(`💾 Saved ${this.categories.size} categories to ${filePath}`);
     } catch (err) {
-      this.log('❌ Error saving categories:', err.message);
+      this.error('❌ Error saving categories:', err.message);
       throw err;
     }
   }
@@ -669,7 +669,7 @@ class CategoryManager extends BaseModule {
           }
         }
       } catch (err) {
-        this.log(`⚠️ Failed to propagate categories to ${mgr.instanceId}: ${err.message}`);
+        this.warn(`⚠️ Failed to propagate categories to ${mgr.instanceId}: ${err.message}`);
       }
     }
 
@@ -735,7 +735,7 @@ class CategoryManager extends BaseModule {
             category.amuleIds[mgr.instanceId] = result.amuleId;
           }
         } catch (err) {
-          this.log(`⚠️ Failed to ensure category in ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
+          this.warn(`⚠️ Failed to ensure category in ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
         }
       }
     }
@@ -798,7 +798,7 @@ class CategoryManager extends BaseModule {
             clientVerification = { ...result, instanceId: mgr.instanceId, clientType: mgr.clientType };
           }
         } catch (err) {
-          this.log(`⚠️ Failed to update category in ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
+          this.warn(`⚠️ Failed to update category in ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
         }
       }
     }
@@ -851,7 +851,7 @@ class CategoryManager extends BaseModule {
           clientVerification = { ...result, instanceId: mgr.instanceId, clientType: mgr.clientType };
         }
       } catch (err) {
-        this.log(`⚠️ Failed to rename category on ${mgr.instanceId}: ${err.message}`);
+        this.warn(`⚠️ Failed to rename category on ${mgr.instanceId}: ${err.message}`);
       }
     }
 
@@ -892,7 +892,7 @@ class CategoryManager extends BaseModule {
         await mgr.deleteCategory({ id: category.amuleIds?.[mgr.instanceId], name });
         this.log(`📤 Deleted category "${name}" from ${mgr.clientType} on ${mgr.instanceId}`);
       } catch (err) {
-        this.log(`⚠️ Failed to delete category from ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
+        this.warn(`⚠️ Failed to delete category from ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
       }
     }
 

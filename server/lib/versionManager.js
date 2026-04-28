@@ -111,7 +111,7 @@ class VersionManager {
       }
       return releases;
     } catch (err) {
-      logger.log('Error parsing changelog:', err.message);
+      logger.error('Error parsing changelog:', err.message);
       return [];
     }
   }

@@ -204,7 +204,7 @@ class TorznabHandler {
 
     // Has params but no text query - can't search ED2K
     if (!q) {
-      logger.log('[Torznab] Search has metadata params but no text query - cannot search ED2K without query text');
+      logger.warn('[Torznab] Search has metadata params but no text query - cannot search ED2K without query text');
       const emptyFeed = convertToTorznabFeed([], 'no-query', cat);
       res.set('Content-Type', 'application/xml');
       return res.send(emptyFeed);

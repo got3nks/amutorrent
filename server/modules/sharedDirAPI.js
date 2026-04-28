@@ -15,9 +15,6 @@ const config = require('./config');
 const registry = require('../lib/ClientRegistry');
 
 class SharedDirAPI {
-  constructor() {
-    this.log = logger.log.bind(logger);
-  }
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -97,9 +94,9 @@ class SharedDirAPI {
     if (sorted.length > 0 && (added > 0 || removed > 0 || existingRaw.length === 0)) {
       try {
         await this._writeFile(datPath, sorted.join('\n') + '\n');
-        this.log(`📂 shareddir.dat updated: ${roots.length} root(s), ${sorted.length} total (${added} added, ${removed} removed)`);
+        logger.log(`📂 shareddir.dat updated: ${roots.length} root(s), ${sorted.length} total (${added} added, ${removed} removed)`);
       } catch (err) {
-        this.log(`⚠️  Failed to write shareddir.dat: ${err.message}`);
+        logger.warn(`⚠️  Failed to write shareddir.dat: ${err.message}`);
         throw err;
       }
     }
@@ -109,7 +106,7 @@ class SharedDirAPI {
       try {
         await manager.refreshSharedFiles();
       } catch (err) {
-        this.log(`⚠️  Shared files reload failed: ${err.message}`);
+        logger.warn(`⚠️  Shared files reload failed: ${err.message}`);
       }
     }
 
@@ -208,12 +205,12 @@ class SharedDirAPI {
     }
     // File is read-only (aMule sets 444) — chmod writable, write, restore
     try {
-      this.log(`📂 File is read-only, attempting chmod on ${filePath}...`);
+      logger.log(`📂 File is read-only, attempting chmod on ${filePath}...`);
       await fs.chmod(filePath, 0o644);
       await fs.writeFile(filePath, content, 'utf-8');
-      this.log(`📂 Write successful after chmod`);
+      logger.log(`📂 Write successful after chmod`);
     } catch (err) {
-      this.log(`❌ chmod+write failed: ${err.code} ${err.message}`);
+      logger.error(`❌ chmod+write failed: ${err.code} ${err.message}`);
       throw new Error(`Permission denied (${err.code}). aMule sets shareddir.dat to read-only — both containers must use the same UID (e.g. PUID=1000).`);
     }
   }
@@ -291,7 +288,7 @@ class SharedDirAPI {
 
       res.json({ configured: true, path: datPath, exists, canWrite, roots, inaccessibleRoots, isDocker: config.isDocker });
     } catch (err) {
-      this.log('❌ Error reading shared dirs:', err.message);
+      logger.error('❌ Error reading shared dirs:', err.message);
       response.serverError(res, 'Failed to read shared directories');
     }
   }
@@ -332,7 +329,7 @@ class SharedDirAPI {
         return response.forbidden(res, `Cannot write to shareddir.dat: ${err.message}`);
       }
     } catch (err) {
-      this.log('❌ Error saving shared dirs:', err.message);
+      logger.error('❌ Error saving shared dirs:', err.message);
       response.serverError(res, 'Failed to save shared directories');
     }
   }
@@ -378,7 +375,7 @@ class SharedDirAPI {
         return response.forbidden(res, `Cannot write to shareddir.dat: ${err.message}`);
       }
     } catch (err) {
-      this.log('❌ Error reloading shared dirs:', err.message);
+      logger.error('❌ Error reloading shared dirs:', err.message);
       response.serverError(res, 'Failed to rescan shared directories');
     }
   }
@@ -456,7 +453,7 @@ class SharedDirAPI {
       const exists = await this._fileExists(trimmedPath);
       res.json({ success: true, path: trimmedPath, exists });
     } catch (err) {
-      this.log('❌ Error saving shared dir config:', err.message);
+      logger.error('❌ Error saving shared dir config:', err.message);
       response.serverError(res, 'Failed to save configuration');
     }
   }
@@ -476,7 +473,7 @@ class SharedDirAPI {
     router.put('/config', this.saveConfig.bind(this));
 
     app.use('/api/amule/shared-dirs', router);
-    this.log('📂 Shared Directory API routes registered');
+    logger.log('📂 Shared Directory API routes registered');
   }
 }
 

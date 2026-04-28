@@ -25,7 +25,7 @@ class QbittorrentManager extends BaseClientManager {
   async initClient() {
     // Prevent concurrent connection attempts
     if (this.connectionInProgress) {
-      this.log('⚠️  qBittorrent connection attempt already in progress, skipping...');
+      this.warn('⚠️  qBittorrent connection attempt already in progress, skipping...');
       return false;
     }
 
@@ -36,7 +36,7 @@ class QbittorrentManager extends BaseClientManager {
     }
 
     if (!this._clientConfig.host) {
-      this.log('⚠️  qBittorrent host not configured');
+      this.warn('⚠️  qBittorrent host not configured');
       return false;
     }
 
@@ -80,7 +80,7 @@ class QbittorrentManager extends BaseClientManager {
         const prefs = await newClient.getPreferences();
         this.cachedListenPort = prefs?.listen_port || 0;
       } catch (err) {
-        this.log('⚠️  Could not fetch listen port from preferences:', logger.errorDetail(err));
+        this.warn('⚠️  Could not fetch listen port from preferences:', logger.errorDetail(err));
       }
 
       // Start tracker cache refresh
@@ -91,7 +91,7 @@ class QbittorrentManager extends BaseClientManager {
 
       return true;
     } catch (err) {
-      this.log('❌ Failed to connect to qBittorrent:', logger.errorDetail(err));
+      this.error('❌ Failed to connect to qBittorrent:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.stopTrackerRefresh();
@@ -143,7 +143,7 @@ class QbittorrentManager extends BaseClientManager {
       this.lastTorrents = torrents;
       return torrents;
     } catch (err) {
-      this.log('❌ Error fetching qBittorrent torrents:', logger.errorDetail(err));
+      this.error('❌ Error fetching qBittorrent torrents:', logger.errorDetail(err));
       // Connection might be lost, mark as disconnected
       this._setConnectionError(err);
       if (this.client) {
@@ -253,7 +253,7 @@ class QbittorrentManager extends BaseClientManager {
         listenPort: this.cachedListenPort
       };
     } catch (err) {
-      this.log('❌ Error fetching qBittorrent stats:', logger.errorDetail(err));
+      this.error('❌ Error fetching qBittorrent stats:', logger.errorDetail(err));
       this._setConnectionError(err);
       if (this.client) this.client.connected = false;
       this.scheduleReconnect(30000);
@@ -604,7 +604,7 @@ class QbittorrentManager extends BaseClientManager {
       const savedCat = categories?.[name];
 
       if (!savedCat) {
-        this.log(`⚠️ Verify: Category "${name}" not found in qBittorrent after update`);
+        this.warn(`⚠️ Verify: Category "${name}" not found in qBittorrent after update`);
         return { success: true, verified: false, mismatches: ['Category not found after update'] };
       }
 
@@ -613,14 +613,14 @@ class QbittorrentManager extends BaseClientManager {
       if (savedPath !== path) mismatches.push(`path: expected "${path}", got "${savedPath}"`);
 
       if (mismatches.length > 0) {
-        this.log(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
+        this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
         return { success: true, verified: false, mismatches };
       }
 
       this.log(`✅ Verify: Category "${name}" saved correctly in qBittorrent`);
       return { success: true, verified: true, mismatches: [] };
     } catch (err) {
-      this.log(`⚠️ Failed to update category in qBittorrent: ${err.message}`);
+      this.warn(`⚠️ Failed to update category in qBittorrent: ${err.message}`);
       return { success: false, verified: false, mismatches: [err.message] };
     }
   }
@@ -639,7 +639,7 @@ class QbittorrentManager extends BaseClientManager {
         await this.createCategory({ name, path });
       }
     } catch (err) {
-      this.log(`⚠️ Failed to ensure category in qBittorrent: ${err.message}`);
+      this.warn(`⚠️ Failed to ensure category in qBittorrent: ${err.message}`);
     }
     return { success: true };
   }
@@ -664,11 +664,11 @@ class QbittorrentManager extends BaseClientManager {
           results.push({ name: cat.name });
           this.log(`📤 Propagated category "${cat.name}" to qBittorrent`);
         } catch (err) {
-          this.log(`⚠️ Failed to propagate "${cat.name}" to qBittorrent: ${err.message}`);
+          this.warn(`⚠️ Failed to propagate "${cat.name}" to qBittorrent: ${err.message}`);
         }
       }
     } catch (err) {
-      this.log(`⚠️ Failed to fetch qBittorrent categories for batch propagation: ${err.message}`);
+      this.warn(`⚠️ Failed to fetch qBittorrent categories for batch propagation: ${err.message}`);
     }
     return results;
   }
@@ -718,14 +718,14 @@ class QbittorrentManager extends BaseClientManager {
       if (categories?.[oldName]) mismatches.push(`Old category "${oldName}" still exists after rename`);
 
       if (mismatches.length > 0) {
-        this.log(`⚠️ Verify: Rename "${oldName}" → "${newName}" mismatches: ${mismatches.join(', ')}`);
+        this.warn(`⚠️ Verify: Rename "${oldName}" → "${newName}" mismatches: ${mismatches.join(', ')}`);
         return { success: true, verified: false, mismatches };
       }
 
       this.log(`✅ Verify: Category renamed "${oldName}" → "${newName}" correctly in qBittorrent`);
       return { success: true, verified: true, mismatches: [] };
     } catch (err) {
-      this.log(`⚠️ Failed to rename category in qBittorrent: ${err.message}`);
+      this.warn(`⚠️ Failed to rename category in qBittorrent: ${err.message}`);
       return { success: false, verified: false, mismatches: [err.message] };
     }
   }
@@ -742,7 +742,7 @@ class QbittorrentManager extends BaseClientManager {
       const prefs = await this.client.getPreferences();
       return prefs?.save_path || null;
     } catch (err) {
-      this.log('Failed to get qBittorrent default directory:', logger.errorDetail(err));
+      this.error('Failed to get qBittorrent default directory:', logger.errorDetail(err));
       return null;
     }
   }
@@ -771,7 +771,7 @@ class QbittorrentManager extends BaseClientManager {
         return `[${ts}] [${level}] ${entry.message}`;
       }).join('\n');
     } catch (err) {
-      this.log('❌ Error fetching qBittorrent log:', logger.errorDetail(err));
+      this.error('❌ Error fetching qBittorrent log:', logger.errorDetail(err));
       return '';
     }
   }
@@ -819,7 +819,7 @@ class QbittorrentManager extends BaseClientManager {
           createdInQb++;
           this.log(`📤 Created category "${name}" in qBittorrent (path: ${appPath})`);
         } catch (err) {
-          this.log(`⚠️ Failed to create category "${name}" in qBittorrent: ${err.message}`);
+          this.warn(`⚠️ Failed to create category "${name}" in qBittorrent: ${err.message}`);
         }
       } else if (qbCat.savePath !== appPath) {
         try {
@@ -827,7 +827,7 @@ class QbittorrentManager extends BaseClientManager {
           updatedInQb++;
           this.log(`🔄 Updated qBittorrent category "${name}" path: ${qbCat.savePath} -> ${appPath}`);
         } catch (err) {
-          this.log(`⚠️ Failed to update category "${name}" in qBittorrent: ${err.message}`);
+          this.warn(`⚠️ Failed to update category "${name}" in qBittorrent: ${err.message}`);
         }
       }
     }
@@ -863,7 +863,7 @@ class QbittorrentManager extends BaseClientManager {
       try {
         await this.client.disconnect();
       } catch (err) {
-        this.log('⚠️  Error during qBittorrent client shutdown:', logger.errorDetail(err));
+        this.warn('⚠️  Error during qBittorrent client shutdown:', logger.errorDetail(err));
       }
       this.client = null;
     }

@@ -175,7 +175,7 @@ class ConfigAPI extends BaseModule {
 
       res.json(result);
     } catch (err) {
-      this.log('❌ Error getting network interfaces:', err.message);
+      this.error('❌ Error getting network interfaces:', err.message);
       response.serverError(res, 'Failed to get network interfaces');
     }
   }
@@ -192,7 +192,7 @@ class ConfigAPI extends BaseModule {
         isDocker: config.isDocker
       });
     } catch (err) {
-      this.log('❌ Error checking config status:', err.message);
+      this.error('❌ Error checking config status:', err.message);
       response.serverError(res, 'Failed to check configuration status');
     }
   }
@@ -219,7 +219,7 @@ class ConfigAPI extends BaseModule {
         _meta: { fromEnv: this.buildFromEnvMeta() }
       });
     } catch (err) {
-      this.log('❌ Error getting current config:', err.message);
+      this.error('❌ Error getting current config:', err.message);
       response.serverError(res, 'Failed to get current configuration');
     }
   }
@@ -237,7 +237,7 @@ class ConfigAPI extends BaseModule {
         _meta: { fromEnv: this.buildFromEnvMeta() }
       });
     } catch (err) {
-      this.log('❌ Error getting defaults:', err.message);
+      this.error('❌ Error getting defaults:', err.message);
       response.serverError(res, 'Failed to get default configuration');
     }
   }
@@ -270,7 +270,7 @@ class ConfigAPI extends BaseModule {
         isDocker: config.isDocker
       });
     } catch (err) {
-      this.log('❌ Error checking path:', err.message);
+      this.error('❌ Error checking path:', err.message);
       response.serverError(res, 'Failed to check path');
     }
   }
@@ -425,7 +425,7 @@ class ConfigAPI extends BaseModule {
         results
       });
     } catch (err) {
-      this.log('❌ Error testing config:', err.message);
+      this.error('❌ Error testing config:', err.message);
       response.serverError(res, 'Failed to test configuration');
     }
   }
@@ -449,7 +449,7 @@ class ConfigAPI extends BaseModule {
 
       res.json(result);
     } catch (err) {
-      this.log('❌ Error testing script:', err.message);
+      this.error('❌ Error testing script:', err.message);
       response.serverError(res, 'Failed to test script');
     }
   }
@@ -477,7 +477,7 @@ class ConfigAPI extends BaseModule {
       // Validate configuration
       const validation = config.validateConfig(newConfig);
       if (!validation.valid) {
-        this.log('❌ Configuration validation failed:', validation.errors.join(', '));
+        this.error('❌ Configuration validation failed:', validation.errors.join(', '));
         return response.badRequest(res, 'Invalid configuration: ' + validation.errors.join(', '));
       }
 
@@ -490,7 +490,7 @@ class ConfigAPI extends BaseModule {
       if (enablingAuth && !wasFirstRun && this.userManager) {
         const admins = this.userManager.listUsers().filter(u => u.isAdmin && !u.disabled);
         if (admins.length === 0) {
-          this.log('❌ Cannot enable authentication: no admin accounts exist');
+          this.error('❌ Cannot enable authentication: no admin accounts exist');
           return response.badRequest(res, 'Cannot enable authentication without an admin account. Create at least one admin user in the User Management section first.');
         }
       }
@@ -509,7 +509,7 @@ class ConfigAPI extends BaseModule {
         try {
           await mgr.shutdown();
         } catch (err) {
-          this.log(`⚠️  Error shutting down ${mgr.instanceId}:`, err.message);
+          this.warn(`⚠️  Error shutting down ${mgr.instanceId}:`, err.message);
         }
       }
 
@@ -520,7 +520,7 @@ class ConfigAPI extends BaseModule {
         try {
           await this.initializeServices();
         } catch (err) {
-          this.log('⚠️  Service initialization failed:', err.message);
+          this.warn('⚠️  Service initialization failed:', err.message);
           // Don't fail the save if initialization fails - user can restart server
         }
       } else if (this.reinitializeClients) {
@@ -530,7 +530,7 @@ class ConfigAPI extends BaseModule {
           await this.reinitializeClients();
           this.log('✅ Client connections reinitialized successfully');
         } catch (err) {
-          this.log('⚠️  Client reinitialization failed:', err.message);
+          this.warn('⚠️  Client reinitialization failed:', err.message);
         }
       }
 
@@ -538,7 +538,7 @@ class ConfigAPI extends BaseModule {
         message: 'Configuration saved successfully.' + (wasFirstRun ? ' Services initialized.' : ' aMule connection updated.')
       });
     } catch (err) {
-      this.log('❌ Error saving config:', err.message);
+      this.error('❌ Error saving config:', err.message);
       response.serverError(res, 'Failed to save configuration');
     }
   }

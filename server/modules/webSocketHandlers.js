@@ -79,7 +79,7 @@ class WebSocketHandlers extends BaseModule {
     if (clientType) {
       const all = registry.getByType(clientType);
       const fallback = all.find(m => m.isConnected?.()) || all.find(m => m.isEnabled?.()) || all[0] || null;
-      if (fallback) logger.log(`⚠️ [WebSocket._getManager] No instanceId provided, falling back to ${clientType} instance "${fallback.instanceId}"`);
+      if (fallback) logger.warn(`⚠️ [WebSocket._getManager] No instanceId provided, falling back to ${clientType} instance "${fallback.instanceId}"`);
       return fallback;
     }
     return null;
@@ -129,37 +129,32 @@ class WebSocketHandlers extends BaseModule {
     return unsigned;
   }
 
-  // Create client-specific logger
+  // Create per-connection log helpers. Each WS connection gets its own
+  // `context.log/info/warn/error/debug` that funnel through the centralized
+  // logger with a stable source label so the LogsView can filter by user/IP.
   createClientLog(ws, username, nickname, clientIp) {
-    return (...args) => {
-      const logParts = [];
-      args.forEach(arg => {
-        if (arg instanceof Error) {
-          // Special handling for Error objects
-          const errorString = `${arg.name}: ${arg.message}\n${arg.stack}`;
-          logParts.push(errorString);
-        } else if (typeof arg === 'object' && arg !== null) {
-          // Full object as JSON
-          try {
-            logParts.push(JSON.stringify(arg));
-          } catch {
-            logParts.push('[Circular]');
-          }
-        } else {
-          logParts.push(String(arg));
-        }
-      });
-      const logMessage = `[${clientIp}(${username}, ${nickname})] ${logParts.join(' ')}`;
-      // Use the main logger which will add timestamp and write to both console and file
-      this.log && this.log(logMessage);
+    const source = `${clientIp}(${username}, ${nickname})`;
+    return {
+      log: (...args) => logger.infoFor(source, ...args),
+      info: (...args) => logger.infoFor(source, ...args),
+      warn: (...args) => logger.warnFor(source, ...args),
+      error: (...args) => logger.errorFor(source, ...args),
+      debug: (...args) => logger.debugFor(source, ...args)
     };
   }
 
   // Create context object with all client-specific utilities
   createContext(ws, username, nickname, clientIp) {
+    const log = this.createClientLog(ws, username, nickname, clientIp);
     return {
       ws,
-      log: this.createClientLog(ws, username, nickname, clientIp),
+      // `context.log()` keeps its callable form (legacy callers); the level
+      // variants are exposed as siblings.
+      log: log.log,
+      info: log.info,
+      warn: log.warn,
+      error: log.error,
+      debug: log.debug,
       send: (data) => ws.send(JSON.stringify(data)),
       clientInfo: { username, nickname, clientIp },
       broadcast: this.broadcast,
@@ -258,7 +253,7 @@ class WebSocketHandlers extends BaseModule {
       const batchData = cachedBatchUpdate.data || cachedBatchUpdate;
       const filtered = this._filterBatchUpdateForUser(batchData, context.clientInfo, ws.user);
       context.send({ type: 'batch-update', data: filtered });
-      context.log('Sent cached batch update to new client');
+      context.debug('Sent cached batch update to new client');
     }
 
     // Periodic session re-validation (every 5 minutes)
@@ -281,14 +276,18 @@ class WebSocketHandlers extends BaseModule {
       if (sessionHeartbeat) clearInterval(sessionHeartbeat);
       context.log(`WebSocket connection closed from ${clientIp}`);
     });
-    ws.on('error', (err) => context.log('WebSocket error:', err));
+    ws.on('error', (err) => context.error('WebSocket error:', err));
   }
 
   // Handle WebSocket messages
   async handleMessage(message, context) {
     try {
       const data = JSON.parse(message);
-      context.log(`Received action: ${data.action}`, data);
+      // High-frequency trace — every WS message fires this. Handlers that
+      // perform meaningful work (mutations, errors, connection events) emit
+      // their own INFO line; this one is purely a trace breadcrumb, so it
+      // belongs at DEBUG.
+      context.debug(`Received action: ${data.action}`, data);
 
       // Capability gate: check if the user has the required capability for this action
       const requiredCaps = ACTION_CAPABILITIES[data.action];
@@ -314,7 +313,7 @@ class WebSocketHandlers extends BaseModule {
         case 'getStatsTree': await this.handleGetStatsTree(data, context); break;
         case 'getServerInfo': await this.handleGetServerInfo(data, context); break;
         case 'getLog': await this.handleGetLog(data, context); break;
-        case 'getAppLog': await this.handleGetAppLog(context); break;
+        case 'getAppLog': await this.handleGetAppLog(data, context); break;
         case 'getQbittorrentLog': await this.handleGetQbittorrentLog(data, context); break;
         case 'batchDownloadSearchResults': await this.handleBatchDownloadSearchResults(data, context); break;
         case 'addEd2kLinks': await this.handleAddEd2kLinks(data, context); break;
@@ -343,7 +342,7 @@ class WebSocketHandlers extends BaseModule {
           context.send({ type: 'error', message: `Unknown action: ${data.action}` });
       }
     } catch (err) {
-      context.log('Error processing message:', err);
+      context.error('Error processing message:', err);
       context.send({ type: 'error', message: err.message });
     }
   }
@@ -371,7 +370,7 @@ class WebSocketHandlers extends BaseModule {
       context.broadcast({ type: 'search-results', data: result.results || [], instanceId: manager.instanceId }, searchFilter);
       context.log(`Search completed on ${manager.displayName}: ${result.resultsLength || 0} results found`);
     } catch (err) {
-      context.log('Search error:', err);
+      context.error('Search error:', err);
       context.send({ type: 'error', message: 'Search failed: ' + err.message });
     } finally {
       manager.releaseSearchLock();
@@ -407,7 +406,7 @@ class WebSocketHandlers extends BaseModule {
         context.log(`Previous search results: ${amuleResults.length} aMule results`);
       }
     } catch (err) {
-      context.log('Get previous search results error:', err);
+      context.error('Get previous search results error:', err);
       context.send({ type: 'previous-search-results', data: [] });
     }
   }
@@ -424,7 +423,7 @@ class WebSocketHandlers extends BaseModule {
           await mgr.refreshSharedFiles();
           context.log(`Shared files refresh command sent to ${mgr.displayName}`);
         } catch (err) {
-          context.log(`Shared files refresh failed for ${mgr.displayName}: ${err.message}`);
+          context.error(`Shared files refresh failed for ${mgr.displayName}: ${err.message}`);
         }
       }
       context.send({ type: 'shared-files-refreshed', message: 'Shared files reloaded successfully' });
@@ -433,7 +432,7 @@ class WebSocketHandlers extends BaseModule {
         await this.broadcastItemsUpdate(context);
       }, 100);
     } catch (err) {
-      context.log('Refresh shared files error:', err);
+      context.error('Refresh shared files error:', err);
       context.send({ type: 'error', message: 'Failed to refresh shared files: ' + err.message });
     }
   }
@@ -447,9 +446,9 @@ class WebSocketHandlers extends BaseModule {
       }
       const servers = await manager.getServerList();
       context.send({ type: 'servers-update', data: servers, instanceId: manager.instanceId });
-      context.log('Servers list fetched successfully');
+      context.debug('Servers list fetched successfully');
     } catch (err) {
-      context.log('Get servers list error:', err);
+      context.error('Get servers list error:', err);
       context.send({ type: 'error', message: 'Failed to fetch servers list: ' + err.message });
     }
   }
@@ -486,7 +485,7 @@ class WebSocketHandlers extends BaseModule {
       context.send({ type: 'server-action', data: success, instanceId: manager.instanceId });
       context.log(`Action ${serverAction} on server ${ip}:${port} ${success ? 'completed successfully' : 'failed'}`);
     } catch (err) {
-      context.log('Server action error:', err);
+      context.error('Server action error:', err);
       context.send({ type: 'error', message: `Failed to perform action on server: ${err.message}` });
     }
   }
@@ -500,9 +499,9 @@ class WebSocketHandlers extends BaseModule {
       }
       const statsTree = await manager.getStatsTree();
       context.send({ type: 'stats-tree-update', data: statsTree, instanceId: manager.instanceId });
-      context.log('Stats tree fetched successfully');
+      context.debug('Stats tree fetched successfully');
     } catch (err) {
-      context.log('Get stats tree error:', err);
+      context.error('Get stats tree error:', err);
       context.send({ type: 'error', message: 'Failed to fetch stats tree: ' + err.message });
     }
   }
@@ -516,9 +515,9 @@ class WebSocketHandlers extends BaseModule {
       }
       const serverInfo = await manager.getServerInfo();
       context.send({ type: 'server-info-update', data: serverInfo, instanceId: manager.instanceId });
-      context.log('Server info fetched successfully');
+      context.debug('Server info fetched successfully');
     } catch (err) {
-      context.log('Get server info error:', err);
+      context.error('Get server info error:', err);
       context.send({ type: 'error', message: 'Failed to fetch server info: ' + err.message });
     }
   }
@@ -532,19 +531,28 @@ class WebSocketHandlers extends BaseModule {
       }
       const log = await manager.getLog();
       context.send({ type: 'log-update', data: log, instanceId: manager.instanceId });
-      context.log('Log fetched successfully');
+      context.debug('Log fetched successfully');
     } catch (err) {
-      context.log('Get log error:', err);
+      context.error('Get log error:', err);
       context.send({ type: 'error', message: 'Failed to fetch log: ' + err.message });
     }
   }
 
-  async handleGetAppLog(context) {
+  async handleGetAppLog(data, context) {
     try {
-      const log = await logger.readLog(500);
-      context.send({ type: 'app-log-update', data: log });
+      // `data` is optional (kept legacy-compatible — old callers passed only
+      // `context`). Accept filter params from the client; the ring buffer is
+      // already in-memory so this is cheap.
+      const opts = (data && typeof data === 'object') ? data : {};
+      const records = logger.getRecords({
+        minLevel: opts.minLevel,
+        source: opts.source,
+        limit: opts.limit || 1000
+      });
+      const sources = logger.getSources();
+      context.send({ type: 'app-log-update', data: records, sources });
     } catch (err) {
-      context.log('Get app log error:', err);
+      context.error('Get app log error:', err);
       context.send({ type: 'error', message: 'Failed to fetch app log: ' + err.message });
     }
   }
@@ -559,7 +567,7 @@ class WebSocketHandlers extends BaseModule {
       const log = await qbMgr.getLog();
       context.send({ type: 'qbittorrent-log-update', data: log, instanceId: qbMgr.instanceId });
     } catch (err) {
-      context.log('Get qBittorrent log error:', err);
+      context.error('Get qBittorrent log error:', err);
       context.send({ type: 'error', message: 'Failed to fetch qBittorrent log: ' + err.message });
     }
   }
@@ -618,7 +626,7 @@ class WebSocketHandlers extends BaseModule {
           }
           context.log(`Download ${success ? 'started' : 'failed'} for: ${fileHash} (category: ${categoryId})`);
         } catch (err) {
-          context.log(`Download failed for ${fileHash}: ${err.message}`);
+          context.error(`Download failed for ${fileHash}: ${err.message}`);
           results.push({ fileHash, success: false, error: err.message });
         }
       }
@@ -634,7 +642,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Batch download: ${successCount}/${fileHashes.length} successful`);
     } catch (err) {
-      context.log('Batch download error:', err);
+      context.error('Batch download error:', err);
       context.send({ type: 'error', message: 'Batch download failed: ' + err.message });
     }
   }
@@ -684,7 +692,7 @@ class WebSocketHandlers extends BaseModule {
 
       context.send({ type: 'ed2k-added', results });
     } catch (err) {
-      context.log('Failed to add ED2K links:', err);
+      context.error('Failed to add ED2K links:', err);
       context.send({ type: 'error', message: `Failed to add ED2K links: ${err.message}` });
     }
   }
@@ -737,7 +745,7 @@ class WebSocketHandlers extends BaseModule {
             }
           }
         } catch (err) {
-          context.log(`Failed to add magnet to ${clientName}: ${err.message}`);
+          context.error(`Failed to add magnet to ${clientName}: ${err.message}`);
           results.push({ link: magnetUri, success: false, error: err.message });
         }
       }
@@ -747,7 +755,7 @@ class WebSocketHandlers extends BaseModule {
 
       context.send({ type: 'magnet-added', results, clientId });
     } catch (err) {
-      context.log('Failed to add magnet links:', err);
+      context.error('Failed to add magnet links:', err);
       context.send({ type: 'error', message: `Failed to add magnet links: ${err.message}` });
     }
   }
@@ -809,7 +817,7 @@ class WebSocketHandlers extends BaseModule {
 
       context.send({ type: 'torrent-added', success: true, fileName, clientId });
     } catch (err) {
-      context.log('Failed to add torrent file:', err);
+      context.error('Failed to add torrent file:', err);
       context.send({ type: 'error', message: `Failed to add torrent file: ${err.message}` });
     }
   }
@@ -819,9 +827,9 @@ class WebSocketHandlers extends BaseModule {
       // Use unified category manager instead of direct aMule call
       const { categories, clientDefaultPaths, hasPathWarnings } = context.categoryManager.getAllForFrontend();
       context.send({ type: 'categories-update', data: categories, clientDefaultPaths, hasPathWarnings });
-      context.log(`Categories fetched: ${categories.length} categories${hasPathWarnings ? ' (with path warnings)' : ''}`);
+      context.debug(`Categories fetched: ${categories.length} categories${hasPathWarnings ? ' (with path warnings)' : ''}`);
     } catch (err) {
-      context.log('Get categories error:', err);
+      context.error('Get categories error:', err);
       context.send({
         type: 'error',
         message: 'Failed to fetch categories: ' + err.message
@@ -886,7 +894,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Category created: ${trimmedTitle}`);
     } catch (err) {
-      context.log('Create category error:', err);
+      context.error('Create category error:', err);
       context.send({
         type: 'error',
         message: 'Failed to create category: ' + err.message
@@ -997,7 +1005,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Category updated: ${newTitle || category.name}`);
     } catch (err) {
-      context.log('Update category error:', err);
+      context.error('Update category error:', err);
       context.send({
         type: 'error',
         message: 'Failed to update category: ' + err.message
@@ -1038,7 +1046,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Category deleted: ${categoryName}`);
     } catch (err) {
-      context.log('Delete category error:', err);
+      context.error('Delete category error:', err);
       context.send({
         type: 'error',
         message: 'Failed to delete category: ' + err.message
@@ -1206,7 +1214,7 @@ class WebSocketHandlers extends BaseModule {
         }
       });
     } catch (err) {
-      context.log('Failed to broadcast items update:', err.message);
+      context.error('Failed to broadcast items update:', err.message);
     }
   }
 
@@ -1250,13 +1258,13 @@ class WebSocketHandlers extends BaseModule {
           manager = registry.get(item.instanceId);
           if (!manager) {
             const error = item.instanceId ? `Instance "${item.instanceId}" not found` : 'No instanceId provided';
-            context.log(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
+            context.error(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
             results.push({ fileHash: item.fileHash, fileName: item.fileName, success: false, error: 'Client instance not found', instanceId: item.instanceId, instanceName: null });
             continue;
           }
           if (!manager.isConnected()) {
             const error = `${manager.clientType} not connected`;
-            context.log(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
+            context.error(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
             results.push({ fileHash: item.fileHash, fileName: item.fileName, success: false, error, instanceId: item.instanceId, instanceName: manager?.displayName });
             continue;
           }
@@ -1264,13 +1272,13 @@ class WebSocketHandlers extends BaseModule {
           const result = await method(manager, item.fileHash);
           if (result === false) {
             const error = `${manager.clientType} rejected request`;
-            context.log(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
+            context.error(`${label} failed for ${item.fileName || item.fileHash}: ${error}`);
             results.push({ fileHash: item.fileHash, fileName: item.fileName, success: false, error, instanceId: item.instanceId, instanceName: manager.displayName });
           } else {
             results.push({ fileHash: item.fileHash, success: true, instanceId: item.instanceId, instanceName: manager.displayName });
           }
         } catch (err) {
-          context.log(`${label} failed for ${item.fileName || item.fileHash}: ${err.message}`);
+          context.error(`${label} failed for ${item.fileName || item.fileHash}: ${err.message}`);
           results.push({ fileHash: item.fileHash, fileName: item.fileName, success: false, error: err.message, instanceId: item.instanceId, instanceName: manager?.displayName });
         }
       }
@@ -1281,7 +1289,7 @@ class WebSocketHandlers extends BaseModule {
       context.send({ type: responseType, results, message: `${successCount}/${items.length} successful` });
       context.log(`Batch ${name}: ${successCount}/${items.length} successful`);
     } catch (err) {
-      context.log(`Batch ${name} error:`, err);
+      context.error(`Batch ${name} error:`, err);
       context.send({ type: 'error', message: `Batch ${name} failed: ${err.message}` });
     }
   }
@@ -1317,7 +1325,7 @@ class WebSocketHandlers extends BaseModule {
         context.send({ type: 'rename-complete', success: true });
       }
     } catch (err) {
-      context.log('Rename error:', err.message);
+      context.error('Rename error:', err.message);
       context.send({ type: 'rename-complete', success: false, error: err.message });
     }
   }
@@ -1358,7 +1366,7 @@ class WebSocketHandlers extends BaseModule {
         context.send({ type: 'rating-comment-complete', success: true });
       }
     } catch (err) {
-      context.log('Rating/comment error:', err.message);
+      context.error('Rating/comment error:', err.message);
       context.send({ type: 'rating-comment-complete', success: false, error: err.message });
     }
   }
@@ -1402,7 +1410,7 @@ class WebSocketHandlers extends BaseModule {
       }
       return { success: true };
     } catch (err) {
-      context.log(`Failed to delete ${filePath}: ${err.message}`);
+      context.error(`Failed to delete ${filePath}: ${err.message}`);
       return { success: false, error: err.message };
     }
   }
@@ -1441,7 +1449,7 @@ class WebSocketHandlers extends BaseModule {
 
         if (!manager) {
           const reason = instanceId ? `Instance "${instanceId}" not found` : 'No instanceId provided';
-          context.log(`Delete failed for ${fileName || item.fileHash}: ${reason}`);
+          context.error(`Delete failed for ${fileName || item.fileHash}: ${reason}`);
           results.push({ fileHash: item.fileHash, fileName, success: false, error: 'Client instance not found', instanceId, instanceName: null });
           continue;
         }
@@ -1483,7 +1491,7 @@ class WebSocketHandlers extends BaseModule {
 
           results.push({ fileHash: item.fileHash, success: true, instanceId, instanceName: manager.displayName, clientType: manager.clientType });
         } catch (err) {
-          context.log(`Delete failed for ${fileName || item.fileHash}: ${err.message}`);
+          context.error(`Delete failed for ${fileName || item.fileHash}: ${err.message}`);
           results.push({ fileHash: item.fileHash, fileName, success: false, error: err.message, instanceId, instanceName: manager?.displayName });
         }
       }
@@ -1495,7 +1503,7 @@ class WebSocketHandlers extends BaseModule {
           mgr?.refreshSharedFiles?.();
           context.log(`Triggered shared files refresh for ${mgr?.displayName || instId}`);
         } catch (refreshErr) {
-          context.log(`Failed to refresh shared files for ${instId}:`, refreshErr.message);
+          context.error(`Failed to refresh shared files for ${instId}:`, refreshErr.message);
         }
       }
       if (instanceIdsToRefresh.size > 0) {
@@ -1540,7 +1548,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Batch delete: ${successCount}/${items.length} successful`);
     } catch (err) {
-      context.log('Batch delete error:', err);
+      context.error('Batch delete error:', err);
       context.send({ type: 'error', message: 'Batch delete failed: ' + err.message });
     }
   }
@@ -1606,7 +1614,7 @@ class WebSocketHandlers extends BaseModule {
 
         if (!manager) {
           const reason = instanceId ? `Instance "${instanceId}" not found` : 'No instanceId provided';
-          context.log(`Set category failed for ${fileName || fileHash}: ${reason}`);
+          context.error(`Set category failed for ${fileName || fileHash}: ${reason}`);
           results.push({ fileHash, fileName, success: false, error: 'Client instance not found', instanceId, instanceName: null });
           continue;
         }
@@ -1628,7 +1636,7 @@ class WebSocketHandlers extends BaseModule {
             });
 
             if (!result.success) {
-              context.log(`Category change failed for ${fileName || fileHash}: ${result.error}`);
+              context.error(`Category change failed for ${fileName || fileHash}: ${result.error}`);
               results.push({ fileHash, fileName, success: false, error: result.error, instanceId, instanceName: manager.displayName });
               continue;
             }
@@ -1657,13 +1665,13 @@ class WebSocketHandlers extends BaseModule {
                 });
                 context.log(`Queued move for ${fileName || fileHash} -> ${destPathRemote}`);
               } catch (moveErr) {
-                context.log(`Failed to queue move for ${fileName || fileHash}: ${moveErr.message}`);
+                context.error(`Failed to queue move for ${fileName || fileHash}: ${moveErr.message}`);
                 // Don't fail the category change if move queueing fails
               }
             }
           }
         } catch (err) {
-          context.log(`Category change failed for ${fileName || fileHash}: ${err.message}`);
+          context.error(`Category change failed for ${fileName || fileHash}: ${err.message}`);
           results.push({ fileHash, fileName, success: false, error: err.message, instanceId, instanceName: manager?.displayName });
         }
       }
@@ -1707,7 +1715,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Batch category change: ${successCount}/${reqItems.length} -> "${displayName}"${moveFiles ? ' (with move)' : ''}`);
     } catch (err) {
-      context.log('Batch set file category error:', err);
+      context.error('Batch set file category error:', err);
       context.send({ type: 'error', message: 'Batch category change failed: ' + err.message });
     }
   }
@@ -1798,7 +1806,7 @@ class WebSocketHandlers extends BaseModule {
             ? 'File not visible (volume may not be mounted)'
             : checkResult.error || 'Unknown error';
 
-          context.log(`⚠️ Delete permission check failed (${reason}, ${clientType}): ${pathInfo.localPath}`);
+          context.error(`⚠️ Delete permission check failed (${reason}, ${clientType}): ${pathInfo.localPath}`);
           results.push({
             fileHash,
             clientType,
@@ -1814,7 +1822,7 @@ class WebSocketHandlers extends BaseModule {
       const isDocker = require('./config').isDocker;
       context.send({ type: 'delete-permissions', results, isDocker });
     } catch (err) {
-      context.log('Check delete permissions error:', err);
+      context.error('Check delete permissions error:', err);
       context.send({ type: 'delete-permissions', results: [], error: err.message });
     }
   }
@@ -1925,7 +1933,7 @@ class WebSocketHandlers extends BaseModule {
             ? `No write permission for destination: ${displayPath}`
             : `Cannot access destination: ${destCheck.error}`;
         destErrors.set(cacheKey, errorMsg);
-        context.log(`⚠️ Move permission check failed (dest, ${cacheKey}): ${errorMsg}`);
+        context.error(`⚠️ Move permission check failed (dest, ${cacheKey}): ${errorMsg}`);
       }
     }
 
@@ -1941,7 +1949,7 @@ class WebSocketHandlers extends BaseModule {
             ? `Source path not found: ${displayPath} (volume may not be mounted)`
             : `No permission to access source path: ${displayPath}`;
           sourceErrors.set(localPath, errorMsg);
-          context.log(`⚠️ Move permission check failed (source, ${clientType}): ${errorMsg}`);
+          context.error(`⚠️ Move permission check failed (source, ${clientType}): ${errorMsg}`);
         }
       }
     }
@@ -2013,7 +2021,7 @@ class WebSocketHandlers extends BaseModule {
         isDocker: require('./config').isDocker
       });
     } catch (err) {
-      context.log('Check move permissions error:', err);
+      context.error('Check move permissions error:', err);
       context.send({ type: 'move-permissions', results: [], canMove: false, error: err.message });
     }
   }
@@ -2055,7 +2063,7 @@ class WebSocketHandlers extends BaseModule {
         isDocker: require('./config').isDocker
       });
     } catch (err) {
-      context.log('Check move-to permissions error:', err);
+      context.error('Check move-to permissions error:', err);
       context.send({ type: 'move-to-permissions', results: [], canMove: false, error: err.message });
     }
   }
@@ -2129,7 +2137,7 @@ class WebSocketHandlers extends BaseModule {
           results.push({ fileHash, fileName: item.name, success: true, instanceId: item.instanceId });
           context.log(`Queued move for ${item.name} -> ${destPath}`);
         } catch (err) {
-          context.log(`Move failed for ${item.name}: ${err.message}`);
+          context.error(`Move failed for ${item.name}: ${err.message}`);
           results.push({ fileHash, fileName: item.name, success: false, error: err.message });
         }
       }
@@ -2144,7 +2152,7 @@ class WebSocketHandlers extends BaseModule {
       });
       context.log(`Batch move: ${successCount}/${reqItems.length} queued to ${destPath}`);
     } catch (err) {
-      context.log('Batch move error:', err);
+      context.error('Batch move error:', err);
       context.send({ type: 'error', message: 'Batch move failed: ' + err.message });
     }
   }

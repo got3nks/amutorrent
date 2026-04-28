@@ -56,7 +56,7 @@ class UserAPI extends BaseModule {
       const sanitized = users.map(u => this._sanitizeUser(u, { requestingUserId: req.session.userId }));
       response.success(res, { users: sanitized });
     } catch (err) {
-      this.log('❌ Error listing users:', err.message);
+      this.error('❌ Error listing users:', err.message);
       response.serverError(res, 'Failed to list users');
     }
   }
@@ -110,7 +110,7 @@ class UserAPI extends BaseModule {
 
       response.success(res, { user: this._sanitizeUser(created, { requestingUserId: req.session.userId }) }, 201);
     } catch (err) {
-      this.log('❌ Error creating user:', err.message);
+      this.error('❌ Error creating user:', err.message);
       response.serverError(res, 'Failed to create user: ' + err.message);
     }
   }
@@ -125,7 +125,7 @@ class UserAPI extends BaseModule {
 
       response.success(res, { user: this._sanitizeUser(user, { requestingUserId: req.session.userId }) });
     } catch (err) {
-      this.log('❌ Error getting user:', err.message);
+      this.error('❌ Error getting user:', err.message);
       response.serverError(res, 'Failed to get user');
     }
   }
@@ -211,7 +211,7 @@ class UserAPI extends BaseModule {
 
       response.success(res, { user: this._sanitizeUser(updated, { requestingUserId: req.session.userId }) });
     } catch (err) {
-      this.log('❌ Error updating user:', err.message);
+      this.error('❌ Error updating user:', err.message);
       response.serverError(res, 'Failed to update user: ' + err.message);
     }
   }
@@ -237,7 +237,7 @@ class UserAPI extends BaseModule {
 
       response.success(res, { message: `User ${user.username} deleted` });
     } catch (err) {
-      this.log('❌ Error deleting user:', err.message);
+      this.error('❌ Error deleting user:', err.message);
       if (err.message.includes('last admin')) {
         return response.badRequest(res, err.message);
       }
@@ -258,7 +258,7 @@ class UserAPI extends BaseModule {
 
       response.success(res, { apiKey });
     } catch (err) {
-      this.log('❌ Error regenerating API key:', err.message);
+      this.error('❌ Error regenerating API key:', err.message);
       response.serverError(res, 'Failed to regenerate API key');
     }
   }

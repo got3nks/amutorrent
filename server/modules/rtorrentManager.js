@@ -25,7 +25,7 @@ class RtorrentManager extends BaseClientManager {
   async initClient() {
     // Prevent concurrent connection attempts
     if (this.connectionInProgress) {
-      this.log('⚠️  rtorrent connection attempt already in progress, skipping...');
+      this.warn('⚠️  rtorrent connection attempt already in progress, skipping...');
       return false;
     }
 
@@ -37,11 +37,11 @@ class RtorrentManager extends BaseClientManager {
 
     if (this._clientConfig.mode === 'scgi-socket') {
       if (!this._clientConfig.socketPath) {
-        this.log('⚠️  rtorrent socket path not configured');
+        this.warn('⚠️  rtorrent socket path not configured');
         return false;
       }
     } else if (!this._clientConfig.host) {
-      this.log('⚠️  rtorrent host not configured');
+      this.warn('⚠️  rtorrent host not configured');
       return false;
     }
 
@@ -98,7 +98,7 @@ class RtorrentManager extends BaseClientManager {
 
       return true;
     } catch (err) {
-      this.log('❌ Failed to connect to rtorrent:', logger.errorDetail(err));
+      this.error('❌ Failed to connect to rtorrent:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.stopTrackerRefresh();
@@ -150,7 +150,7 @@ class RtorrentManager extends BaseClientManager {
       this.lastDownloads = downloads;
       return downloads;
     } catch (err) {
-      this.log('❌ Error fetching rtorrent downloads:', logger.errorDetail(err));
+      this.error('❌ Error fetching rtorrent downloads:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.scheduleReconnect(30000);
@@ -215,7 +215,7 @@ class RtorrentManager extends BaseClientManager {
       this.lastStats = stats;
       return stats;
     } catch (err) {
-      this.log('❌ Error fetching rtorrent stats:', logger.errorDetail(err));
+      this.error('❌ Error fetching rtorrent stats:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.scheduleReconnect(30000);
@@ -235,7 +235,7 @@ class RtorrentManager extends BaseClientManager {
     try {
       return await this.client.getDefaultDirectory();
     } catch (err) {
-      this.log('❌ Error fetching rtorrent default directory:', logger.errorDetail(err));
+      this.error('❌ Error fetching rtorrent default directory:', logger.errorDetail(err));
       return '';
     }
   }
@@ -447,7 +447,7 @@ class RtorrentManager extends BaseClientManager {
         const pathInfo = await this.getDownloadPathInfo(hash);
         if (pathInfo?.basePath) pathsToDelete.push(pathInfo.basePath);
       } catch (err) {
-        this.log(`⚠️  Failed to get path info for ${hash}: ${err.message}`);
+        this.warn(`⚠️  Failed to get path info for ${hash}: ${err.message}`);
       }
     }
     await this.removeDownload(hash);
@@ -638,7 +638,7 @@ class RtorrentManager extends BaseClientManager {
       try {
         this.client.disconnect();
       } catch (err) {
-        this.log('⚠️  Error during rtorrent client shutdown:', logger.errorDetail(err));
+        this.warn('⚠️  Error during rtorrent client shutdown:', logger.errorDetail(err));
       }
       this.client = null;
     }

@@ -71,7 +71,7 @@ class AutoRefreshManager extends BaseModule {
             metrics: manager.extractMetrics(stats)
           });
         } catch (err) {
-          this.log(`⚠️  Error fetching ${manager.instanceId} stats:`, logger.errorDetail(err));
+          this.warn(`⚠️  Error fetching ${manager.instanceId} stats:`, logger.errorDetail(err));
         }
       }
 
@@ -86,7 +86,7 @@ class AutoRefreshManager extends BaseModule {
           }));
           this.metricsDB.insertInstanceMetrics(timestamp, entries);
         } catch (err) {
-          this.log('⚠️  Error saving metrics:', logger.errorDetail(err));
+          this.warn('⚠️  Error saving metrics:', logger.errorDetail(err));
         }
       }
 
@@ -108,7 +108,7 @@ class AutoRefreshManager extends BaseModule {
       const batchData = await dataFetchService.getBatchData();
       const batchMs = Date.now() - batchStart;
       if (batchMs > 15000) {
-        this.log(`⚠️  getBatchData() took ${(batchMs / 1000).toFixed(1)}s — data fetch cycle is slow`);
+        this.warn(`⚠️  getBatchData() took ${(batchMs / 1000).toFixed(1)}s — data fetch cycle is slow`);
       }
 
       // Update history status from live data (throttled to reduce SQLite writes)
@@ -155,12 +155,12 @@ class AutoRefreshManager extends BaseModule {
       try {
         combinedStats.diskSpace = await getDiskSpace(config.getDataDir());
       } catch (err) {
-        this.log('⚠️  Error getting disk space:', logger.errorDetail(err));
+        this.warn('⚠️  Error getting disk space:', logger.errorDetail(err));
       }
       try {
         combinedStats.cpuUsage = await getCpuUsage();
       } catch (err) {
-        this.log('⚠️  Error getting CPU usage:', logger.errorDetail(err));
+        this.warn('⚠️  Error getting CPU usage:', logger.errorDetail(err));
       }
 
       // ── Strip and cache (always — serves both REST API and new WS clients) ─
@@ -202,7 +202,7 @@ class AutoRefreshManager extends BaseModule {
 
     } catch (err) {
       // Client disconnected during stats fetch - will retry on next interval
-      this.log('⚠️  Could not fetch stats:', logger.errorDetail(err));
+      this.warn('⚠️  Could not fetch stats:', logger.errorDetail(err));
     } finally {
       this.refreshInterval = setTimeout(() => this.autoRefreshLoop(), config.AUTO_REFRESH_INTERVAL);
     }
@@ -365,7 +365,7 @@ class AutoRefreshManager extends BaseModule {
         const dur = eventData.downtimeDuration ? ` (was offline for ${formatDuration(eventData.downtimeDuration)})` : '';
         this.log(`🟢 ${manager.displayName} is back online${dur}`);
       } else {
-        this.log(`🔴 ${manager.displayName} is unreachable: ${error || 'unknown reason'}`);
+        this.warn(`🔴 ${manager.displayName} is unreachable: ${error || 'unknown reason'}`);
       }
 
       // Emit event (scripts + notifications with flood prevention handled by EventScriptingManager)
@@ -466,7 +466,7 @@ class AutoRefreshManager extends BaseModule {
       // Batch update the database
       this.downloadHistoryDB.batchUpdateFromLiveData(activeKeys, completedKeys, metadataMap);
     } catch (err) {
-      this.log('⚠️  Error updating history status:', logger.errorDetail(err));
+      this.warn('⚠️  Error updating history status:', logger.errorDetail(err));
     }
   }
 
@@ -504,7 +504,7 @@ class AutoRefreshManager extends BaseModule {
         const deleted = this.metricsDB.cleanupOldData(config.CLEANUP_DAYS);
         this.log(`🧹 Cleaned up ${deleted} old metrics records (older than ${config.CLEANUP_DAYS} days)`);
       } catch (err) {
-        this.log('⚠️  Error cleaning up metrics:', logger.errorDetail(err));
+        this.warn('⚠️  Error cleaning up metrics:', logger.errorDetail(err));
       }
     }
 
@@ -519,7 +519,7 @@ class AutoRefreshManager extends BaseModule {
           }
         }
       } catch (err) {
-        this.log('⚠️  Error cleaning up history:', logger.errorDetail(err));
+        this.warn('⚠️  Error cleaning up history:', logger.errorDetail(err));
       }
     }
   }

@@ -6,18 +6,41 @@
  *
  * Download client managers should extend BaseClientManager instead, which adds
  * client lifecycle, history tracking, reconnection, and tracker cache.
+ *
+ * Logging:
+ *   `this.log()` / `this.info()` / `this.warn()` / `this.error()` / `this.debug()`
+ *   are level-aware shortcuts that tag every record with the module's
+ *   `logSource()` (defaults to `instanceId` if present, else the constructor
+ *   name). Subclasses can override `logSource()` to pick a friendlier label.
  */
 const logger = require('./logger');
 
 class BaseModule {
   constructor() {
-    // Use centralized logger singleton
-    this.log = logger.log.bind(logger);
     this.broadcast = null;
     this.metricsDB = null;
     this.downloadHistoryDB = null;
     this.wss = null;
     this.userManager = null;
+
+    // Bind level-aware loggers that tag every record with this module's
+    // source. Use methods (not arrows) so subclasses can override `logSource()`
+    // and have new instances pick that up automatically.
+    this.log = (...args) => logger.logFor(this.logSource(), ...args);
+    this.info = (...args) => logger.infoFor(this.logSource(), ...args);
+    this.warn = (...args) => logger.warnFor(this.logSource(), ...args);
+    this.error = (...args) => logger.errorFor(this.logSource(), ...args);
+    this.debug = (...args) => logger.debugFor(this.logSource(), ...args);
+  }
+
+  /**
+   * Source label used for every log record from this module.
+   * Subclasses (notably client managers with `instanceId`) override or
+   * extend this — default behaviour is "instanceId if set, else class name".
+   * @returns {string}
+   */
+  logSource() {
+    return this.instanceId || this.constructor.name;
   }
 
   /**

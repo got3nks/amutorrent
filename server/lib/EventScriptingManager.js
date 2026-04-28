@@ -71,12 +71,12 @@ class EventScriptingManager extends BaseModule {
       const { allowed, isFinalWarning } = this._floodGuard.check(floodKey);
       if (allowed) {
         notificationManager.notifyClientHealth(eventType, eventData, isFinalWarning).catch(err => {
-          this.log(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
+          this.error(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
         });
       }
     } else {
       notificationManager.notify(eventType, eventData).catch(err => {
-        this.log(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
+        this.error(`[Notification] Error sending notification for ${eventType}: ${err.message}`);
       });
     }
 
@@ -95,7 +95,7 @@ class EventScriptingManager extends BaseModule {
 
     // Fire and forget - don't await
     this._executeScript(scriptPath, eventType, eventData, timeout).catch(err => {
-      this.log(`[EventScript] Error executing script for ${eventType}: ${err.message}`);
+      this.error(`[EventScript] Error executing script for ${eventType}: ${err.message}`);
     });
   }
 
@@ -147,7 +147,7 @@ class EventScriptingManager extends BaseModule {
     try {
       await fs.promises.access(scriptPath, fs.constants.X_OK);
     } catch (err) {
-      this.log(`[EventScript] Script not found or not executable: ${scriptPath}`);
+      this.warn(`[EventScript] Script not found or not executable: ${scriptPath}`);
       return;
     }
 
@@ -158,7 +158,7 @@ class EventScriptingManager extends BaseModule {
       await fd.read(head, 0, 256);
       await fd.close();
       if (head.includes(0x0d)) {
-        this.log(`[EventScript] WARNING: Script has Windows line endings (CRLF): ${scriptPath} — this will cause "command not found" errors. Convert with: sed -i 's/\\r$//' ${scriptPath}`);
+        this.warn(`[EventScript] Script has Windows line endings (CRLF): ${scriptPath} — this will cause "command not found" errors. Convert with: sed -i 's/\\r$//' ${scriptPath}`);
       }
     } catch { /* non-critical check */ }
 
@@ -203,7 +203,7 @@ class EventScriptingManager extends BaseModule {
               child.kill('SIGKILL');
             }
           }, 5000);
-          this.log(`[EventScript] Script timed out after ${timeout}ms for ${eventType}`);
+          this.warn(`[EventScript] Script timed out after ${timeout}ms for ${eventType}`);
         }, timeout);
       }
 
@@ -225,7 +225,7 @@ class EventScriptingManager extends BaseModule {
 
       child.on('error', (err) => {
         if (timeoutId) clearTimeout(timeoutId);
-        this.log(`[EventScript] Failed to start script for ${eventType}: ${err.message}`);
+        this.error(`[EventScript] Failed to start script for ${eventType}: ${err.message}`);
         resolve();
       });
 

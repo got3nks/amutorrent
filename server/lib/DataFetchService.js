@@ -263,7 +263,7 @@ class DataFetchService extends BaseModule {
 
         // Warn if fetch took unusually long (>10s — EC timeout is 30s)
         if (fetchMs > 10000) {
-          this.log(`⚠️  ${manager.instanceId} fetchData() took ${(fetchMs / 1000).toFixed(1)}s`);
+          this.warn(`⚠️  ${manager.instanceId} fetchData() took ${(fetchMs / 1000).toFixed(1)}s`);
         }
 
         const dlCount = data.downloads?.length || 0;
@@ -273,7 +273,7 @@ class DataFetchService extends BaseModule {
         const prevDl = manager._lastFetchCounts?.downloads || 0;
         const prevShared = manager._lastFetchCounts?.shared || 0;
         if ((prevDl > 0 && dlCount === 0) || (prevShared > 0 && sharedCount === 0)) {
-          this.log(`⚠️  ${manager.instanceId} returned empty data (downloads: ${prevDl}→${dlCount}, shared: ${prevShared}→${sharedCount}) — client may have lost connection`);
+          this.warn(`⚠️  ${manager.instanceId} returned empty data (downloads: ${prevDl}→${dlCount}, shared: ${prevShared}→${sharedCount}) — client may have lost connection`);
         }
         manager._lastFetchCounts = { downloads: dlCount, shared: sharedCount };
         manager._lastFetchData = data;
@@ -285,11 +285,11 @@ class DataFetchService extends BaseModule {
         manager._lastFetchFailures = (manager._lastFetchFailures || 0) + 1;
         const prev = manager._lastFetchData;
         if (prev) {
-          this.log(`⚠️  ${manager.instanceId} fetchData failed (${manager._lastFetchFailures}×): ${err.message} — reusing last known frame`);
+          this.warn(`⚠️  ${manager.instanceId} fetchData failed (${manager._lastFetchFailures}×): ${err.message} — reusing last known frame`);
           allDownloads = allDownloads.concat(prev.downloads || []);
           allShared = allShared.concat(prev.sharedFiles || []);
         } else {
-          this.log(`❌ ${manager.instanceId} fetchData failed with no cached frame: ${err.message}`);
+          this.error(`❌ ${manager.instanceId} fetchData failed with no cached frame: ${err.message}`);
         }
       }
     }

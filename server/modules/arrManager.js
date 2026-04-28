@@ -40,7 +40,7 @@ class ArrManager extends BaseModule {
     try {
       await fs.writeFile(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
     } catch (err) {
-      this.log('❌ Error writing state file:', err.message);
+      this.error('❌ Error writing state file:', err.message);
     }
   }
 
@@ -69,7 +69,7 @@ class ArrManager extends BaseModule {
 
     const cfg = config_map[service];
     if (!cfg) {
-      this.log(`❌ Unknown service: ${service}`);
+      this.error(`❌ Unknown service: ${service}`);
       return;
     }
 
@@ -90,7 +90,7 @@ class ArrManager extends BaseModule {
       await this.waitForCommandCompletion(service, result.id);
       this.log(`  ✅ ${contentType} search completed (Command ID: ${result.id})`);
     } catch (err) {
-      this.log(`  ❌ Failed to search ${contentType} ${contentId}:`, err.message);
+      this.error(`  ❌ Failed to search ${contentType} ${contentId}:`, err.message);
     }
   }
 
@@ -142,7 +142,7 @@ class ArrManager extends BaseModule {
     while (true) {
       // Check timeout
       if (Date.now() - startTime > timeoutMs) {
-        this.log('⏱️ Command did not complete within timeout, proceeding anyway...');
+        this.warn('⏱️ Command did not complete within timeout, proceeding anyway...');
         return;
       }
 
@@ -227,12 +227,12 @@ class ArrManager extends BaseModule {
       ? registry.get(configuredId)
       : registry.getByType('amule').find(m => m.isConnected());
     if (!amuleMgr) {
-      this.log(`⚠️  No aMule instance connected, skipping ${service} automatic search`);
+      this.warn(`⚠️  No aMule instance connected, skipping ${service} automatic search`);
       return false;
     }
     while (!amuleMgr.acquireSearchLock()) {
       if (Date.now() - startTime > maxWaitTime) {
-        this.log(`⚠️  Timeout waiting for search lock, skipping ${service} automatic search`);
+        this.warn(`⚠️  Timeout waiting for search lock, skipping ${service} automatic search`);
         return false;
       }
       this.log('⏳ Search already in progress, waiting for lock to be freed...');
@@ -333,7 +333,7 @@ class ArrManager extends BaseModule {
     const cfg = this.getServiceConfig(service);
 
     if (!cfg.url || !cfg.apiKey) {
-      this.log(`⚠️  ${service} URL or API key not configured, skipping automatic search`);
+      this.warn(`⚠️  ${service} URL or API key not configured, skipping automatic search`);
       return;
     }
 
@@ -405,7 +405,7 @@ class ArrManager extends BaseModule {
 
         const qualityProfile = profilesMap.get(content.qualityProfileId);
         if (!qualityProfile) {
-          this.log(`⚠️  Could not find quality profile for ${content.title}`);
+          this.warn(`⚠️  Could not find quality profile for ${content.title}`);
           continue;
         }
 
@@ -515,7 +515,7 @@ class ArrManager extends BaseModule {
       if (DEBUG) this.log(`💾 Updated last ${service} search completion time`);
 
     } catch (err) {
-      this.log(`❌ Error during ${service} refresh/missing search:`, err.message);
+      this.error(`❌ Error during ${service} refresh/missing search:`, err.message);
     } finally {
       this.releaseSearchLock(service);
     }

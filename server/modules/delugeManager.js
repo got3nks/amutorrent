@@ -84,7 +84,7 @@ class DelugeManager extends BaseClientManager {
           this.log('Label plugin: not available (plugin not installed on daemon)');
         }
       } catch (err) {
-        this.log('Could not check/enable Label plugin:', logger.errorDetail(err));
+        this.warn('Could not check/enable Label plugin:', logger.errorDetail(err));
         this._labelPluginAvailable = false;
       }
 
@@ -92,7 +92,7 @@ class DelugeManager extends BaseClientManager {
       try {
         this.cachedListenPort = await newClient.getListenPort();
       } catch (err) {
-        this.log('Could not fetch listen port:', logger.errorDetail(err));
+        this.warn('Could not fetch listen port:', logger.errorDetail(err));
       }
 
       // Start tracker cache refresh
@@ -103,7 +103,7 @@ class DelugeManager extends BaseClientManager {
 
       return true;
     } catch (err) {
-      this.log('Failed to connect to Deluge:', logger.errorDetail(err));
+      this.error('Failed to connect to Deluge:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
       this.stopTrackerRefresh();
@@ -170,7 +170,7 @@ class DelugeManager extends BaseClientManager {
       this.lastTorrents = torrentArray;
       return torrentArray;
     } catch (err) {
-      this.log('Error fetching Deluge torrents:', logger.errorDetail(err));
+      this.error('Error fetching Deluge torrents:', logger.errorDetail(err));
       this._setConnectionError(err);
       if (this.client) {
         this.client.connected = false;
@@ -289,7 +289,7 @@ class DelugeManager extends BaseClientManager {
         listenPort: this.cachedListenPort
       };
     } catch (err) {
-      this.log('❌ Error fetching Deluge stats:', logger.errorDetail(err));
+      this.error('❌ Error fetching Deluge stats:', logger.errorDetail(err));
       this._setConnectionError(err);
       if (this.client) this.client.connected = false;
       this.scheduleReconnect(30000);
@@ -511,7 +511,7 @@ class DelugeManager extends BaseClientManager {
         await this._ensureLabelExists(label);
         await this.client.setTorrentLabel(hash, label.toLowerCase());
       } catch (err) {
-        this.log(`Could not set label "${label}" for magnet: ${err.message}`);
+        this.warn(`Could not set label "${label}" for magnet: ${err.message}`);
       }
     }
 
@@ -540,7 +540,7 @@ class DelugeManager extends BaseClientManager {
         await this._ensureLabelExists(label);
         await this.client.setTorrentLabel(hash, label.toLowerCase());
       } catch (err) {
-        this.log(`Could not set label "${label}" for torrent: ${err.message}`);
+        this.warn(`Could not set label "${label}" for torrent: ${err.message}`);
       }
     }
 
@@ -591,7 +591,7 @@ class DelugeManager extends BaseClientManager {
         this.log(`Created label "${lowerName}" in Deluge`);
       }
     } catch (err) {
-      this.log(`Failed to ensure label "${name}": ${err.message}`);
+      this.error(`Failed to ensure label "${name}": ${err.message}`);
     }
   }
 
@@ -612,7 +612,7 @@ class DelugeManager extends BaseClientManager {
       }
       return result;
     } catch (err) {
-      this.log('Error fetching Deluge labels:', logger.errorDetail(err));
+      this.error('Error fetching Deluge labels:', logger.errorDetail(err));
       return {};
     }
   }
@@ -675,11 +675,11 @@ class DelugeManager extends BaseClientManager {
           results.push({ name: cat.name });
           this.log(`Propagated label "${cat.name}" to Deluge`);
         } catch (err) {
-          this.log(`Failed to propagate "${cat.name}" to Deluge: ${err.message}`);
+          this.error(`Failed to propagate "${cat.name}" to Deluge: ${err.message}`);
         }
       }
     } catch (err) {
-      this.log(`Failed to fetch Deluge labels for batch propagation: ${err.message}`);
+      this.error(`Failed to fetch Deluge labels for batch propagation: ${err.message}`);
     }
     return results;
   }
@@ -764,7 +764,7 @@ class DelugeManager extends BaseClientManager {
     try {
       delugeLabels = await this.client.getLabels();
     } catch (err) {
-      this.log(`Failed to fetch labels for sync: ${err.message}`);
+      this.error(`Failed to fetch labels for sync: ${err.message}`);
       return;
     }
 
@@ -794,7 +794,7 @@ class DelugeManager extends BaseClientManager {
         createdInDeluge++;
         this.log(`Pushed label "${lowerName}" to Deluge`);
       } catch (err) {
-        this.log(`Failed to push label "${lowerName}" to Deluge: ${err.message}`);
+        this.error(`Failed to push label "${lowerName}" to Deluge: ${err.message}`);
       }
     }
 
@@ -823,7 +823,7 @@ class DelugeManager extends BaseClientManager {
       const path = await this.client._call('core.get_config_value', ['download_location']);
       return path || null;
     } catch (err) {
-      this.log('Failed to get Deluge default directory:', logger.errorDetail(err));
+      this.error('Failed to get Deluge default directory:', logger.errorDetail(err));
       return null;
     }
   }
@@ -852,7 +852,7 @@ class DelugeManager extends BaseClientManager {
       try {
         await this.client.disconnect();
       } catch (err) {
-        this.log('Error during Deluge client shutdown:', logger.errorDetail(err));
+        this.error('Error during Deluge client shutdown:', logger.errorDetail(err));
       }
       this.client = null;
     }

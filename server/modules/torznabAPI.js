@@ -24,7 +24,7 @@ class TorznabAPI extends BaseModule {
           amuleMgr = registry.get(configuredId);
           if (!amuleMgr) {
             amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.log(`⚠️ [TorznabAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
+            if (amuleMgr) this.warn(`⚠️ [TorznabAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
           }
         } else {
           amuleMgr = registry.getByType('amule').find(m => m.isConnected());
@@ -62,7 +62,7 @@ class TorznabAPI extends BaseModule {
 
       next();
     } catch (err) {
-      this.log('Torznab API key verification error:', err);
+      this.error('Torznab API key verification error:', err);
       response.serverError(res, 'Internal server error');
     }
   }
