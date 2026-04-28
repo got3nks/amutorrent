@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.0] - Structured Logging, aMule Desync Detection & Modal Overflow Fix
+
+### ✨ Added
+
+- **Structured logging across the server** — every log call now produces a record with a level (`error` / `warn` / `info` / `debug`), a source tag (instance ID, module name, or `<ip>(user, nick)` for WS sessions), and an ISO timestamp. The file format is `[ts] [LEVEL] [source] message`; an in-memory ring buffer keeps the last 2000 records, seeded from the file tail at startup so the LogsView keeps history across restarts.
+- **Filterable LogsView** with three controls: minimum-level (`Errors only` / `Warnings & errors` / `Info & above` / `All (debug)`), multi-select source filter (OR semantics, sources grouped semantically as `(server)` → instances → user sessions → modules), and free-text search. Records render with per-level row coloring (red / amber / default / muted), absolute-positioned local-timezone timestamp, and a truncated source chip.
+- **Mobile LogsView UX** — `ExpandableSearch` + `MobileFilterButton` in the header (active-filter count badge), filters housed in a `MobileFilterSheet` (level radio + source checkboxes), and reflowed row layout that doesn't push content off-screen on narrow viewports.
+- **`MultiSelectPopover` (shared)** — generic checkbox-list popover extracted from `TrackerMultiSelect`. Same OR-semantics multi-select UX is now reused by the LogsView source filter; `TrackerMultiSelect` is a thin wrapper that injects favicon decorations.
+
+### ♻️ Improved
+
+- **aMule state desync detection** — when `getUpdate()` returns successfully but `_updateState` collapses (sharedFiles count drops from non-zero to zero), the manager now treats it the same as a thrown failure: closes the stale socket so aMule's `CValueMap` resets, schedules a 1 s reconnect, and lets the next full-state fetch resync both sides. Previously this case was silently accepted and the UI kept showing a stale "no items" frame indefinitely.
+- **Log levels properly tuned across the codebase** — every `this.log('❌ …')` is now `this.error(…)`, every `this.log('⚠️ …')` is `this.warn(…)`, and unprefixed catch-block logs (Error / Failed / Cannot / Unable patterns) were upgraded too. High-cadence trace lines (HTTP request middleware, WS message receipts, routine fetch-success traces) demoted to `debug` so the `info` stream is meaningful by default. Auth/SSO events at correct severity throughout.
+
+### 🐛 Fixed
+
+- **Add Download modal grew beyond the viewport** when many `.torrent` files were selected, hiding the download path field and action buttons (#40). The modal box now caps at `85vh` (mobile-`md`) / `90vh` (desktop), letting the body scroll while the header and footer stay visible.
+
+---
+
 ## [3.7.1] - Shared Files Auto-Reload & aMule State Resync Fixes
 
 ### 🐛 Fixed
