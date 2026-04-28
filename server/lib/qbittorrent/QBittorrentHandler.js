@@ -487,32 +487,91 @@ class QBittorrentHandler {
   }
 
   /**
+   * Resolve the aMule manager backing this compat layer. Falls back to null
+   * if no instance is configured / connected — callers handle that case.
+   */
+  _getAmuleManager() {
+    const instanceId = this.getAmuleInstanceId?.();
+    if (!instanceId || !this.registry) return null;
+    return this.registry.get(instanceId);
+  }
+
+  /**
+   * Look up the unified item for a given hash in DataFetchService's cached
+   * batch. Used by deleteTorrent to figure out whether the target is an
+   * active partfile (queue + .part cleanup) or a completed shared file
+   * (needs an explicit fs.unlink). Returns null if not in cache; the caller
+   * defaults to active-download semantics in that case.
+   */
+  _findCachedItem(hash) {
+    const dataFetchService = require('../DataFetchService');
+    const cached = dataFetchService.getCachedBatchData(10000);
+    if (!cached?.items) return null;
+    const lower = String(hash).toLowerCase();
+    return cached.items.find(it => it.hash?.toLowerCase() === lower) || null;
+  }
+
+  /**
    * POST /api/v2/torrents/delete
+   *
+   * Implements `deleteFiles=true` semantics so Sonarr/Radarr's "imported,
+   * delete from client" step actually removes the file from disk. For an
+   * active download, aMule cleans up the .part temp file when we cancel.
+   * For a completed shared file, we have to fs.unlink ourselves and then
+   * tell aMule to refresh its shared list — otherwise the entry sticks
+   * around in the UI until the next periodic reload.
    */
   async deleteTorrent(req, res) {
     try {
-      const { hashes, deleteFiles = false } = req.body;
+      const { hashes, deleteFiles: deleteFilesRaw = false } = req.body;
+      // Form-encoded params arrive as strings; coerce 'true'/'false' to bool.
+      const deleteFiles = deleteFilesRaw === true || deleteFilesRaw === 'true';
       logger.log('[qBittorrent] Delete request:', { hashes, deleteFiles });
 
       if (!hashes) {
         return response.badRequest(res, 'Missing hashes parameter');
       }
 
-      const amuleClient = this.getAmuleClient?.();
-      if (!amuleClient) {
+      const manager = this._getAmuleManager();
+      if (!manager || !manager.isConnected()) {
         return response.serviceUnavailable(res, 'aMule not connected');
       }
 
+      const fs = require('fs').promises;
       const hashList = hashes.split('|').map(h => h.trim()).filter(Boolean);
       logger.log('[qBittorrent] Processing', hashList.length, 'hash(es)');
 
+      let needsSharedRefresh = false;
       for (const hash of hashList) {
         try {
           const ed2kHash = this.hashStore.getEd2kHash(hash);
           const finalHash = ed2kHash || hash;
 
-          logger.log('[qBittorrent] Deleting hash:', finalHash);
-          await amuleClient.cancelDownload(finalHash);
+          // Look up cached state to decide active-download vs shared-file path.
+          const item = this._findCachedItem(finalHash);
+          const isShared = !!(item?.shared && !item?.downloading);
+          const filePath = item?.filePath || null;
+
+          logger.log(`[qBittorrent] Deleting hash: ${finalHash} (shared=${isShared}, deleteFiles=${deleteFiles})`);
+
+          const result = await manager.deleteItem(finalHash, { deleteFiles, isShared, filePath });
+
+          // For shared files, deleteItem returns the path(s) but the caller
+          // (us) is expected to actually unlink them. Mirrors the contract
+          // used by webSocketHandlers.handleBatchDelete.
+          if (deleteFiles && Array.isArray(result?.pathsToDelete)) {
+            for (const p of result.pathsToDelete) {
+              try {
+                await fs.unlink(p);
+                logger.log(`[qBittorrent] Removed file: ${p}`);
+                needsSharedRefresh = true;
+              } catch (unlinkErr) {
+                if (unlinkErr.code !== 'ENOENT') {
+                  logger.warn(`[qBittorrent] Failed to unlink ${p}: ${unlinkErr.message}`);
+                }
+              }
+            }
+          }
 
           if (ed2kHash) {
             this.hashStore.removeMapping(ed2kHash);
@@ -521,6 +580,17 @@ class QBittorrentHandler {
           logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
         } catch (error) {
           logger.error('[qBittorrent] Exception deleting hash:', hash, error);
+        }
+      }
+
+      // After unlinking shared files, ask aMule to rescan so the entries
+      // disappear from getSharedFiles() / the UI immediately. Best-effort —
+      // failures here shouldn't fail the delete request.
+      if (needsSharedRefresh) {
+        try {
+          await manager.refreshSharedFiles();
+        } catch (refreshErr) {
+          logger.warn('[qBittorrent] refreshSharedFiles failed after delete:', refreshErr.message);
         }
       }
 
@@ -533,18 +603,82 @@ class QBittorrentHandler {
 
   /**
    * POST /api/v2/torrents/pause
+   *
+   * Maps to aMule's pause for active downloads. Completed shared files
+   * have no "pause seeding" concept in aMule — the call is a no-op for
+   * those, which matches our `state: 'pausedUP'` reporting (they're
+   * effectively already paused as far as the qBit-compat layer is
+   * concerned). The endpoint always responds 200 so Sonarr/Radarr never
+   * get stuck on a failed pause.
    */
-  pauseTorrent(req, res) {
-    logger.warn('[qBittorrent] Pause not implemented');
-    res.send('Ok.');
+  async pauseTorrent(req, res) {
+    try {
+      const { hashes } = req.body;
+      if (!hashes) return response.badRequest(res, 'Missing hashes parameter');
+
+      const manager = this._getAmuleManager();
+      if (!manager || !manager.isConnected()) {
+        return response.serviceUnavailable(res, 'aMule not connected');
+      }
+
+      const hashList = hashes.split('|').map(h => h.trim()).filter(Boolean);
+      for (const hash of hashList) {
+        try {
+          const ed2kHash = this.hashStore.getEd2kHash(hash);
+          const finalHash = ed2kHash || hash;
+          const item = this._findCachedItem(finalHash);
+          // Skip pure shared files — pause is meaningless on them.
+          if (item?.shared && !item?.downloading) {
+            logger.debug(`[qBittorrent] Pause: ${finalHash} is a shared file, no-op`);
+            continue;
+          }
+          await manager.pause(finalHash);
+          logger.log(`[qBittorrent] Paused: ${finalHash}`);
+        } catch (err) {
+          logger.warn(`[qBittorrent] Pause failed for ${hash}: ${err.message}`);
+        }
+      }
+      res.send('Ok.');
+    } catch (error) {
+      logger.error('[qBittorrent] Pause torrent error:', error);
+      return response.serverError(res, 'Failed to pause torrent');
+    }
   }
 
   /**
-   * POST /api/v2/torrents/resume
+   * POST /api/v2/torrents/resume — same shape as pause, just the inverse.
    */
-  resumeTorrent(req, res) {
-    logger.warn('[qBittorrent] Resume not implemented');
-    res.send('Ok.');
+  async resumeTorrent(req, res) {
+    try {
+      const { hashes } = req.body;
+      if (!hashes) return response.badRequest(res, 'Missing hashes parameter');
+
+      const manager = this._getAmuleManager();
+      if (!manager || !manager.isConnected()) {
+        return response.serviceUnavailable(res, 'aMule not connected');
+      }
+
+      const hashList = hashes.split('|').map(h => h.trim()).filter(Boolean);
+      for (const hash of hashList) {
+        try {
+          const ed2kHash = this.hashStore.getEd2kHash(hash);
+          const finalHash = ed2kHash || hash;
+          const item = this._findCachedItem(finalHash);
+          if (item?.shared && !item?.downloading) {
+            logger.debug(`[qBittorrent] Resume: ${finalHash} is a shared file, no-op`);
+            continue;
+          }
+          await manager.resume(finalHash);
+          logger.log(`[qBittorrent] Resumed: ${finalHash}`);
+        } catch (err) {
+          logger.warn(`[qBittorrent] Resume failed for ${hash}: ${err.message}`);
+        }
+      }
+      res.send('Ok.');
+    } catch (error) {
+      logger.error('[qBittorrent] Resume torrent error:', error);
+      return response.serverError(res, 'Failed to resume torrent');
+    }
   }
 }
 

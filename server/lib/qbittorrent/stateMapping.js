@@ -42,10 +42,20 @@ function calculateEta(total, completed, speed) {
 }
 
 /**
- * Determine qBittorrent state from download metrics
+ * Determine qBittorrent state from download metrics.
+ *
+ * Once a download reaches 100%, return `pausedUP` rather than `uploading`.
+ * Sonarr/Radarr trigger their post-import cleanup loop on `pausedUP` (or
+ * historically `completedUP`) — they treat `uploading` as "still seeding,
+ * don't touch", which is why aMule downloads were lingering forever and
+ * filling disk in the *arr workflow. aMule doesn't have a user-controlled
+ * "stop seeding" state anyway: completed files are simply available in the
+ * shared list for peers that ask, with no per-file lifecycle. Reporting
+ * `pausedUP` at 100% maps that reality onto the qBit-compat semantics
+ * Sonarr/Radarr expect, so the import-then-cleanup loop fires.
  */
 function determineState(progress, speed, sourceCount) {
-  if (progress >= 1.0) return 'uploading';
+  if (progress >= 1.0) return 'pausedUP';
   if (speed > 0) return 'downloading';
   if (sourceCount === 0) return 'stalledDL';
   if (sourceCount > 0) return 'queuedDL';
