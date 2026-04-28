@@ -301,7 +301,13 @@ const AddDownloadModal = ({
       onClick: onClose
     },
       h('div', {
-        className: 'modal-full bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full flex flex-col overflow-hidden',
+        // Cap modal height so the body can scroll when content (e.g. a large
+        // batch of selected .torrent files) would otherwise push the footer
+        // buttons off-screen. The body inside is `flex-1 overflow-y-auto`,
+        // which only kicks in once the flex column itself has a height.
+        // `modal-full` overrides this to full-viewport on mobile via the
+        // input.css rule, so the cap is desktop-only in practice.
+        className: 'modal-full bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden',
         onClick: (e) => e.stopPropagation()
       },
         // Header
