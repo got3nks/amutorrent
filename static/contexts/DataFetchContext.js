@@ -94,9 +94,15 @@ export const DataFetchProvider = ({ children }) => {
     sendMessage({ action: 'getServerInfo', ...(instanceId && { instanceId }) });
   }, [sendMessage, resetStaticDataLoaded]);
 
-  const fetchAppLogs = useCallback(() => {
+  const fetchAppLogs = useCallback((opts = {}) => {
     resetStaticDataLoaded('appLogs');
-    sendMessage({ action: 'getAppLog' });
+    // minLevel='warn' or 'error' lets the server walk the dedicated ERROR/WARN
+    // ring instead of the main one — gives us up to 500 preserved warnings
+    // even after a flood of DEBUG/INFO traffic. Default limit is generous
+    // enough to deliver the full main ring when minLevel is debug/info.
+    const payload = { action: 'getAppLog', limit: 2000 };
+    if (opts.minLevel) payload.minLevel = opts.minLevel;
+    sendMessage(payload);
   }, [sendMessage, resetStaticDataLoaded]);
 
   const fetchQbittorrentLogs = useCallback((instanceId) => {

@@ -156,7 +156,7 @@ const LEVEL_OPTIONS = [
   { value: 'debug', label: 'All (debug)', short: 'Debug' }
 ];
 
-const AppLogSection = ({ records, sources, instances, loaded, maxHeightClass, fontSize }) => {
+const AppLogSection = ({ records, sources, instances, fetchAppLogs, loaded, maxHeightClass, fontSize }) => {
   const ref = useRef(null);
   const userScrolledAway = useRef(false);
 
@@ -244,6 +244,18 @@ const AppLogSection = ({ records, sources, instances, loaded, maxHeightClass, fo
       return () => clearTimeout(timeoutId);
     }
   }, [filteredRecords, loaded, fontSize]);
+
+  // Fetch + auto-refresh app logs, scoped to the active level filter so the
+  // server can walk the dedicated WARN/ERROR ring (500 preserved entries) when
+  // the user picks "Warnings & errors" or "Errors only", instead of returning
+  // the main 2000-record window where DEBUG/INFO traffic may have evicted them.
+  useEffect(() => {
+    const serverMinLevel = (minLevel === 'warn' || minLevel === 'error') ? minLevel : undefined;
+    const doFetch = () => fetchAppLogs({ minLevel: serverMinLevel });
+    doFetch();
+    const intervalId = setInterval(doFetch, LOGS_REFRESH_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [fetchAppLogs, minLevel]);
 
   // Source options for the multi-select. Sources are grouped semantically:
   //   1. `(server)` — unsourced records (top-level server.js, raw logger.log)
@@ -472,19 +484,20 @@ const LogsView = () => {
     return sections;
   }, [logInstanceGroups]);
 
-  // Fetch all logs on mount and auto-refresh
+  // Fetch per-client logs on mount and auto-refresh. App logs have their own
+  // fetch loop inside AppLogSection so they can react to the level filter
+  // (server walks the dedicated WARN/ERROR ring when minLevel is warn+).
   useEffect(() => {
     const doFetch = () => {
       for (const section of activeSections) {
         const instanceId = getEffectiveInstance(section.type);
         fetchByKey[section.fetchKey]?.(instanceId);
       }
-      fetchAppLogs();
     };
     doFetch();
     const intervalId = setInterval(doFetch, LOGS_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
-  }, [activeSections, getEffectiveInstance, fetchByKey, fetchAppLogs]);
+  }, [activeSections, getEffectiveInstance, fetchByKey]);
 
   return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // App Logs (always shown, expands when no client logs exist)
@@ -492,6 +505,7 @@ const LogsView = () => {
       records: dataAppLogs,
       sources: dataAppLogSources,
       instances,
+      fetchAppLogs,
       loaded: dataLoaded.appLogs,
       maxHeightClass: hasClientLogs ? 'max-h-48 sm:max-h-96' : 'max-h-[calc(100vh-16rem)]',
       fontSize
