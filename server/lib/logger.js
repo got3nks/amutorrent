@@ -11,6 +11,9 @@
  *   - A record `{ ts, level, source, message }` pushed onto an in-memory ring
  *     buffer (last `RING_CAPACITY` entries) so `LogsView` and other consumers
  *     can fetch structured data without re-reading and re-parsing the file.
+ *     ERROR/WARN records additionally land in a smaller dedicated ring
+ *     (`IMPORTANT_RING_CAPACITY`) so a flood of DEBUG/INFO traffic can't
+ *     evict the records operators rely on.
  *
  * Levels (numerically ordered, lower = higher severity):
  *   ERROR (0) — failures we want to surface
@@ -41,6 +44,11 @@ const LEVEL_NAMES = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
 // processes don't grow unbounded memory.
 const RING_CAPACITY = 2000;
 
+// Secondary ring for ERROR/WARN records only. Chatty DEBUG/INFO traffic can
+// fill the main ring and evict older warnings within minutes; this tier
+// guarantees a deeper history for the records operators actually care about.
+const IMPORTANT_RING_CAPACITY = 500;
+
 // Match a leading bracketed source on a formatted message, e.g. "[NotificationManager] foo"
 // — used by `_parseSource` to lift the source out of the message body so the
 // frontend can filter by it. Tolerant of leading whitespace/emoji that some
@@ -54,6 +62,8 @@ class Logger {
     this.logDir = null;
     this._ring = [];
     this._ringStart = 0;
+    this._importantRing = [];
+    this._importantStart = 0;
   }
 
   /**
@@ -181,6 +191,15 @@ class Logger {
       this._ring[this._ringStart] = record;
       this._ringStart = (this._ringStart + 1) % RING_CAPACITY;
     }
+    const lvl = LOG_LEVELS[record.level.toUpperCase()];
+    if (lvl <= LOG_LEVELS.WARN) {
+      if (this._importantRing.length < IMPORTANT_RING_CAPACITY) {
+        this._importantRing.push(record);
+      } else {
+        this._importantRing[this._importantStart] = record;
+        this._importantStart = (this._importantStart + 1) % IMPORTANT_RING_CAPACITY;
+      }
+    }
   }
 
   /**
@@ -200,11 +219,17 @@ class Logger {
       ? new Set(Array.isArray(opts.source) ? opts.source : [opts.source])
       : null;
 
-    // Walk ring chronologically
+    // When the caller wants only WARN+ records, walk the important ring —
+    // it has guaranteed retention for warnings and errors regardless of how
+    // much DEBUG/INFO chatter has flowed through the main ring.
+    const useImportant = minLevelNum <= LOG_LEVELS.WARN;
+    const ring = useImportant ? this._importantRing : this._ring;
+    const start = useImportant ? this._importantStart : this._ringStart;
+
     const out = [];
-    for (let i = 0; i < this._ring.length; i++) {
-      const idx = (this._ringStart + i) % this._ring.length;
-      const r = this._ring[idx];
+    for (let i = 0; i < ring.length; i++) {
+      const idx = (start + i) % ring.length;
+      const r = ring[idx];
       const lvl = LOG_LEVELS[r.level.toUpperCase()];
       if (lvl > minLevelNum) continue;
       if (sourceFilter && !sourceFilter.has(r.source)) continue;
@@ -223,6 +248,7 @@ class Logger {
   getSources() {
     const seen = new Set();
     for (const r of this._ring) seen.add(r.source);
+    for (const r of this._importantRing) seen.add(r.source);
     const out = Array.from(seen).filter(s => s !== null).sort();
     if (seen.has(null)) out.unshift(null);
     return out;
