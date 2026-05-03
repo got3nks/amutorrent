@@ -89,20 +89,44 @@ class Logger {
   }
 
   /**
-   * Read the last RING_CAPACITY lines from the log file and replay them into
-   * the ring as structured records. Best-effort — failures here never block
-   * startup; we just end up with an empty ring.
+   * Replay the log file into both rings on startup so the LogsView shows
+   * recent history immediately after a restart instead of starting from zero.
+   *
+   * Walks the file backwards collecting two buckets independently:
+   *   - up to RING_CAPACITY records for the main ring (any level)
+   *   - up to IMPORTANT_RING_CAPACITY records for the important ring
+   *     (ERROR/WARN only)
+   *
+   * The important bucket can pull from far older lines than the main bucket
+   * — debug-heavy traffic in the recent tail otherwise leaves the WARN/ERROR
+   * ring nearly empty on every restart. Processing stops as soon as both
+   * buckets are full, so a busy log won't get scanned end-to-end.
+   *
+   * Best-effort: failures here never block startup.
    */
   _seedRingFromFile(logFile) {
     try {
       if (!fs.existsSync(logFile)) return;
       const content = fs.readFileSync(logFile, 'utf-8');
       const lines = content.split('\n');
-      const tail = lines.slice(-RING_CAPACITY);
-      for (const line of tail) {
-        const parsed = this._parseFileLine(line);
-        if (parsed) this._ringPush(parsed);
+
+      const mainSeed = [];
+      const importantSeed = [];
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (mainSeed.length >= RING_CAPACITY
+          && importantSeed.length >= IMPORTANT_RING_CAPACITY) break;
+        const parsed = this._parseFileLine(lines[i]);
+        if (!parsed) continue;
+        if (mainSeed.length < RING_CAPACITY) mainSeed.push(parsed);
+        const lvl = LOG_LEVELS[parsed.level.toUpperCase()];
+        if (lvl <= LOG_LEVELS.WARN && importantSeed.length < IMPORTANT_RING_CAPACITY) {
+          importantSeed.push(parsed);
+        }
       }
+
+      // Push oldest-first so the rings end up in chronological order.
+      for (let i = mainSeed.length - 1; i >= 0; i--) this._mainRingPush(mainSeed[i]);
+      for (let i = importantSeed.length - 1; i >= 0; i--) this._importantRingPush(importantSeed[i]);
     } catch {
       // Ignore — startup must not depend on this succeeding.
     }
@@ -184,22 +208,28 @@ class Logger {
     this._ringPush({ ts, level: levelName.toLowerCase(), source, message });
   }
 
-  _ringPush(record) {
+  _mainRingPush(record) {
     if (this._ring.length < RING_CAPACITY) {
       this._ring.push(record);
     } else {
       this._ring[this._ringStart] = record;
       this._ringStart = (this._ringStart + 1) % RING_CAPACITY;
     }
-    const lvl = LOG_LEVELS[record.level.toUpperCase()];
-    if (lvl <= LOG_LEVELS.WARN) {
-      if (this._importantRing.length < IMPORTANT_RING_CAPACITY) {
-        this._importantRing.push(record);
-      } else {
-        this._importantRing[this._importantStart] = record;
-        this._importantStart = (this._importantStart + 1) % IMPORTANT_RING_CAPACITY;
-      }
+  }
+
+  _importantRingPush(record) {
+    if (this._importantRing.length < IMPORTANT_RING_CAPACITY) {
+      this._importantRing.push(record);
+    } else {
+      this._importantRing[this._importantStart] = record;
+      this._importantStart = (this._importantStart + 1) % IMPORTANT_RING_CAPACITY;
     }
+  }
+
+  _ringPush(record) {
+    this._mainRingPush(record);
+    const lvl = LOG_LEVELS[record.level.toUpperCase()];
+    if (lvl <= LOG_LEVELS.WARN) this._importantRingPush(record);
   }
 
   /**
