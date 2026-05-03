@@ -75,13 +75,23 @@ const LEVEL_STYLES = {
 const pad2 = (n) => String(n).padStart(2, '0');
 const pad3 = (n) => String(n).padStart(3, '0');
 
-// Compact HH:MM:SS.mmm timestamp in the browser's local timezone — the row's
-// `title` attribute carries the full local datetime so hovering reveals the
-// date too (server stores UTC ISO; we just render it in the user's TZ).
+// Compact local-time stamp: HH:MM:SS for today, MM-DD HH:MM:SS for older
+// records in the current year, full YYYY-MM-DD HH:MM:SS across year boundaries.
+// Milliseconds are dropped from the visible label — the row's `title`
+// attribute (formatFullLocal) still carries them for hover precision.
 const formatTime = (iso) => {
   try {
     const d = new Date(iso);
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
+    const hms = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    const now = new Date();
+    if (d.getFullYear() === now.getFullYear()
+        && d.getMonth() === now.getMonth()
+        && d.getDate() === now.getDate()) {
+      return hms;
+    }
+    const md = `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    if (d.getFullYear() === now.getFullYear()) return `${md} ${hms}`;
+    return `${d.getFullYear()}-${md} ${hms}`;
   } catch {
     return iso;
   }
