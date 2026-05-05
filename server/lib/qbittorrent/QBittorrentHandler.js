@@ -354,9 +354,12 @@ class QBittorrentHandler {
       // Use cached unified items from DataFetchService instead of direct EC calls.
       // Direct getDownloadQueue()/getSharedFiles() calls interfere with aMule's
       // server-side incremental diff state for getUpdate(), causing XOR corruption.
+      // getOrFetch (not getCached) so polls keep working when no WS clients are
+      // connected — autoRefreshLoop's WS-only gate would otherwise let the cache
+      // age out and ship [] to *arr.
       const dataFetchService = require('../DataFetchService');
-      const cached = dataFetchService.getCachedBatchData(10000);
-      const items = cached?.items || [];
+      const data = await dataFetchService.getOrFetchBatchData(10000);
+      const items = data?.items || [];
 
       // Filter to the target aMule instance
       const targetInstanceId = this.getAmuleInstanceId?.();

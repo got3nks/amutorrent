@@ -30,6 +30,9 @@ class DataFetchService extends BaseModule {
     // Cache for last fetched batch data (used by history API to avoid redundant fetches)
     this._cachedBatchData = null;
     this._cacheTimestamp = 0;
+    // In-flight batch fetch promise — coalesces concurrent callers (e.g. simultaneous *arr polls
+    // arriving while the autoRefresh loop is also fetching) so we never run two parallel fetches.
+    this._inflightBatchFetch = null;
   }
 
   /**
@@ -41,6 +44,19 @@ class DataFetchService extends BaseModule {
     if (!this._cachedBatchData) return null;
     if (Date.now() - this._cacheTimestamp > maxAge) return null;
     return this._cachedBatchData;
+  }
+
+  /**
+   * Return cached batch data if fresh, otherwise trigger (and await) a fetch.
+   * Used by external API consumers (qBit-compat) where the autoRefresh loop's
+   * WS-only gate would otherwise leave the cache stale and ship empty arrays.
+   * @param {number} maxAge - Cache freshness window in ms
+   * @returns {Promise<Object>}
+   */
+  async getOrFetchBatchData(maxAge = 5000) {
+    const cached = this.getCachedBatchData(maxAge);
+    if (cached) return cached;
+    return this.getBatchData();
   }
 
   // ============================================================================
@@ -206,11 +222,20 @@ class DataFetchService extends BaseModule {
   }
 
   /**
-   * Get all data for batch update (downloads, shared, uploads, categories)
-   * Fetches from all connected clients via their unified fetchData() interface
+   * Get all data for batch update (downloads, shared, uploads, categories).
+   * Coalesces concurrent callers — if a fetch is already in flight, returns
+   * its promise instead of starting a parallel one.
    * @returns {Promise<Object>} Batch data object
    */
   async getBatchData() {
+    if (this._inflightBatchFetch) return this._inflightBatchFetch;
+    this._inflightBatchFetch = this._doBatchFetch().finally(() => {
+      this._inflightBatchFetch = null;
+    });
+    return this._inflightBatchFetch;
+  }
+
+  async _doBatchFetch() {
     // Demo mode - return generated fake data
     if (config.DEMO_MODE) {
       if (!demoGenerator) {
