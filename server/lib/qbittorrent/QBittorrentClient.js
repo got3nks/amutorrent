@@ -17,7 +17,8 @@ class QBittorrentClient {
     this.useSsl = options.useSsl || false;
 
     this.baseUrl = `${this.useSsl ? 'https' : 'http'}://${this.host}:${this.port}${this.path}`;
-    this.sid = null; // Session cookie
+    this.sid = null; // Session cookie value
+    this.sidName = null; // Session cookie name: 'SID' on qBittorrent < 5.x, 'QBT_SID_<port>' on 5.x+
     this.connected = false;
   }
 
@@ -40,7 +41,7 @@ class QBittorrentClient {
 
     // Include session cookie if we have one
     if (this.sid) {
-      headers['Cookie'] = `SID=${this.sid}`;
+      headers['Cookie'] = `${this.sidName}=${this.sid}`;
     }
 
     const fetchOptions = {
@@ -56,6 +57,7 @@ class QBittorrentClient {
       if (response.status === 403) {
         // Session expired, try to re-authenticate
         this.sid = null;
+        this.sidName = null;
         this.connected = false;
       }
 
@@ -141,7 +143,7 @@ class QBittorrentClient {
   async _postMultipart(endpoint, formData) {
     const headers = {};
     if (this.sid) {
-      headers['Cookie'] = `SID=${this.sid}`;
+      headers['Cookie'] = `${this.sidName}=${this.sid}`;
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -183,23 +185,27 @@ class QBittorrentClient {
 
       const text = await response.text();
 
-      if (text === 'Ok.' || text === 'Ok') {
-        // Extract SID from Set-Cookie header
-        const setCookie = response.headers.get('set-cookie');
-        if (setCookie) {
-          const sidMatch = setCookie.match(/SID=([^;]+)/);
-          if (sidMatch) {
-            this.sid = sidMatch[1];
-            this.connected = true;
-            return true;
-          }
-        }
-        // Some versions don't need a cookie for localhost
-        this.connected = true;
-        return true;
+      // qBittorrent < 5.2 returns 200 + "Fails." on bad credentials.
+      // qBittorrent 5.2+ returns 401 (handled above by !response.ok).
+      if (text === 'Fails.') {
+        throw new Error('Login failed: Invalid credentials');
       }
 
-      throw new Error('Login failed: Invalid credentials');
+      // Cookie name varies: "SID" on < 5.2 (also user-configurable on 5.1.x),
+      // "QBT_SID_<port>" on 5.2+. Trust whatever the server sets.
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) {
+        const sidMatch = setCookie.match(/^\s*([^=;\s]+)=([^;]+)/);
+        if (sidMatch) {
+          this.sidName = sidMatch[1];
+          this.sid = sidMatch[2];
+          this.connected = true;
+          return true;
+        }
+      }
+      // Some setups don't issue a cookie (e.g. localhost auth bypass)
+      this.connected = true;
+      return true;
     } catch (err) {
       this.connected = false;
       throw err;
@@ -217,6 +223,7 @@ class QBittorrentClient {
       // Ignore logout errors
     } finally {
       this.sid = null;
+      this.sidName = null;
       this.connected = false;
     }
   }
