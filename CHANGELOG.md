@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.1] - Logger Hardening, qBittorrent 5.2 Compat & *arr Compat Fixes
+
+### ♻️ Improved
+
+- **Dedicated WARN/ERROR ring buffer** — the main 2000-record log ring is FIFO across all levels, so a chatty DEBUG source could scroll warnings out of the LogsView within minutes. A secondary 500-record ring now keeps WARN/ERROR records exclusively, queried when LogsView's level filter is set to "Warnings & errors" or "Errors only". The main ring still serves info/debug as before; the source filter dropdown unions sources from both rings so older warnings stay discoverable.
+- **LogsView level filter routes through the dedicated ring server-side** — passing `minLevel` to `getAppLog` lets the server walk the dedicated ERROR/WARN ring when warn/error is selected, surfacing entries far older than the 2000-record main window. Replaces the previous client-side post-filter which depended on whatever happened to be in the main ring at fetch time.
+- **Backward-walking log seed on startup** — instead of replaying the last 2000 file lines (which would evict every WARN/ERROR if those were rare in the tail), the seeder now walks the file backwards filling two buckets independently: up to 2000 records for the main ring, up to 500 ERROR/WARN records for the important ring. Stops as soon as both fill, so scan cost stays bounded even on huge logs.
+- **LogsView timestamp format** — drops millisecond precision from the visible row (kept in hover tooltip) and prepends a date when the record isn't from today: `HH:MM:SS` for today, `MM-DD HH:MM:SS` for older same-year history, `YYYY-MM-DD HH:MM:SS` across year boundaries.
+
+### 🐛 Fixed
+
+- **qBittorrent 5.2.0 connection failure** ("Login failed: Invalid credentials"). qBittorrent 5.2 renamed the session cookie from `SID` to `QBT_SID_<webUIPort>` and dropped the `Ok.` body in favor of `HTTP 204` with empty content. The HTTP client now stores whatever cookie name the server returns (also handles 5.1.x's user-configurable `WebAPISessionCookieName` preference) and treats any 2xx response as success. Backward compatible with qBittorrent 5.1.4 and earlier (#48).
+- **qBittorrent compat layer (Sonarr/Radarr/Prowlarr)** — `pauseTorrent` now actually pauses the matching aMule download (was a no-op before), `deleteTorrent` honors the `deleteFiles` flag, and completed downloads now report `pausedUP` state so *arr cleanup correctly identifies them as ready for import (#42).
+
+---
+
 ## [3.8.0] - Structured Logging, aMule Desync Detection & Modal Overflow Fix
 
 ### ✨ Added
