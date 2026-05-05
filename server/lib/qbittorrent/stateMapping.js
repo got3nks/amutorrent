@@ -129,8 +129,9 @@ function convertToQBittorrentInfo(download) {
     priority,
     private: false,
     progress,
-    ratio: 0,
-    ratio_limit: -2,
+    ratio: download.ratio || 0,
+    // ratio_limit: 0 ⇒ Radarr's HasReachedSeedLimit always passes, unblocking *arr cleanup at pausedUP. aMule has no per-file seed goal anyway.
+    ratio_limit: 0,
     reannounce: 0,
     root_path: '',
     save_path: categoryPath,
@@ -147,9 +148,9 @@ function convertToQBittorrentInfo(download) {
     tracker: '',
     trackers_count: 0,
     up_limit: 0,
-    uploaded: 0,
-    uploaded_session: 0,
-    upspeed: 0
+    uploaded: download.uploadTotal || 0,
+    uploaded_session: download.uploadTotal || 0,
+    upspeed: download.uploadSpeed || 0
   };
 }
 

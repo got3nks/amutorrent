@@ -376,6 +376,7 @@ class QBittorrentHandler {
         status: item.status,
         uploadSpeed: item.uploadSpeed || 0,
         ratio: item.ratio || 0,
+        uploadTotal: item.uploadTotal || 0,
         directory: item.directory || ''
       }));
 
