@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.3] - aMule Desync Loop & Repeat Completion Notifications
+
+### 🐛 Fixed
+
+- **aMule reconnect loop after deleting the last shared file.** The 1→0 shared-list desync heuristic couldn't tell a legitimate "deleted my only file" transition from a phantom drop, and the throw at the desync site short-circuited the snapshot update two lines below — so the previous-frame count stayed stuck and every successful reconnect re-fired the same desync, looping indefinitely. Detection now matches against hashes we deleted ourselves (recorded by `deleteItem`'s shared branch) and only fires when there's an unexplained disappearance, with the snapshot update always running so worst case is one reconnect (#49).
+- **Repeated `downloadFinished` notifications for a single aMule download.** The history-update path was still keyed off the toFixed-rounded display progress, which flips at 99.995% bytes. Combined with the activeKeys SQL resetting `completed → downloading`, lib-reported progress oscillating around "100.00"/"99.99" re-fired the notification on every flip. Now uses the same per-client `isComplete` flag the rest of the system unified on in v3.8.2.
+
+---
+
 ## [3.8.2] - *arr Cleanup End-to-End & Completion-Flag Accuracy
 
 ### 🐛 Fixed
