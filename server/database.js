@@ -376,6 +376,36 @@ class MetricsDB {
         upsertMetadata.run(`${prefix}:accumulated_uploaded`, accUp.toString());
         upsertMetadata.run(`${prefix}:accumulated_downloaded`, accDown.toString());
       }
+      // Value-based restart detection for clients with session-only counters and no
+      // stable PID (e.g. Deluge). Counter is monotonic within a single run, so
+      // current < previous ⇒ restart. Strict-less-than means we miss restarts where
+      // the new session reaches lastSessionUp before the next sample, but that's
+      // the inherent ceiling of value-based detection vs PID detection.
+      else if (clientMeta.hasCapability(entry.clientType, 'tracksCounterReset')) {
+        const prefix = entry.instanceId;
+        const sessionUp = totalUploaded;
+        const sessionDown = totalDownloaded;
+
+        let accUp = parseInt(getMetadata.get(`${prefix}:accumulated_uploaded`)?.value || '0');
+        let accDown = parseInt(getMetadata.get(`${prefix}:accumulated_downloaded`)?.value || '0');
+        const lastSessionUp = parseInt(getMetadata.get(`${prefix}:last_session_uploaded`)?.value || '0');
+        const lastSessionDown = parseInt(getMetadata.get(`${prefix}:last_session_downloaded`)?.value || '0');
+
+        if (sessionUp < lastSessionUp || sessionDown < lastSessionDown) {
+          accUp += lastSessionUp;
+          accDown += lastSessionDown;
+          logger.log(`📊 ${entry.instanceId} restart detected (counter reset): up ${lastSessionUp}→${sessionUp}, down ${lastSessionDown}→${sessionDown}`);
+          logger.log(`📊 ${entry.instanceId} accumulated offsets: upload=${accUp}, download=${accDown}`);
+        }
+
+        totalUploaded = sessionUp + accUp;
+        totalDownloaded = sessionDown + accDown;
+
+        upsertMetadata.run(`${prefix}:last_session_uploaded`, sessionUp.toString());
+        upsertMetadata.run(`${prefix}:last_session_downloaded`, sessionDown.toString());
+        upsertMetadata.run(`${prefix}:accumulated_uploaded`, accUp.toString());
+        upsertMetadata.run(`${prefix}:accumulated_downloaded`, accDown.toString());
+      }
 
       insertRow.run(timestamp, entry.instanceId, entry.clientType,
         uploadSpeed, downloadSpeed, totalUploaded, totalDownloaded);

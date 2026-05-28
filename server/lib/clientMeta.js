@@ -240,7 +240,8 @@ const CLIENT_TYPES = {
       categories: false,           // uses labels via Label plugin, not named categories
       logs: false,                 // no fetchable log API
       fileRatingComment: false,
-      customSavePath: true         // can set download directory per torrent
+      customSavePath: true,        // can set download directory per torrent
+      tracksCounterReset: true     // session-only byte counters; detect resets by value-decrease (no stable PID exposed via WebUI JSON-RPC)
     },
     seedingStatuses: ['Seeding']
   },
