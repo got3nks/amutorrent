@@ -297,6 +297,62 @@ const CLIENT_TYPES = {
       customSavePath: true           // can set download directory per torrent
     },
     seedingStatuses: ['Seeding', 'Seed Pending']
+  },
+  slskd: {
+    networkType: 'soulseek',
+    displayName: 'Soulseek (slskd)',
+    metricsPrefix: 'slskd_',
+    hashLength: 36,
+    statusField: 'statusText',
+    statusMap: {
+      'Requested': 'active',
+      'Queued': 'active',
+      'Queued, Remotely': 'active',
+      'Queued, Locally': 'active',
+      'Initializing': 'active',
+      'InProgress': 'active',
+      'Succeeded': 'completed',
+      'Completed, Succeeded': 'completed',
+      'Cancelled': 'stopped',
+      'Aborted': 'stopped',
+      'Completed, Cancelled': 'stopped',
+      'Completed, Aborted': 'stopped',
+      'Completed, Aborted, Locally': 'stopped',
+      'Completed, Aborted, Remotely': 'stopped',
+      'Completed, TimedOut': 'error',
+      'Completed, Errored': 'error',
+      'Completed, Rejected': 'error'
+    },
+    connectionDefaults: {
+      host: '', port: 5030, path: '', apiKey: '', username: '', password: '', useSsl: false
+    },
+    defaults: {
+      message: null,
+      directory: null,
+      addedAt: null
+    },
+    capabilities: {
+      nativeMove: false,
+      categoryChangeAutoMoves: false,
+      stopReplacesPause: true,
+      multiFile: false,
+      sharedFiles: true,
+      sharedMeansComplete: true,
+      removeSharedMustDeleteFiles: false,
+      moveSharedForCategoryChange: false,
+      refreshSharedAfterMove: false,
+      moveActiveDownloads: false,
+      pauseBeforeMove: false,
+      trackers: false,
+      search: true,
+      cancelDeletesFiles: false,
+      apiDeletesFiles: false,
+      refreshSharedAfterDelete: false,
+      categories: false,
+      logs: true,
+      fileRatingComment: false,
+      customSavePath: false
+    }
   }
 };
 
@@ -321,7 +377,7 @@ function get(type) {
 /**
  * Get the network type for a client type.
  * @param {string} type - Client type key
- * @returns {'ed2k'|'bittorrent'}
+ * @returns {'ed2k'|'bittorrent'|'soulseek'}
  */
 function getNetworkType(type) {
   return get(type).networkType;
@@ -346,8 +402,17 @@ function isEd2k(type) {
 }
 
 /**
+ * Check if a client type is a Soulseek client.
+ * @param {string} type - Client type key
+ * @returns {boolean}
+ */
+function isSoulseek(type) {
+  return CLIENT_TYPES[type]?.networkType === 'soulseek';
+}
+
+/**
  * Get all client type keys that belong to a given network type.
- * @param {string} networkType - 'ed2k' or 'bittorrent'
+ * @param {string} networkType - 'ed2k' | 'bittorrent' | 'soulseek'
  * @returns {string[]} Array of client type keys
  */
 function getByNetworkType(networkType) {
@@ -460,6 +525,7 @@ module.exports = {
   getNetworkType,
   isBittorrent,
   isEd2k,
+  isSoulseek,
   getByNetworkType,
   getAllTypes,
   hasCapability,

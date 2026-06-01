@@ -101,6 +101,11 @@ const SetupWizardView = ({ onComplete }) => {
           // Disabled by default unless explicitly enabled via env var
           enabled: meta?.fromEnv?.transmissionEnabled ? defaults.transmission.enabled : false
         },
+        slskd: {
+          ...defaults.slskd,
+          // Disabled by default unless explicitly enabled via env var
+          enabled: meta?.fromEnv?.slskdEnabled ? defaults.slskd.enabled : false
+        },
         directories: { ...defaults.directories },
         integrations: {
           sonarr: { ...defaults.integrations.sonarr },
@@ -234,14 +239,20 @@ const SetupWizardView = ({ onComplete }) => {
           if (!formData.transmission.port && !meta?.fromEnv.transmissionPort) errors.push('Transmission port is required');
         }
 
+        // Validate slskd if enabled
+        if (formData.slskd?.enabled) {
+          if (!formData.slskd.host && !meta?.fromEnv.slskdHost) errors.push('slskd host is required');
+          if (!formData.slskd.port && !meta?.fromEnv.slskdPort) errors.push('slskd port is required');
+        }
+
         if (errors.length > 0) {
           setStepValidationError(errors.join(', '));
           return;
         }
 
         // Cross-validation: at least one client must be enabled
-        if (formData.amule.enabled === false && !formData.rtorrent.enabled && !formData.qbittorrent?.enabled && !formData.deluge?.enabled && !formData.transmission?.enabled) {
-          setStepValidationError('At least one download client (aMule, rTorrent, qBittorrent, Deluge, or Transmission) must be enabled');
+        if (formData.amule.enabled === false && !formData.rtorrent.enabled && !formData.qbittorrent?.enabled && !formData.deluge?.enabled && !formData.transmission?.enabled && !formData.slskd?.enabled) {
+          setStepValidationError('At least one download client (aMule, rTorrent, qBittorrent, Deluge, Transmission, or slskd) must be enabled');
           return;
         }
         setStepValidationError(null);
@@ -333,6 +344,9 @@ const SetupWizardView = ({ onComplete }) => {
         if (formData.transmission?.enabled) {
           testPayload.transmission = formData.transmission;
         }
+        if (formData.slskd?.enabled) {
+          testPayload.slskd = formData.slskd;
+        }
         if (Object.keys(testPayload).length > 0) {
           const data = await testConfig(testPayload);
           const newResults = {};
@@ -347,6 +361,9 @@ const SetupWizardView = ({ onComplete }) => {
           }
           if (data?.results?.transmission) {
             newResults.transmission = { ...data.results.transmission, _label: 'Transmission Connection' };
+          }
+          if (data?.results?.slskd) {
+            newResults.slskd = { ...data.results.slskd, _label: 'slskd Connection' };
           }
           setClientTestResults(prev => ({ ...prev, ...newResults }));
         }
@@ -392,6 +409,7 @@ const SetupWizardView = ({ onComplete }) => {
       if (data?.results?.qbittorrent) newClientResults.qbittorrent = { ...data.results.qbittorrent, _label: 'qBittorrent Connection' };
       if (data?.results?.deluge) newClientResults.deluge = { ...data.results.deluge, _label: 'Deluge Connection' };
       if (data?.results?.transmission) newClientResults.transmission = { ...data.results.transmission, _label: 'Transmission Connection' };
+      if (data?.results?.slskd) newClientResults.slskd = { ...data.results.slskd, _label: 'slskd Connection' };
       setClientTestResults(newClientResults);
     } catch (err) {
       // Error handled by useConfig
@@ -436,6 +454,7 @@ const SetupWizardView = ({ onComplete }) => {
       if (results?.results?.qbittorrent) newClientResults.qbittorrent = { ...results.results.qbittorrent, _label: 'qBittorrent Connection' };
       if (results?.results?.deluge) newClientResults.deluge = { ...results.results.deluge, _label: 'Deluge Connection' };
       if (results?.results?.transmission) newClientResults.transmission = { ...results.results.transmission, _label: 'Transmission Connection' };
+      if (results?.results?.slskd) newClientResults.slskd = { ...results.results.slskd, _label: 'slskd Connection' };
       setClientTestResults(newClientResults);
 
       // Check results directly from the return value
@@ -528,6 +547,12 @@ const SetupWizardView = ({ onComplete }) => {
       const { enabled, ...fields } = formData.transmission;
       const entry = { type: 'transmission', enabled, ...fields };
       if (meta?.fromEnv.transmissionHost) entry.source = 'env';
+      clients.push(entry);
+    }
+    if (formData.slskd?.enabled) {
+      const { enabled, ...fields } = formData.slskd;
+      const entry = { type: 'slskd', enabled, ...fields };
+      if (meta?.fromEnv.slskdHost) entry.source = 'env';
       clients.push(entry);
     }
     return clients;
@@ -1184,6 +1209,101 @@ const SetupWizardView = ({ onComplete }) => {
         )
       ),
 
+      // slskd Section
+      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
+        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'Soulseek (slskd API)'),
+
+        h(EnableToggle, {
+          label: 'Enable slskd',
+          description: 'Connect to slskd for managing Soulseek downloads via HTTP API',
+          enabled: formData.slskd?.enabled || false,
+          onChange: (enabled) => updateField('slskd', 'enabled', enabled)
+        }),
+
+        formData.slskd?.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Host',
+            description: 'slskd API host address',
+            value: formData.slskd?.host || '',
+            onChange: (value) => updateField('slskd', 'host', value),
+            placeholder: '127.0.0.1',
+            required: formData.slskd?.enabled,
+            fromEnv: meta?.fromEnv.slskdHost
+          }),
+
+          h(ConfigField, {
+            label: 'Port',
+            description: 'slskd API port (default: 5030)',
+            value: formData.slskd?.port || 5030,
+            onChange: (value) => updateField('slskd', 'port', parseInt(value, 10) || 5030),
+            type: 'number',
+            placeholder: '5030',
+            required: formData.slskd?.enabled,
+            fromEnv: meta?.fromEnv.slskdPort
+          }),
+
+          h(ConfigField, {
+            label: 'URL Path (Optional)',
+            description: 'Base path when behind a reverse proxy (e.g., /slskd)',
+            value: formData.slskd?.path || '',
+            onChange: (value) => updateField('slskd', 'path', value),
+            placeholder: 'Leave empty if not using a reverse proxy',
+            fromEnv: meta?.fromEnv.slskdPath
+          }),
+
+          !meta?.fromEnv.slskdApiKey && h(ConfigField, {
+            label: 'API Key (Recommended)',
+            description: 'slskd API key (preferred for integrations)',
+            fromEnv: meta?.fromEnv.slskdApiKey
+          },
+            h(PasswordField, {
+              value: formData.slskd?.apiKey || '',
+              onChange: (value) => updateField('slskd', 'apiKey', value),
+              placeholder: 'Enter API key',
+              disabled: meta?.fromEnv.slskdApiKey
+            })
+          ),
+
+          meta?.fromEnv.slskdApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'slskd API key is set via SLSKD_API_KEY environment variable.')
+          ),
+
+          !meta?.fromEnv.slskdUsername && h(ConfigField, {
+            label: 'Username (Optional)',
+            description: 'Used only when API key is not configured',
+            value: formData.slskd?.username || '',
+            onChange: (value) => updateField('slskd', 'username', value),
+            placeholder: 'slskd username',
+            fromEnv: meta?.fromEnv.slskdUsername
+          }),
+
+          !meta?.fromEnv.slskdPassword && h(ConfigField, {
+            label: 'Password (Optional)',
+            description: 'Used only when API key is not configured',
+            fromEnv: meta?.fromEnv.slskdPassword
+          },
+            h(PasswordField, {
+              value: formData.slskd?.password || '',
+              onChange: (value) => updateField('slskd', 'password', value),
+              placeholder: 'slskd password',
+              disabled: meta?.fromEnv.slskdPassword
+            })
+          ),
+
+          h(EnableToggle, {
+            label: 'Use SSL (HTTPS)',
+            description: 'Connect to slskd using HTTPS',
+            enabled: formData.slskd?.useSsl || false,
+            onChange: (enabled) => updateField('slskd', 'useSsl', enabled)
+          }),
+
+          clientTestResults.slskd && h(TestResultIndicator, {
+            result: clientTestResults.slskd,
+            label: 'slskd Connection Test'
+          })
+        )
+      ),
+
       // Test button for BitTorrent clients
       hasAnyBitTorrentClient && h('div', { className: 'mb-6' },
         h(TestButton, {
@@ -1192,7 +1312,8 @@ const SetupWizardView = ({ onComplete }) => {
           disabled: (formData.rtorrent.enabled && (formData.rtorrent.mode === 'scgi-socket' ? !formData.rtorrent.socketPath : (!formData.rtorrent.host || !formData.rtorrent.port))) ||
                     (formData.qbittorrent?.enabled && (!formData.qbittorrent.host || !formData.qbittorrent.port)) ||
                     (formData.deluge?.enabled && (!formData.deluge.host || !formData.deluge.port)) ||
-                    (formData.transmission?.enabled && (!formData.transmission.host || !formData.transmission.port))
+                    (formData.transmission?.enabled && (!formData.transmission.host || !formData.transmission.port)) ||
+                    (formData.slskd?.enabled && (!formData.slskd.host || !formData.slskd.port))
         }, 'Test BitTorrent Connections')
       ),
 

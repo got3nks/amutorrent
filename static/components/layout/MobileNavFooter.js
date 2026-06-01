@@ -65,6 +65,7 @@ const MobileNavFooter = ({ currentView, onNavigate }) => {
   const { hasType, hasCategoryPathWarnings, hasClientConnectionWarnings } = useStaticData();
   const { hasCap, isAdmin } = useCapabilities();
   const amuleEnabled = hasType('amule');
+  const slskdEnabled = hasType('slskd');
 
   // Count active downloads for badge
   const activeDownloadCount = useMemo(() => {
@@ -126,6 +127,7 @@ const MobileNavFooter = ({ currentView, onNavigate }) => {
     { icon: 'share', label: 'Shared Files', view: 'shared', cap: 'view_shared' },
     { icon: 'folder', label: 'Categories', view: 'categories', warning: hasCategoryPathWarnings, cap: 'manage_categories' },
     ...(amuleEnabled ? [{ icon: 'server', label: 'ED2K Servers', view: 'servers', cap: 'view_servers' }] : []),
+    ...(slskdEnabled ? [{ icon: 'messageSquare', label: 'Soulseek Chat', view: 'chat', cap: 'search' }] : []),
     { icon: 'fileText', label: 'Logs', view: 'logs', cap: 'view_logs' },
     { icon: 'chartBar', label: 'Statistics', view: 'statistics', cap: 'view_statistics' },
     { icon: 'bell', label: 'Notifications', view: 'notifications', adminOnly: true },

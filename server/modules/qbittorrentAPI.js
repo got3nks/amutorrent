@@ -170,14 +170,18 @@ class QBittorrentAPI extends BaseModule {
    */
   updateHandler() {
     if (this.hashStore) {
+      // Resolves the download/search provider manager.
+      // Priority: integrations.arrDownloadInstanceId -> integrations.amuleInstanceId (legacy)
+      // -> first connected aMule instance (backward compat).
       const resolveAmuleManager = () => {
-        const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
+        const integrations = config.getConfig()?.integrations || {};
+        const configuredId = integrations.arrDownloadInstanceId || integrations.amuleInstanceId;
         let amuleMgr;
         if (configuredId) {
           amuleMgr = registry.get(configuredId);
           if (!amuleMgr) {
             amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.warn(`⚠️ [QBittorrentAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
+            if (amuleMgr) this.warn(`⚠️ [QBittorrentAPI] Configured provider "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
           }
         } else {
           amuleMgr = registry.getByType('amule').find(m => m.isConnected());
@@ -194,7 +198,11 @@ class QBittorrentAPI extends BaseModule {
         isFirstRun: () => config.isFirstRun(),
         userManager: this.userManager,
         createSession: (user) => this.createSession(user),
-        destroySession: (sid) => this.destroySession(sid)
+        destroySession: (sid) => this.destroySession(sid),
+        getSlskdManager: () => {
+          const mgrs = registry.getByType('slskd').filter(m => m.isConnected?.());
+          return mgrs[0] || null;
+        }
       });
     }
   }

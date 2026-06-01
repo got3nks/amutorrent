@@ -12,6 +12,7 @@ const { createElement: h, useState, useEffect, useCallback } = React;
 import { useConfig } from '../../hooks/index.js';
 import { useSettingsFormData } from '../../hooks/useSettingsFormData.js';
 import { useClientManagement } from '../../hooks/useClientManagement.js';
+import { useDashboardPrefs } from '../../hooks/useDashboardPrefs.js';
 import { useAppState } from '../../contexts/AppStateContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { LoadingSpinner, AlertBox, IconButton, Input, Select, Button, Icon, Portal } from '../common/index.js';
@@ -74,13 +75,16 @@ const SettingsView = () => {
   const [isTesting, setIsTesting] = useState(false);
   const [scriptTestResult, setScriptTestResult] = useState(null);
   const [openSections, setOpenSections] = useState({
-    server: false, users: false, clients: false,
+    server: false, users: false, interface: false, clients: false,
     integrations: false, directories: false, history: false, eventScripting: false
   });
   const closeAllSections = () => setOpenSections({
-    server: false, users: false, clients: false,
+    server: false, users: false, interface: false, clients: false,
     integrations: false, directories: false, history: false, eventScripting: false
   });
+
+  // Client-side display preferences (instant-save, no server round-trip)
+  const { combinedGraph, setCombinedGraph } = useDashboardPrefs();
   // Accordion toggle: opening one section closes all others
   const toggleSection = (key, value) => {
     if (value) {
@@ -577,6 +581,23 @@ const SettingsView = () => {
       badge: usersBadge
     },
       h(UserManagement, { currentUsername, onApiKeyChange: setAdminApiKey })
+    ),
+
+    // Interface Preferences — client-side only, instant-save to localStorage
+    h(ConfigSection, {
+      title: 'Interface Preferences',
+      description: 'Dashboard display options (saved locally in your browser)',
+      defaultOpen: false,
+      open: openSections.interface,
+      onToggle: (value) => toggleSection('interface', value),
+      icon: 'activity'
+    },
+      h(EnableToggle, {
+        enabled: combinedGraph,
+        onChange: setCombinedGraph,
+        label: 'Network graph selector',
+        description: 'When multiple networks are active, show a tab selector to switch between per-network speed and transfer charts. When disabled, all networks are shown side by side simultaneously.'
+      })
     ),
 
     // Download Clients — unified section with card grid

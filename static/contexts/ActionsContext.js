@@ -159,6 +159,7 @@ const useWebSocketActions = () => {
       action: 'search',
       query: searchQuery,
       type: searchType,
+      ...(searchType === 'soulseek' ? { provider: 'soulseek' } : {}),
       extension: null,
       ...(searchInstanceId && { instanceId: searchInstanceId })
     });

@@ -10,7 +10,7 @@
  * - Individual instance chips toggle a single instance
  * - When all instances of a network type are disabled, clicking one instance enables only that one
  *
- * Derived convenience booleans (isEd2kEnabled, isBittorrentEnabled) combine:
+ * Derived convenience booleans (isEd2kEnabled, isBittorrentEnabled, isSoulseekEnabled) combine:
  * - User preference (not in disabledInstances)
  * - Connection status (instance.connected)
  */
@@ -81,6 +81,7 @@ export const ClientFilterProvider = ({ children }) => {
   // Pure connection status (not affected by user filter preference)
   const ed2kConnected = isNetworkTypeConnected('ed2k');
   const bittorrentConnected = isNetworkTypeConnected('bittorrent');
+  const soulseekConnected = isNetworkTypeConnected('soulseek');
 
   // Single source of truth: Set of disabled instance IDs
   const [disabledInstances, setDisabledInstances] = useState(() => {
@@ -143,11 +144,16 @@ export const ClientFilterProvider = ({ children }) => {
           .filter(([, inst]) => inst.connected)
           .map(([id]) => id);
         if (allConnectedIds.every(id => next.has(id))) {
-          const otherType = networkType === 'ed2k' ? 'bittorrent' : 'ed2k';
-          const otherIds = Object.entries(instances)
-            .filter(([, inst]) => inst.networkType === otherType && inst.connected)
-            .map(([id]) => id);
-          for (const id of otherIds) next.delete(id);
+          const otherTypes = [...new Set(Object.values(instances)
+            .filter((inst) => inst.connected && inst.networkType !== networkType)
+            .map((inst) => inst.networkType))];
+          const fallbackType = otherTypes[0];
+          if (!fallbackType) return prev;
+          for (const [id, inst] of Object.entries(instances)) {
+            if (inst.connected && inst.networkType === fallbackType) {
+              next.delete(id);
+            }
+          }
         }
       } else {
         // Enable all of this type
@@ -208,6 +214,23 @@ export const ClientFilterProvider = ({ children }) => {
     );
   }, [instances, disabledInstances]);
 
+  const isSoulseekEnabled = useMemo(() => {
+    return Object.entries(instances).some(([id, inst]) =>
+      inst.networkType === 'soulseek' && inst.connected && !disabledInstances.has(id)
+    );
+  }, [instances, disabledInstances]);
+
+  const isNetworkTypeEnabled = useCallback((networkType) => {
+    return Object.entries(instances).some(([id, inst]) =>
+      inst.networkType === networkType && inst.connected && !disabledInstances.has(id)
+    );
+  }, [instances, disabledInstances]);
+
+  const enabledNetworkTypes = useMemo(() => {
+    const order = ['ed2k', 'bittorrent', 'soulseek'];
+    return order.filter(isNetworkTypeEnabled);
+  }, [isNetworkTypeEnabled]);
+
   // Memoize context value
   const value = useMemo(() => ({
     // Network type batch toggle
@@ -222,14 +245,20 @@ export const ClientFilterProvider = ({ children }) => {
     // Connection state (pure, not affected by filter preference)
     ed2kConnected,
     bittorrentConnected,
+    soulseekConnected,
 
     // Convenience booleans: user preference AND connected
     isEd2kEnabled,
     isBittorrentEnabled,
-    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled
+    isSoulseekEnabled,
+    isNetworkTypeEnabled,
+    enabledNetworkTypes,
+    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled && isSoulseekEnabled
   }), [toggleNetworkType, filterByEnabledClients,
     disabledInstances, toggleInstance, isInstanceEnabled,
-    ed2kConnected, bittorrentConnected, isEd2kEnabled, isBittorrentEnabled]);
+    ed2kConnected, bittorrentConnected, soulseekConnected,
+    isEd2kEnabled, isBittorrentEnabled, isSoulseekEnabled,
+    isNetworkTypeEnabled, enabledNetworkTypes]);
 
   return h(ClientFilterContext.Provider, { value }, children);
 };

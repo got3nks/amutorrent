@@ -32,7 +32,7 @@ When you first access the web interface (or if no configuration exists), an inte
 
 1. **Welcome** - Introduction to the setup process
 2. **Security** - Configure web interface authentication (password protection)
-3. **Download Clients** - Configure aMule, rTorrent, qBittorrent, Deluge, and/or Transmission connections (with testing)
+3. **Download Clients** - Configure aMule, rTorrent, qBittorrent, Deluge, Transmission, and/or slskd connections (with testing)
 4. **Directories** - Set data, logs, and GeoIP directories
 5. **Integrations** - Optionally enable Prowlarr, Sonarr, and Radarr
 6. **Review & Save** - Test all settings and save configuration
@@ -91,6 +91,8 @@ Sensitive fields include:
 - `QBITTORRENT_PASSWORD` - qBittorrent WebUI password
 - `DELUGE_PASSWORD` - Deluge WebUI password
 - `TRANSMISSION_PASSWORD` - Transmission RPC password
+ - `SLSKD_API_KEY` - slskd API key
+ - `SLSKD_PASSWORD` - slskd password (when not using API key)
 - `PROWLARR_API_KEY` - Prowlarr API key
 - `SONARR_API_KEY` - Sonarr API key
 - `RADARR_API_KEY` - Radarr API key
@@ -195,6 +197,16 @@ services:
       - TRANSMISSION_USERNAME=user
       - TRANSMISSION_PASSWORD=pass  # Locks UI editing
       - TRANSMISSION_USE_SSL=false
+
+      # slskd Connection (optional)
+      - SLSKD_ENABLED=false
+      - SLSKD_HOST=slskd
+      - SLSKD_PORT=5030
+      - SLSKD_PATH=
+      - SLSKD_API_KEY=your_api_key  # Locks UI editing
+      - SLSKD_USERNAME=
+      - SLSKD_PASSWORD=             # Locks UI editing
+      - SLSKD_USE_SSL=false
 
       # Prowlarr Integration (optional - requires a BitTorrent client)
       - PROWLARR_ENABLED=true
@@ -301,6 +313,19 @@ services:
 | `TRANSMISSION_USERNAME` | - | RPC auth username (if required) |
 | `TRANSMISSION_PASSWORD` | - | RPC auth password (locks UI editing) |
 | `TRANSMISSION_USE_SSL` | `false` | Use HTTPS for RPC connection |
+
+#### slskd Connection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SLSKD_ENABLED` | `false` | Enable slskd integration |
+| `SLSKD_HOST` | `localhost` | slskd API hostname |
+| `SLSKD_PORT` | `5030` | slskd API port |
+| `SLSKD_PATH` | - | URL base path for reverse proxy (e.g., `/slskd`) |
+| `SLSKD_API_KEY` | - | API key (recommended, locks UI editing) |
+| `SLSKD_USERNAME` | - | Username fallback when API key is not configured |
+| `SLSKD_PASSWORD` | - | Password fallback when API key is not configured (locks UI editing) |
+| `SLSKD_USE_SSL` | `false` | Use HTTPS for API connection |
 
 #### Prowlarr Integration
 

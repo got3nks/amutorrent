@@ -49,8 +49,10 @@ const ACTION_CAPABILITIES = {
   getLog: ['view_logs'],
   getAppLog: ['view_logs'],
   getQbittorrentLog: ['view_logs'],
+  getSlskdLog: ['view_logs'],
   getStatsTree: ['view_statistics'],
   refreshSharedFiles: ['view_shared'],
+  browseSlskdDirectory: ['search'],
   renameFile: ['rename_files'],
   setFileRatingComment: ['set_comment'],
   checkDeletePermissions: ['remove_downloads'],
@@ -60,9 +62,15 @@ const ACTION_CAPABILITIES = {
 class WebSocketHandlers extends BaseModule {
   constructor() {
     super();
-    // Track when the last aMule search was performed
-    this.lastAmuleSearchTimestamp = 0;
-    this.lastAmuleSearchInstanceId = null;
+    // Track latest search result timestamps per provider
+    this.lastSearchTimestamp = {
+      amule: 0,
+      slskd: 0
+    };
+    this.lastSearchInstanceId = {
+      amule: null,
+      slskd: null
+    };
   }
 
   /**
@@ -83,6 +91,25 @@ class WebSocketHandlers extends BaseModule {
       return fallback;
     }
     return null;
+  }
+
+  _resolveSearchManager(data) {
+    const explicitSoulseek = data?.provider === 'soulseek' || data?.type === 'soulseek';
+    if (explicitSoulseek) {
+      return this._getManager(null, 'slskd');
+    }
+
+    if (data?.instanceId) {
+      const byId = registry.get(data.instanceId);
+      // Only use the explicit instance for aMule-type searches — never route
+      // a kad/global search to a slskd instance even if its instanceId was sent.
+      if (byId?.clientType !== 'slskd' && byId?.isConnected?.() && clientMeta.hasCapability(byId.clientType, 'search')) {
+        return byId;
+      }
+    }
+
+    // Default provider remains aMule for legacy search types (global/kad/local)
+    return this._getManager(null, 'amule');
   }
 
   /**
@@ -244,7 +271,10 @@ class WebSocketHandlers extends BaseModule {
 
     context.log(`New WebSocket connection from ${clientIp}${locationInfo}`);
     context.send({ type: 'connected', message: 'Connected to aMule Controller' });
-    context.send({ type: 'search-lock', locked: registry.getByType('amule').some(m => m.isSearchInProgress()) });
+    context.send({
+      type: 'search-lock',
+      locked: [...registry.getByType('amule'), ...registry.getByType('slskd')].some(m => m.isSearchInProgress?.())
+    });
 
     // Send cached batch update to newly connected client (if available), filtered by ownership
     // Always sends full snapshot (items array), never delta, for new connections
@@ -315,6 +345,8 @@ class WebSocketHandlers extends BaseModule {
         case 'getLog': await this.handleGetLog(data, context); break;
         case 'getAppLog': await this.handleGetAppLog(data, context); break;
         case 'getQbittorrentLog': await this.handleGetQbittorrentLog(data, context); break;
+        case 'getSlskdLog': await this.handleGetSlskdLog(data, context); break;
+        case 'browseSlskdDirectory': await this.handleBrowseSlskdDirectory(data, context); break;
         case 'batchDownloadSearchResults': await this.handleBatchDownloadSearchResults(data, context); break;
         case 'addEd2kLinks': await this.handleAddEd2kLinks(data, context); break;
         case 'addMagnetLinks': await this.handleAddMagnetLinks(data, context); break;
@@ -349,13 +381,15 @@ class WebSocketHandlers extends BaseModule {
 
   // Handler implementations
   async handleSearch(data, context) {
-    const manager = this._getManager(data.instanceId, 'amule');
+    const manager = this._resolveSearchManager(data);
     if (!manager) {
-      context.send({ type: 'error', message: 'No aMule instance available' });
+      context.send({ type: 'error', message: 'No search-capable instance available' });
       return;
     }
-    if (!manager.acquireSearchLock()) {
-      context.send({ type: 'error', message: 'Another search is running on this instance' });
+    if (!manager.acquireSearchLock?.()) {
+      // Unlock the frontend immediately — it set searchLocked=true optimistically
+      context.send({ type: 'search-lock', locked: false });
+      context.send({ type: 'error', message: 'Another search is already running on this instance' });
       return;
     }
 
@@ -364,16 +398,22 @@ class WebSocketHandlers extends BaseModule {
 
     try {
       const result = await manager.search(data.query, data.type, data.extension);
-      // Track timestamp and instance for comparison with Prowlarr results
-      this.lastAmuleSearchTimestamp = Date.now();
-      this.lastAmuleSearchInstanceId = manager.instanceId;
-      context.broadcast({ type: 'search-results', data: result.results || [], instanceId: manager.instanceId }, searchFilter);
-      context.log(`Search completed on ${manager.displayName}: ${result.resultsLength || 0} results found`);
+      const provider = manager.clientType === 'slskd' ? 'slskd' : 'amule';
+      this.lastSearchTimestamp[provider] = Date.now();
+      this.lastSearchInstanceId[provider] = manager.instanceId;
+      const results = Array.isArray(result?.results) ? result.results : [];
+      context.broadcast({
+        type: 'search-results',
+        data: results,
+        instanceId: manager.instanceId,
+        clientType: manager.clientType
+      }, searchFilter);
+      context.log(`Search completed on ${manager.displayName}: ${result?.resultsLength || results.length || 0} results found`);
     } catch (err) {
       context.error('Search error:', err);
       context.send({ type: 'error', message: 'Search failed: ' + err.message });
     } finally {
-      manager.releaseSearchLock();
+      manager.releaseSearchLock?.();
       context.broadcast({ type: 'search-lock', locked: false }, searchFilter);
     }
   }
@@ -383,28 +423,63 @@ class WebSocketHandlers extends BaseModule {
       // Get Prowlarr cached results (already transformed)
       const prowlarrCache = prowlarrAPI.getCachedResults();
 
-      // Get aMule cached results from the specified or last-searched instance
-      const instanceId = data?.instanceId || this.lastAmuleSearchInstanceId;
-      const manager = this._getManager(instanceId, 'amule');
-      let amuleResults = [];
-      try {
-        if (manager) {
-          const result = await manager.getSearchResults();
-          amuleResults = result.results || [];
+      const candidates = [];
+
+      const amuleInstanceId = data?.instanceId || this.lastSearchInstanceId.amule;
+      const amuleMgr = this._getManager(amuleInstanceId, 'amule');
+      if (amuleMgr?.getSearchResults) {
+        try {
+          const result = await amuleMgr.getSearchResults();
+          candidates.push({
+            provider: 'amule',
+            ts: this.lastSearchTimestamp.amule,
+            results: result.results || [],
+            instanceId: amuleMgr.instanceId,
+            clientType: amuleMgr.clientType
+          });
+        } catch (err) {
+          context.log('aMule search results not available:', err.message);
         }
-      } catch (err) {
-        // aMule might not be connected, that's ok
-        context.log('aMule search results not available:', err.message);
       }
 
-      // Compare timestamps and return the most recent
-      if (prowlarrCache.timestamp > this.lastAmuleSearchTimestamp && prowlarrCache.results.length > 0) {
-        context.send({ type: 'previous-search-results', data: prowlarrCache.results });
-        context.log(`Previous search results: ${prowlarrCache.results.length} Prowlarr results (more recent)`);
-      } else {
-        context.send({ type: 'previous-search-results', data: amuleResults, instanceId: manager?.instanceId });
-        context.log(`Previous search results: ${amuleResults.length} aMule results`);
+      const slskdInstanceId = data?.instanceId || this.lastSearchInstanceId.slskd;
+      const slskdMgr = this._getManager(slskdInstanceId, 'slskd');
+      if (slskdMgr?.getSearchResults) {
+        try {
+          const result = await slskdMgr.getSearchResults();
+          candidates.push({
+            provider: 'slskd',
+            ts: this.lastSearchTimestamp.slskd,
+            results: result.results || [],
+            instanceId: slskdMgr.instanceId,
+            clientType: slskdMgr.clientType
+          });
+        } catch (err) {
+          context.log('slskd search results not available:', err.message);
+        }
       }
+
+      if (prowlarrCache.results.length > 0) {
+        candidates.push({
+          provider: 'prowlarr',
+          ts: prowlarrCache.timestamp,
+          results: prowlarrCache.results,
+          instanceId: null,
+          clientType: 'prowlarr'
+        });
+      }
+
+      const latest = candidates.sort((a, b) => b.ts - a.ts)[0] || {
+        provider: 'none', ts: 0, results: [], instanceId: null, clientType: null
+      };
+
+      context.send({
+        type: 'previous-search-results',
+        data: latest.results,
+        instanceId: latest.instanceId,
+        clientType: latest.clientType
+      });
+      context.log(`Previous search results: ${latest.results.length} ${latest.provider} result(s)`);
     } catch (err) {
       context.error('Get previous search results error:', err);
       context.send({ type: 'previous-search-results', data: [] });
@@ -572,6 +647,56 @@ class WebSocketHandlers extends BaseModule {
     }
   }
 
+  async handleGetSlskdLog(data, context) {
+    try {
+      const slskdMgr = this._getManager(data?.instanceId, 'slskd');
+      if (!slskdMgr) {
+        context.send({ type: 'error', message: 'No slskd instance registered' });
+        return;
+      }
+      const log = await slskdMgr.getLog();
+      context.send({ type: 'slskd-log-update', data: log, instanceId: slskdMgr.instanceId });
+    } catch (err) {
+      context.error('Get slskd log error:', err);
+      context.send({ type: 'error', message: 'Failed to fetch slskd log: ' + err.message });
+    }
+  }
+
+  async handleBrowseSlskdDirectory(data, context) {
+    const { username, directory, requestId, instanceId } = data || {};
+    if (!username || !directory) {
+      context.send({ type: 'error', message: 'username and directory are required for directory browse' });
+      return;
+    }
+
+    try {
+      const slskdMgr = this._getManager(instanceId, 'slskd');
+      if (!slskdMgr) {
+        context.send({ type: 'error', message: 'No slskd instance available' });
+        return;
+      }
+
+      const files = await slskdMgr.getDirectoryContents(username, directory);
+      context.send({
+        type: 'slskd-directory-contents',
+        requestId: requestId || null,
+        username,
+        directory,
+        files,
+        instanceId: slskdMgr.instanceId
+      });
+    } catch (err) {
+      context.error('Browse slskd directory error:', err);
+      context.send({
+        type: 'slskd-directory-error',
+        requestId: requestId || null,
+        username,
+        directory,
+        error: err.message
+      });
+    }
+  }
+
   async handleBatchDownloadSearchResults(data, context) {
     try {
       const { fileHashes, categoryId: rawCategoryId, categoryName } = data;
@@ -580,8 +705,39 @@ class WebSocketHandlers extends BaseModule {
         throw new Error('No file hashes provided for batch download');
       }
 
-      const manager = this._getManager(data.instanceId, 'amule');
-      if (!manager) { throw new Error('No aMule instance available'); }
+      let manager = this._getManager(data.instanceId, 'amule');
+      if (!manager) {
+        const slskdManagers = registry.getByType('slskd').filter(m => m.isConnected?.());
+        manager = slskdManagers.find((m) => fileHashes.every((hash) => m.hasSearchResult?.(hash))) || null;
+      }
+      if (!manager) { throw new Error('No compatible client instance available for selected search results'); }
+
+      // Soulseek search downloads don't use categories.
+      if (manager.clientType === 'slskd') {
+        const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
+        const results = [];
+        for (const fileHash of fileHashes) {
+          try {
+            const success = await manager.addSearchResult(fileHash, 0, username);
+            results.push({ fileHash, success });
+            if (success && context.clientInfo.userId && this.userManager) {
+              this.userManager.recordOwnership(itemKey(manager.instanceId, fileHash), context.clientInfo.userId);
+            }
+            context.log(`Soulseek download ${success ? 'started' : 'failed'} for: ${fileHash}`);
+          } catch (err) {
+            results.push({ fileHash, success: false, error: err.message });
+          }
+        }
+
+        await this.broadcastItemsUpdate(context);
+        const successCount = results.filter(r => r.success).length;
+        context.send({
+          type: 'batch-download-complete',
+          results,
+          message: `Downloaded ${successCount}/${fileHashes.length} files`
+        });
+        return;
+      }
 
       // Support both legacy categoryId and new categoryName
       let categoryId = 0;

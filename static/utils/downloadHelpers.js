@@ -179,6 +179,15 @@ export const isBittorrentClient = (item) => {
 };
 
 /**
+ * Check if item is from a Soulseek client
+ * @param {Object} item - Download/shared item
+ * @returns {boolean} True if Soulseek client
+ */
+export const isSoulseekClient = (item) => {
+  return item.networkType === 'soulseek';
+};
+
+/**
  * Format source count display with detailed breakdown
  * Handles both aMule and BitTorrent formats via unified sources object
  * @param {Object} item - Download item with sources object
@@ -327,6 +336,9 @@ export const getExportLink = (item) => {
   if (isBittorrentClient(item)) {
     return generateMagnetLink(item);
   }
+  if (isSoulseekClient(item)) {
+    return null;
+  }
   // ED2K: use unified ed2kLink field
   return item.ed2kLink || null;
 };
@@ -337,7 +349,9 @@ export const getExportLink = (item) => {
  * @returns {string} Label for the export link
  */
 export const getExportLinkLabel = (item) => {
-  return isBittorrentClient(item) ? 'Magnet Link' : 'ED2K Link';
+  if (isBittorrentClient(item)) return 'Magnet Link';
+  if (isSoulseekClient(item)) return 'Link';
+  return 'ED2K Link';
 };
 
 /**

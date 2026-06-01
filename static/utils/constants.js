@@ -243,7 +243,8 @@ export const ICON_SIZES = {
 // Network type display labels
 export const NETWORK_TYPE_LABELS = {
   ed2k: 'ED2K',
-  bittorrent: 'BitTorrent'
+  bittorrent: 'BitTorrent',
+  soulseek: 'Soulseek'
 };
 
 // Client display names (single source of truth for UI labels)
@@ -252,7 +253,8 @@ export const CLIENT_NAMES = {
   rtorrent: { name: 'rTorrent', shortName: 'rTor' },
   qbittorrent: { name: 'qBittorrent', shortName: 'qBit' },
   deluge: { name: 'Deluge', shortName: 'Dlg' },
-  transmission: { name: 'Transmission', shortName: 'Trn' }
+  transmission: { name: 'Transmission', shortName: 'Trn' },
+  slskd: { name: 'slskd', shortName: 'slskd' }
 };
 
 // Client software types (for uploads view)

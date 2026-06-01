@@ -5,7 +5,9 @@
 
 const BaseModule = require('../lib/BaseModule');
 const TorznabHandler = require('../lib/torznab/TorznabHandler');
+const SoulseekTorznabHandler = require('../lib/torznab/SoulseekTorznabHandler');
 const config = require('./config');
+const clientMeta = require('../lib/clientMeta');
 const response = require('../lib/responseFormatter');
 
 // Client registry - replaces direct singleton manager imports
@@ -15,21 +17,41 @@ class TorznabAPI extends BaseModule {
   constructor() {
     super();
     this.handler = new TorznabHandler();
-    // Initialize handler dependencies (uses configured or first aMule instance)
+    this.soulseekHandler = new SoulseekTorznabHandler();
+    // Initialize handler dependencies.
+    // Uses arrDownloadInstanceId (new generic key) -> amuleInstanceId (legacy) -> first
+    // connected instance with search capability. Returns raw aMule client for backward
+    // compat with TorznabHandler; non-aMule providers are gated with a warning.
     this.handler.setDependencies({
-      getAmuleClient: () => {
-        const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-        let amuleMgr;
+      getSearchProviderClient: () => {
+        const integrations = config.getConfig()?.integrations || {};
+        const configuredId = integrations.arrDownloadInstanceId || integrations.amuleInstanceId;
+        let mgr;
         if (configuredId) {
-          amuleMgr = registry.get(configuredId);
-          if (!amuleMgr) {
-            amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.warn(`⚠️ [TorznabAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
+          mgr = registry.get(configuredId);
+          if (!mgr) {
+            mgr = registry.getByType('amule').find(m => m.isConnected());
+            if (mgr) this.warn(`⚠️ [TorznabAPI] Configured provider "${configuredId}" not found, falling back to "${mgr.instanceId}"`);
           }
         } else {
-          amuleMgr = registry.getByType('amule').find(m => m.isConnected());
+          mgr = registry.getByType('amule').find(m => m.isConnected());
         }
-        return amuleMgr?.getClient() || null;
+        if (!mgr) return null;
+        if (!clientMeta.hasCapability(mgr.clientType, 'search')) {
+          this.warn(`⚠️ [TorznabAPI] Provider "${mgr.instanceId}" (${mgr.clientType}) does not support search`);
+          return null;
+        }
+        // Only aMule exposes a raw client with searchAndWaitResults; other types
+        // (e.g. slskd) will be routed here once Phase 4 indexer support is added.
+        return mgr.getClient?.() || null;
+      }
+    });
+
+    // Soulseek indexer — resolves the first connected slskd instance
+    this.soulseekHandler.setDependencies({
+      getSlskdManager: () => {
+        const mgrs = registry.getByType('slskd').filter(m => m.isConnected?.());
+        return mgrs[0] || null;
       }
     });
   }
@@ -72,6 +94,7 @@ class TorznabAPI extends BaseModule {
    */
   registerRoutes(app) {
     app.get('/indexer/amule/api', this.checkApiKey.bind(this), this.handler.handleRequest);
+    app.get('/indexer/soulseek/api', this.checkApiKey.bind(this), this.soulseekHandler.handleRequest);
 
     this.log('🔍 Torznab API routes registered with authentication');
   }

@@ -31,6 +31,7 @@ const MANAGER_CLASSES = {
   qbittorrent: require('./modules/qbittorrentManager').QbittorrentManager,
   deluge: require('./modules/delugeManager').DelugeManager,
   transmission: require('./modules/transmissionManager').TransmissionManager,
+  slskd: require('./modules/slskdManager'),
 };
 const geoIPManager = require('./modules/geoIPManager');
 const arrManager = require('./modules/arrManager');
@@ -57,6 +58,8 @@ const eventScriptingManager = require('./lib/EventScriptingManager');
 const notificationManager = require('./lib/NotificationManager');
 const notificationsAPI = require('./modules/notificationsAPI');
 const userAPI = require('./modules/userAPI');
+const slskdChatAPI = require('./modules/slskdChatAPI');
+const slskdRoomsAPI = require('./modules/slskdRoomsAPI');
 
 // Middleware
 const requireAuth = require('./middleware/auth');
@@ -285,6 +288,8 @@ app.get('/api/item/detail/:hash', (req, res) => {
 });
 notificationsAPI.registerRoutes(app); // Notifications API
 userAPI.registerRoutes(app);           // User management API (admin only)
+slskdChatAPI.registerRoutes(app);      // Soulseek private chat API
+slskdRoomsAPI.registerRoutes(app);     // Soulseek rooms API
 versionAPI.registerProtectedRoutes(app); // Version seen tracking (protected)
 
 // Debug API — only when NODE_INSPECT=true

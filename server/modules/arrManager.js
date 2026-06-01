@@ -11,6 +11,7 @@ const { hoursToMs, minutesToMs, MS_PER_HOUR } = require('../lib/timeRange');
 
 // Client registry - replaces direct singleton manager imports
 const registry = require('../lib/ClientRegistry');
+const clientMeta = require('../lib/clientMeta');
 
 // Debug mode - set to true to see detailed search decisions
 const DEBUG = true;
@@ -215,6 +216,26 @@ class ArrManager extends BaseModule {
   }
 
   /**
+   * Resolve the manager to use for arr-triggered searches.
+   * Priority: integrations.arrDownloadInstanceId -> integrations.amuleInstanceId (legacy)
+   * -> first connected instance with search capability.
+   * @returns {Object|null} Manager instance or null
+   */
+  _resolveSearchManager() {
+    const integrations = config.getConfig()?.integrations || {};
+    const configuredId = integrations.arrDownloadInstanceId || integrations.amuleInstanceId;
+    if (configuredId) {
+      const mgr = registry.get(configuredId);
+      if (mgr) return mgr;
+      this.warn(`⚠️ Configured search provider "${configuredId}" not found in registry, falling back to capability search`);
+    }
+    // Fallback: first connected instance that supports search
+    return registry.getAll().find(
+      m => m.isConnected?.() && clientMeta.hasCapability(m.clientType, 'search')
+    ) || null;
+  }
+
+  /**
    * Acquire search lock with timeout
    */
   async acquireSearchLockWithTimeout(service) {
@@ -222,15 +243,12 @@ class ArrManager extends BaseModule {
     const pollInterval = 10000; // 10 seconds
     const startTime = Date.now();
 
-    const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-    const amuleMgr = configuredId
-      ? registry.get(configuredId)
-      : registry.getByType('amule').find(m => m.isConnected());
-    if (!amuleMgr) {
-      this.warn(`⚠️  No aMule instance connected, skipping ${service} automatic search`);
+    const searchMgr = this._resolveSearchManager();
+    if (!searchMgr) {
+      this.warn(`⚠️  No search-capable instance connected, skipping ${service} automatic search`);
       return false;
     }
-    while (!amuleMgr.acquireSearchLock()) {
+    while (!searchMgr.acquireSearchLock()) {
       if (Date.now() - startTime > maxWaitTime) {
         this.warn(`⚠️  Timeout waiting for search lock, skipping ${service} automatic search`);
         return false;
@@ -239,11 +257,8 @@ class ArrManager extends BaseModule {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
 
-    amuleMgr.searchInProgress = true;
-    this.broadcast({ type: 'search-lock', locked: true }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-    this.log(`🔒 Search lock acquired for ${service} automatic search (${amuleMgr.instanceId})`);
+    searchMgr.searchInProgress = true;
+    this.log(`🔒 Search lock acquired for ${service} automatic search (${searchMgr.instanceId})`);
     return true;
   }
 
@@ -251,14 +266,8 @@ class ArrManager extends BaseModule {
    * Release search lock
    */
   releaseSearchLock(service) {
-    const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-    const amuleMgr = configuredId
-      ? registry.get(configuredId)
-      : registry.getByType('amule').find(m => m.isConnected());
-    if (amuleMgr) amuleMgr.releaseSearchLock();
-    this.broadcast({ type: 'search-lock', locked: false }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
+    const searchMgr = this._resolveSearchManager();
+    if (searchMgr) searchMgr.releaseSearchLock();
     this.log(`🔓 Search lock released after ${service} automatic search`);
   }
 
@@ -346,7 +355,8 @@ class ArrManager extends BaseModule {
       this.log(`🔄 Triggering ${service} ${svcCfg.refreshCommand}...`);
 
       // 1️⃣ Trigger Refresh
-      const refreshResult = await this.fetchJson(`${cfg.url}/api/v3/command`, {
+      const apiBase = this.getApiBase(service, cfg.url);
+      const refreshResult = await this.fetchJson(`${apiBase}/command`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

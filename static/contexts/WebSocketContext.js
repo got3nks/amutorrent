@@ -74,6 +74,7 @@ export const WebSocketProvider = ({ children }) => {
     setDataAppLogs,
     setDataAppLogSources,
     setDataQbittorrentLogs,
+    setDataSlskdLogs,
     setDataStatsTree,
     setDataServersEd2kLinks,
     markDataLoaded: markStaticDataLoaded,
@@ -387,6 +388,10 @@ export const WebSocketProvider = ({ children }) => {
         setDataQbittorrentLogs(data.data || '');
         markStaticDataLoaded('qbittorrentLogs');
       },
+      'slskd-log-update': () => {
+        setDataSlskdLogs(data.data || '');
+        markStaticDataLoaded('slskdLogs');
+      },
       'stats-tree-update': () => {
         setDataStatsTree(data.data);
       },
@@ -483,7 +488,7 @@ export const WebSocketProvider = ({ children }) => {
     markLiveDataLoaded,
     // Static data setters
     setDataServers, setDataCategories, setClientDefaultPaths, setProwlarrEnabled,
-    setKnownTrackers, setHistoryTrackUsername, setInstances, setDataLogs, setDataServerInfo, setDataAppLogs, setDataAppLogSources, setDataQbittorrentLogs,
+    setKnownTrackers, setHistoryTrackUsername, setInstances, setDataLogs, setDataServerInfo, setDataAppLogs, setDataAppLogSources, setDataQbittorrentLogs, setDataSlskdLogs,
     setDataStatsTree, setDataServersEd2kLinks,
     markStaticDataLoaded, resetStaticDataLoaded,
     // Search setters
@@ -534,9 +539,10 @@ export const WebSocketProvider = ({ children }) => {
         }, 2000);
       };
 
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        wsRef.current?.close();
+      wsRef.current.onerror = () => {
+        // Browsers intentionally omit error details for WebSocket failures.
+        // onclose always fires after onerror and schedules the reconnect.
+        console.warn('WebSocket connection error — will reconnect');
       };
 
       wsRef.current.onmessage = (event) => {

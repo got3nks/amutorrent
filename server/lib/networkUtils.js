@@ -55,7 +55,7 @@ const CLIENT_SOFTWARE_LABELS = {
  */
 function getClientSoftwareName(item) {
   // For rtorrent, use the client string directly
-  if (clientMeta.isBittorrent(item.clientType) || item.EC_TAG_CLIENT_SOFTWARE === -1) {
+  if (clientMeta.isBittorrent(item.clientType) || clientMeta.isSoulseek(item.clientType) || item.EC_TAG_CLIENT_SOFTWARE === -1) {
     return item.EC_TAG_CLIENT_SOFT_VER_STR || 'Unknown';
   }
   const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';

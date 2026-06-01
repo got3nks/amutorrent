@@ -4,7 +4,7 @@
 
 <h1 align="center">aMuTorrent</h1>
 
-A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmission. Manage ED2K and BitTorrent downloads from a single modern web interface. Features multi-instance support, user management with SSO, Prowlarr integration for torrent search, Torznab indexer and qBittorrent-compatible API for aMule (Sonarr/Radarr integration), push notifications via Apprise, and GeoIP peer location display. Built with Node.js, WebSockets, and React.
+A unified download manager for aMule, rTorrent, qBittorrent, Deluge, Transmission, and slskd. Manage ED2K, BitTorrent, and Soulseek downloads from a single modern web interface. Features multi-instance support, user management with SSO, Prowlarr integration for torrent search, Torznab indexer and qBittorrent-compatible API for aMule (*arr integration), push notifications via Apprise, and GeoIP peer location display. Built with Node.js, WebSockets, and React.
 
 ![aMuTorrent](./docs/screenshots/home-desktop.png)
 
@@ -16,6 +16,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 - **qBittorrent Integration** - Connect to qBittorrent via WebUI API
 - **Deluge Integration** - Connect to Deluge via WebUI JSON-RPC
 - **Transmission Integration** - Connect to Transmission via HTTP RPC
+- **Soulseek Integration** - Connect to slskd via HTTP API
 - **Multi-Instance** - Run multiple instances of the same client type
 - **Unified Interface** - Manage all clients from a single dashboard
 

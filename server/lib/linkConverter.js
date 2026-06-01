@@ -124,8 +124,71 @@ function parseEd2kLink(ed2kLink) {
   };
 }
 
+// ============================================================================
+// SLSKD (SOULSEEK) MAGNET ENCODING
+// ============================================================================
+
+const crypto = require('crypto');
+
+/**
+ * Encode a slskd file identifier into a Torznab-compatible magnet link.
+ *
+ * Strategy: use MD5(fileHash) as the 32-char hex btih base, then append
+ * 'ffffffff' (8 chars) to reach 40 chars.  The 'ffffffff' suffix is the
+ * slskd marker — distinct from ED2K's '00000000' suffix.
+ * The original fileHash is preserved losslessly in the x.slskd parameter.
+ *
+ * @param {string} fileHash - slskd internal key (id|username|filename|size)
+ * @param {string} fileName - Display file name
+ * @param {number} fileSize - File size in bytes
+ * @returns {{ magnetLink: string, btih: string }}
+ */
+function encodeSlskdToMagnet(fileHash, fileName = 'unknown', fileSize = 0) {
+  const md5 = crypto.createHash('md5').update(String(fileHash)).digest('hex'); // 32 hex chars
+  const btih = md5 + 'ffffffff'; // 40 hex chars — slskd marker
+  const dn = encodeURIComponent(fileName || 'unknown');
+  const xSlskd = encodeURIComponent(String(fileHash));
+  return {
+    magnetLink: `magnet:?xt=urn:btih:${btih}&dn=${dn}&xl=${fileSize}&x.slskd=${xSlskd}`,
+    btih
+  };
+}
+
+/**
+ * Check whether a magnet link was produced by encodeSlskdToMagnet.
+ * Identified by the 'ffffffff' suffix on the btih hash.
+ *
+ * @param {string} magnetLink
+ * @returns {boolean}
+ */
+function isSlskdMagnet(magnetLink) {
+  if (!magnetLink || !magnetLink.startsWith('magnet:')) return false;
+  const params = new URLSearchParams(magnetLink.split('?')[1] || '');
+  const xt = params.get('xt') || '';
+  const btihMatch = xt.match(/urn:btih:([a-f0-9]{40})/i);
+  return !!(btihMatch && btihMatch[1].toLowerCase().endsWith('ffffffff'));
+}
+
+/**
+ * Decode the slskd fileHash embedded in a magnet link produced by encodeSlskdToMagnet.
+ * Returns null if the link is not a slskd magnet.
+ *
+ * @param {string} magnetLink
+ * @returns {{ fileHash: string } | null}
+ */
+function decodeSlskdFromMagnet(magnetLink) {
+  if (!isSlskdMagnet(magnetLink)) return null;
+  const params = new URLSearchParams(magnetLink.split('?')[1] || '');
+  const fileHash = decodeURIComponent(params.get('x.slskd') || '');
+  if (!fileHash) return null;
+  return { fileHash };
+}
+
 module.exports = {
   convertEd2kToMagnet,
   convertMagnetToEd2k,
-  parseEd2kLink
+  parseEd2kLink,
+  encodeSlskdToMagnet,
+  isSlskdMagnet,
+  decodeSlskdFromMagnet
 };

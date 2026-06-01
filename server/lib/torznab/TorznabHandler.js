@@ -18,6 +18,7 @@ class TorznabHandler {
   constructor() {
     // Dependencies
     this.getAmuleClient = null;
+    this.getSearchProviderClient = null;
 
     // Rate limiting state
     this.searchDelayMs = parseInt(process.env.ED2K_SEARCH_DELAY_MS || '10000', 10);
@@ -33,9 +34,22 @@ class TorznabHandler {
 
   /**
    * Set dependencies
+   * Accepts either `getSearchProviderClient` (preferred, provider-agnostic) or
+   * `getAmuleClient` (legacy, backward compat).
    */
-  setDependencies({ getAmuleClient }) {
-    this.getAmuleClient = getAmuleClient;
+  setDependencies({ getSearchProviderClient, getAmuleClient }) {
+    this.getSearchProviderClient = getSearchProviderClient || null;
+    // Keep legacy alias so existing call sites that set getAmuleClient still work
+    this.getAmuleClient = getAmuleClient || null;
+  }
+
+  /**
+   * Resolve the active search client.
+   * Prefers getSearchProviderClient; falls back to getAmuleClient.
+   * @returns {Object|null}
+   */
+  _resolveSearchClient() {
+    return this.getSearchProviderClient?.() || this.getAmuleClient?.() || null;
   }
 
   // ============================================================================
@@ -210,9 +224,9 @@ class TorznabHandler {
       return res.send(emptyFeed);
     }
 
-    const amuleClient = this.getAmuleClient?.();
+    const amuleClient = this._resolveSearchClient();
     if (!amuleClient) {
-      logger.log('[Torznab] aMule not connected, returning empty feed');
+      logger.log('[Torznab] No search provider connected, returning empty feed');
       const emptyFeed = convertToTorznabFeed([], q, cat);
       res.set('Content-Type', 'application/xml');
       return res.send(emptyFeed);

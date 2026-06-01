@@ -242,7 +242,23 @@ const SharedView = () => {
 
   const columns = useMemo(() => [
     buildAddedAtColumn(),
-    buildFileNameColumn({ onClick: handleShowInfo, disabled: selectionMode }),
+    {
+      label: 'File Name',
+      key: 'name',
+      sortable: true,
+      width: 'auto',
+      render: (item) => h('div', { className: 'flex items-center gap-2 min-w-0' },
+        h('span', {
+          className: `min-w-0 font-medium text-xs${selectionMode ? '' : ' cursor-pointer hover:underline decoration-dotted'}`,
+          style: { wordBreak: 'break-all', overflowWrap: 'anywhere' },
+          onClick: selectionMode ? undefined : () => handleShowInfo(item)
+        }, item.name || 'Unknown'),
+        item.locked && h('span', {
+          className: 'shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+          title: 'Excluded share'
+        }, 'Locked')
+      )
+    },
     buildStatusColumn({
       statusFilter,
       setStatusFilter,
@@ -471,6 +487,10 @@ const SharedView = () => {
             h('div', { className: 'space-y-1 text-xs' },
               // Row 1: Uploaded - Session - Ratio - Tracker
               h('div', { className: 'flex items-center gap-1 text-gray-700 dark:text-gray-300 flex-wrap' },
+                item.locked && h('span', {
+                  className: 'rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                }, 'Locked'),
+                item.locked && h('span', { className: 'text-gray-400' }, '·'),
                 h(Icon, { name: 'upload', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
                 h('span', { className: 'text-gray-900 dark:text-gray-100' },
                   formatBytes(item.uploadTotal) + (item.requestsAcceptedTotal != null ? ` (${item.requestsAcceptedTotal})` : '')
