@@ -36,6 +36,8 @@ export function hasTestErrors(testResults, clientTestResults) {
   // Check integrations — if a result exists and failed, it's an error
   if (results.sonarr && results.sonarr.success === false) return true;
   if (results.radarr && results.radarr.success === false) return true;
+  if (results.lidarr && results.lidarr.success === false) return true;
+  if (results.readarr && results.readarr.success === false) return true;
   if (results.prowlarr && results.prowlarr.success === false) return true;
 
   return false;
@@ -63,6 +65,8 @@ export function checkResultsForErrors(results, clientTestResults) {
   // Check integrations
   if (testData.sonarr && testData.sonarr.success === false) return true;
   if (testData.radarr && testData.radarr.success === false) return true;
+  if (testData.lidarr && testData.lidarr.success === false) return true;
+  if (testData.readarr && testData.readarr.success === false) return true;
   if (testData.prowlarr && testData.prowlarr.success === false) return true;
 
   return false;
@@ -100,6 +104,16 @@ export function buildTestPayload(formData, unmaskPasswords = false, getUnmaskedC
   // Add Radarr if enabled
   if (configData.integrations?.radarr?.enabled) {
     payload.radarr = configData.integrations.radarr;
+  }
+
+  // Add Lidarr if enabled
+  if (configData.integrations?.lidarr?.enabled) {
+    payload.lidarr = configData.integrations.lidarr;
+  }
+
+  // Add Readarr if enabled
+  if (configData.integrations?.readarr?.enabled) {
+    payload.readarr = configData.integrations.readarr;
   }
 
   // Add Prowlarr if enabled

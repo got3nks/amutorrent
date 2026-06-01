@@ -105,6 +105,8 @@ const SetupWizardView = ({ onComplete }) => {
         integrations: {
           sonarr: { ...defaults.integrations.sonarr },
           radarr: { ...defaults.integrations.radarr },
+          lidarr: { ...defaults.integrations?.lidarr || { enabled: false, url: '', apiKey: '', searchIntervalHours: 6 } },
+          readarr: { ...defaults.integrations?.readarr || { enabled: false, url: '', apiKey: '', searchIntervalHours: 6 } },
           prowlarr: { ...defaults.integrations?.prowlarr || { enabled: false, url: '', apiKey: '' } }
         }
       });
@@ -271,6 +273,14 @@ const SetupWizardView = ({ onComplete }) => {
           if (!formData.integrations.radarr.url) errors.push('Radarr URL is required');
           if (!formData.integrations.radarr.apiKey && !meta?.fromEnv.radarrApiKey) errors.push('Radarr API key is required');
         }
+        if (formData.integrations.lidarr?.enabled) {
+          if (!formData.integrations.lidarr.url) errors.push('Lidarr URL is required');
+          if (!formData.integrations.lidarr.apiKey && !meta?.fromEnv.lidarrApiKey) errors.push('Lidarr API key is required');
+        }
+        if (formData.integrations.readarr?.enabled) {
+          if (!formData.integrations.readarr.url) errors.push('Readarr URL is required');
+          if (!formData.integrations.readarr.apiKey && !meta?.fromEnv.readarrApiKey) errors.push('Readarr API key is required');
+        }
         if (formData.integrations.prowlarr?.enabled) {
           if (!formData.integrations.prowlarr.url) errors.push('Prowlarr URL is required');
           if (!formData.integrations.prowlarr.apiKey && !meta?.fromEnv.prowlarrApiKey) errors.push('Prowlarr API key is required');
@@ -361,6 +371,12 @@ const SetupWizardView = ({ onComplete }) => {
         }
         if (formData.integrations.radarr.enabled) {
           testPayload.radarr = formData.integrations.radarr;
+        }
+        if (formData.integrations.lidarr?.enabled) {
+          testPayload.lidarr = formData.integrations.lidarr;
+        }
+        if (formData.integrations.readarr?.enabled) {
+          testPayload.readarr = formData.integrations.readarr;
         }
         if (formData.integrations.prowlarr?.enabled) {
           testPayload.prowlarr = formData.integrations.prowlarr;
@@ -572,7 +588,7 @@ const SetupWizardView = ({ onComplete }) => {
           h(Icon, { name: 'cloud', size: 20, className: 'text-blue-600 dark:text-blue-400 mt-0.5' }),
           h('div', {},
             h('p', { className: 'font-medium text-gray-900 dark:text-gray-100' }, 'Integrations (Optional)'),
-            h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'Configure Sonarr, Radarr, and Prowlarr integrations')
+            h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'Configure Sonarr, Radarr, Lidarr, Readarr, and Prowlarr integrations')
           )
         )
       )
@@ -1310,6 +1326,8 @@ const SetupWizardView = ({ onComplete }) => {
   const IntegrationsStep = () => {
     const hasAnyIntegration = formData.integrations.sonarr.enabled ||
                               formData.integrations.radarr.enabled ||
+                              formData.integrations.lidarr?.enabled ||
+                              formData.integrations.readarr?.enabled ||
                               formData.integrations.prowlarr?.enabled;
 
     return h('div', {},
@@ -1416,6 +1434,98 @@ const SetupWizardView = ({ onComplete }) => {
         )
       ),
 
+      // Lidarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.lidarr?.enabled || false,
+          onChange: (value) => updateNestedField('integrations', 'lidarr', 'enabled', value),
+          label: 'Enable Lidarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing albums via Lidarr API'
+        }),
+        formData.integrations.lidarr?.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Lidarr URL',
+            description: 'Lidarr server URL (e.g., http://localhost:8686)',
+            value: formData.integrations.lidarr?.url || '',
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'url', value),
+            placeholder: 'http://localhost:8686',
+            required: formData.integrations.lidarr?.enabled,
+            fromEnv: meta?.fromEnv.lidarrUrl
+          }),
+          meta?.fromEnv.lidarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Lidarr API key is set via environment variable.')
+          ),
+          !meta?.fromEnv.lidarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Lidarr API key (Settings -> General)',
+            value: formData.integrations.lidarr?.apiKey || '',
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'apiKey', value),
+            required: formData.integrations.lidarr?.enabled
+          },
+            h(PasswordField, {
+              value: formData.integrations.lidarr?.apiKey || '',
+              onChange: (value) => updateNestedField('integrations', 'lidarr', 'apiKey', value),
+              placeholder: 'Enter Lidarr API key',
+              disabled: meta?.fromEnv.lidarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.lidarr?.searchIntervalHours || 6,
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6'
+          })
+        )
+      ),
+
+      // Readarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.readarr?.enabled || false,
+          onChange: (value) => updateNestedField('integrations', 'readarr', 'enabled', value),
+          label: 'Enable Readarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing books via Readarr API'
+        }),
+        formData.integrations.readarr?.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Readarr URL',
+            description: 'Readarr server URL (e.g., http://localhost:8787)',
+            value: formData.integrations.readarr?.url || '',
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'url', value),
+            placeholder: 'http://localhost:8787',
+            required: formData.integrations.readarr?.enabled,
+            fromEnv: meta?.fromEnv.readarrUrl
+          }),
+          meta?.fromEnv.readarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Readarr API key is set via environment variable.')
+          ),
+          !meta?.fromEnv.readarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Readarr API key (Settings -> General)',
+            value: formData.integrations.readarr?.apiKey || '',
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'apiKey', value),
+            required: formData.integrations.readarr?.enabled
+          },
+            h(PasswordField, {
+              value: formData.integrations.readarr?.apiKey || '',
+              onChange: (value) => updateNestedField('integrations', 'readarr', 'apiKey', value),
+              placeholder: 'Enter Readarr API key',
+              disabled: meta?.fromEnv.readarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.readarr?.searchIntervalHours || 6,
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6'
+          })
+        )
+      ),
+
       // Prowlarr summary (configured in rTorrent step)
       formData.integrations.prowlarr?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
         h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Prowlarr (rTorrent torrent search)'),
@@ -1430,6 +1540,8 @@ const SetupWizardView = ({ onComplete }) => {
           disabled:
             (formData.integrations.sonarr.enabled && (!formData.integrations.sonarr.url || !formData.integrations.sonarr.apiKey)) ||
             (formData.integrations.radarr.enabled && (!formData.integrations.radarr.url || !formData.integrations.radarr.apiKey)) ||
+            (formData.integrations.lidarr?.enabled && (!formData.integrations.lidarr?.url || !formData.integrations.lidarr?.apiKey)) ||
+            (formData.integrations.readarr?.enabled && (!formData.integrations.readarr?.url || !formData.integrations.readarr?.apiKey)) ||
             (formData.integrations.prowlarr?.enabled && (!formData.integrations.prowlarr?.url || !formData.integrations.prowlarr?.apiKey))
         }, 'Test Integrations')
       ),
@@ -1442,6 +1554,14 @@ const SetupWizardView = ({ onComplete }) => {
         testResults.results.radarr && h(TestResultIndicator, {
           result: testResults.results.radarr,
           label: 'Radarr API Test'
+        }),
+        testResults.results.lidarr && h(TestResultIndicator, {
+          result: testResults.results.lidarr,
+          label: 'Lidarr API Test'
+        }),
+        testResults.results.readarr && h(TestResultIndicator, {
+          result: testResults.results.readarr,
+          label: 'Readarr API Test'
         }),
         testResults.results.prowlarr && h(TestResultIndicator, {
           result: testResults.results.prowlarr,
