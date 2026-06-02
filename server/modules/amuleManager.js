@@ -22,6 +22,8 @@ class AmuleManager extends BaseClientManager {
     this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
+    this._tcpPort = null;   // ED2K TCP listen port (from connection preferences)
+    this._udpPort = null;   // KAD UDP listen port (from connection preferences)
     this.setupGlobalErrorHandlers();
   }
 
@@ -138,6 +140,12 @@ class AmuleManager extends BaseClientManager {
 
       // Notify listeners (e.g. qBittorrent API category sync)
       this._onConnectCallbacks.forEach(cb => cb());
+
+      // Async: cache ED2K TCP and KAD UDP listen ports for footer display
+      this.client.getConnectionPreferences().then(prefs => {
+        this._tcpPort = prefs?.tcpPort || null;
+        this._udpPort = prefs?.udpPort || null;
+      }).catch(() => {});
 
       // Start shared files auto-reload scheduler
       this.startSharedFilesReloadScheduler();
@@ -529,8 +537,8 @@ class AmuleManager extends BaseClientManager {
 
     const ed2k = ed2kConnected
       ? { status: isHighId ? 'green' : 'yellow', text: isHighId ? 'High ID' : 'Low ID',
-          connected: true, serverName: server.EC_TAG_SERVER_NAME || null, serverPing: server.EC_TAG_SERVER_PING || null, serverAddress: server._value || null }
-      : { status: 'red', text: 'Disconnected', connected: false, serverName: null, serverPing: null, serverAddress: null };
+          connected: true, serverName: server.EC_TAG_SERVER_NAME || null, serverPing: server.EC_TAG_SERVER_PING || null, serverAddress: server._value || null, listenPort: this._tcpPort }
+      : { status: 'red', text: 'Disconnected', connected: false, serverName: null, serverPing: null, serverAddress: null, listenPort: this._tcpPort };
 
     // KAD status
     const kadFirewalledValue = rawStats.EC_TAG_STATS_KAD_FIREWALLED_UDP;
@@ -538,8 +546,8 @@ class AmuleManager extends BaseClientManager {
     const kadFirewalled = kadFirewalledValue === 1;
 
     const kad = kadConnected
-      ? { status: kadFirewalled ? 'yellow' : 'green', text: kadFirewalled ? 'Firewalled' : 'OK', connected: true }
-      : { status: 'red', text: 'Disconnected', connected: false };
+      ? { status: kadFirewalled ? 'yellow' : 'green', text: kadFirewalled ? 'Firewalled' : 'OK', connected: true, listenPort: this._udpPort }
+      : { status: 'red', text: 'Disconnected', connected: false, listenPort: this._udpPort };
 
     return { ed2k, kad };
   }
