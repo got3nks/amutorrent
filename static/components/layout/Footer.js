@@ -18,14 +18,23 @@ import ClientIcon from '../common/ClientIcon.js';
 
 const { createElement: h } = React;
 
-const NETWORK_FILTERS = {
-  ed2k: 'ed2k',
-  bittorrent: 'bittorrent',
-  soulseek: 'soulseek'
-};
-
 // Status priority for worst-of computation (lower = worse)
 const STATUS_PRIORITY = { red: 0, yellow: 1, green: 2 };
+
+// Build the KAD tooltip detail string: per-port status when we have it,
+// since aMule exposes UDP-firewall and TCP-firewall as independent flags
+// and a node can be one without the other (e.g. NAT that forwards TCP but not UDP).
+const buildKadTooltip = (ns) => {
+  if (!ns || !ns.connected) return null;
+  const lines = [];
+  if (ns.listenPort) {
+    lines.push(`UDP ${ns.listenPort}: ${ns.firewalledUdp ? 'Firewalled' : 'OK'}`);
+  }
+  if (ns.tcpPort) {
+    lines.push(`TCP ${ns.tcpPort}: ${ns.firewalledTcp ? 'Firewalled' : 'OK'}`);
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
+};
 
 /**
  * Find the status object with worst status from an array
@@ -111,9 +120,12 @@ const Footer = ({ currentView, onOpenAbout }) => {
         ...amuleInsts.map(inst => {
           const ns = inst.networkStatus?.kad;
           if (!ns) return null;
+          const portDetail = ns.connected && (ns.listenPort || ns.tcpPort)
+            ? ` (UDP ${ns.listenPort || '?'}: ${ns.firewalledUdp ? 'Firewalled' : 'OK'} · TCP ${ns.tcpPort || '?'}: ${ns.firewalledTcp ? 'Firewalled' : 'OK'})`
+            : '';
           return h('div', { key: inst.id, className: 'flex items-center gap-2' },
             h('div', { className: `w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotClass(ns.status)}` }),
-            h('span', null, `${inst.name}: ${ns.text}${ns.listenPort ? ` (Port ${ns.listenPort})` : ''}`)
+            h('span', null, `${inst.name}: ${ns.text}${portDetail}`)
           );
         }).filter(Boolean)
       );
@@ -212,7 +224,7 @@ const Footer = ({ currentView, onOpenAbout }) => {
             ),
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'KAD:'),
-              renderBadge(kad.status, kad.text, kadTooltip || (kad.listenPort ? `Port ${kad.listenPort}` : null))
+              renderBadge(kad.status, kad.text, kadTooltip || buildKadTooltip(kad))
             )
           ),
           // Divider between aMule and BitTorrent status

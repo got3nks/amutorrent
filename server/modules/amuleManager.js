@@ -145,7 +145,7 @@ class AmuleManager extends BaseClientManager {
       this.client.getConnectionPreferences().then(prefs => {
         this._tcpPort = prefs?.tcpPort || null;
         this._udpPort = prefs?.udpPort || null;
-      }).catch(() => {});
+      }).catch(err => this.warn('⚠️  getConnectionPreferences failed:', err.message));
 
       // Start shared files auto-reload scheduler
       this.startSharedFilesReloadScheduler();
@@ -540,14 +540,40 @@ class AmuleManager extends BaseClientManager {
           connected: true, serverName: server.EC_TAG_SERVER_NAME || null, serverPing: server.EC_TAG_SERVER_PING || null, serverAddress: server._value || null, listenPort: this._tcpPort }
       : { status: 'red', text: 'Disconnected', connected: false, serverName: null, serverPing: null, serverAddress: null, listenPort: this._tcpPort };
 
-    // KAD status
-    const kadFirewalledValue = rawStats.EC_TAG_STATS_KAD_FIREWALLED_UDP;
-    const kadConnected = kadFirewalledValue !== undefined && kadFirewalledValue !== null;
-    const kadFirewalled = kadFirewalledValue === 1;
+    // KAD status. Two distinct firewall checks:
+    //   - UDP firewall: exposed as a dedicated EC_TAG_STATS_KAD_FIREWALLED_UDP tag
+    //   - TCP firewall (= Kademlia::CKademlia::IsFirewalled() — what aMule's GUI shows
+    //     as "Firewalled"): packed as bit 0x08 of the EC_TAG_CONNSTATE value bitfield.
+    //     Reference: ECSpecialCoreTags.cpp CEC_ConnState_Tag constructor in upstream
+    //     aMule. Bits: 0x01 connED2K · 0x02 connecting · 0x04 connKad ·
+    //     0x08 firewalled · 0x10 running.
+    // Surface both individually so the footer tooltip can show per-port status;
+    // headline flips to "Firewalled" if *either* is firewalled.
+    const kadFirewalledUdpValue = rawStats.EC_TAG_STATS_KAD_FIREWALLED_UDP;
+    const kadConnected = kadFirewalledUdpValue !== undefined && kadFirewalledUdpValue !== null;
+    const kadFirewalledUdp = kadFirewalledUdpValue === 1;
+    const kadFirewalledTcp = ((connState._value || 0) & 0x08) !== 0;
+    const kadFirewalled = kadFirewalledUdp || kadFirewalledTcp;
 
     const kad = kadConnected
-      ? { status: kadFirewalled ? 'yellow' : 'green', text: kadFirewalled ? 'Firewalled' : 'OK', connected: true, listenPort: this._udpPort }
-      : { status: 'red', text: 'Disconnected', connected: false, listenPort: this._udpPort };
+      ? {
+          status: kadFirewalled ? 'yellow' : 'green',
+          text: kadFirewalled ? 'Firewalled' : 'OK',
+          connected: true,
+          listenPort: this._udpPort,
+          tcpPort: this._tcpPort,
+          firewalledUdp: kadFirewalledUdp,
+          firewalledTcp: kadFirewalledTcp
+        }
+      : {
+          status: 'red',
+          text: 'Disconnected',
+          connected: false,
+          listenPort: this._udpPort,
+          tcpPort: this._tcpPort,
+          firewalledUdp: false,
+          firewalledTcp: false
+        };
 
     return { ed2k, kad };
   }
