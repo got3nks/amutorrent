@@ -61,6 +61,16 @@ const CLIENT_FIELDS = {
     { field: 'username', label: 'Username', description: 'Transmission RPC username', placeholder: 'Enter username' },
     { field: 'password', label: 'Password', description: 'Transmission RPC password', placeholder: 'Enter Transmission password', sensitive: true },
     { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Transmission using HTTPS', toggle: true }
+  ],
+  slskd: [
+    { field: 'host', label: 'Host', description: 'slskd API host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'slskd API port (default: 5030)', placeholder: '5030', defaultValue: 5030, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 5030 },
+    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /slskd)', placeholder: 'Leave empty if not using a reverse proxy' },
+    { field: 'apiKey', label: 'API Key (Recommended)', description: 'slskd API key (preferred for integrations)', placeholder: 'Enter API key', sensitive: true },
+    { field: 'username', label: 'Username (Optional)', description: 'Used only when API key is not configured', placeholder: 'slskd username' },
+    { field: 'password', label: 'Password (Optional)', description: 'Used only when API key is not configured', placeholder: 'slskd password', sensitive: true },
+    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to slskd using HTTPS', toggle: true },
+    { field: 'downloadDirectory', label: 'Download Directory (Optional)', description: 'Local path where slskd saves completed files. Used for arr import path mapping (e.g. /downloads/slskd)', placeholder: '/downloads/slskd' }
   ]
 };
 
@@ -69,7 +79,8 @@ const TYPE_LABELS = {
   rtorrent: 'rTorrent',
   qbittorrent: 'qBittorrent',
   deluge: 'Deluge',
-  transmission: 'Transmission'
+  transmission: 'Transmission',
+  slskd: 'slskd'
 };
 
 
@@ -91,7 +102,8 @@ const TYPE_DESCRIPTIONS = {
   rtorrent: 'BitTorrent via XML-RPC / SCGI',
   qbittorrent: 'BitTorrent via WebUI API',
   deluge: 'BitTorrent via WebUI JSON-RPC',
-  transmission: 'BitTorrent via HTTP RPC'
+  transmission: 'BitTorrent via HTTP RPC',
+  slskd: 'Soulseek via slskd API'
 };
 
 /**

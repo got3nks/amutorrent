@@ -58,6 +58,7 @@ export const useViewFilters = ({
     hasAmule,
     isEd2kEnabled,
     isBittorrentEnabled,
+    isSoulseekEnabled,
     disabledInstances
   } = useClientFilteredData({ data });
 
@@ -169,7 +170,7 @@ export const useViewFilters = ({
   sortedDataRef.current = sortedData;
 
   // 11. Reset loaded items when client filter changes (header ED2K/BT toggles)
-  useClientFilterPageReset(resetLoaded, isEd2kEnabled, isBittorrentEnabled, disabledInstances);
+  useClientFilterPageReset(resetLoaded, isEd2kEnabled, isBittorrentEnabled, isSoulseekEnabled, disabledInstances);
 
   // 12. Reset loaded items when status filter changes (only if status filter is enabled)
   useEffect(() => {
@@ -195,6 +196,7 @@ export const useViewFilters = ({
     hasAmule,
     isEd2kEnabled,
     isBittorrentEnabled,
+    isSoulseekEnabled,
 
     // Tracker filter (array-based multi-select)
     trackerFilters,

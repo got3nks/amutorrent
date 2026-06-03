@@ -155,6 +155,7 @@ const SearchResultsList = ({
   connectedClientIds = [],
   selectedFiles,
   onToggleSelection,
+  onToggleFolderExpand = null,
   loadedCount,
   totalCount,
   hasMore,
@@ -185,7 +186,16 @@ const SearchResultsList = ({
     baseColumns.map(col =>
       col.key === 'fileName'
         ? { ...col, render: (item) => {
+            // Folder rows: delegate to custom render (has its own expand button)
+            if (item._isFolder && col.render) return col.render(item);
             const { onAllInstances } = getDownloadStatus(item.fileHash);
+            // Child rows: wrap custom render with selection onClick
+            if (item._isChild && col.render) {
+              return h('div', {
+                className: onAllInstances ? '' : 'cursor-pointer',
+                onClick: onAllInstances ? undefined : () => onToggleSelection(item.fileHash)
+              }, col.render(item));
+            }
             return h('div', {
               className: `font-medium text-xs break-words whitespace-normal ${onAllInstances ? '' : 'cursor-pointer hover:underline decoration-dotted'}`,
               style: { wordBreak: 'break-all', overflowWrap: 'anywhere' },
@@ -199,6 +209,99 @@ const SearchResultsList = ({
 
   // Mobile card renderer using MobileCardHeader
   const renderMobileCard = useCallback((item, idx) => {
+    // Folder row: custom layout with expand button and child-count info
+    if (item._isFolder) {
+      const childHashes = (item._files || []).map(f => f.fileHash);
+      const selCount = childHashes.filter(h => selectedFiles.has(h)).length;
+      const allSel = childHashes.length > 0 && selCount === childHashes.length;
+      const someSel = selCount > 0 && !allSel;
+      return h('div', {
+        className: `${getMobileCardRowClass(idx)} flex items-start gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-800/50${
+          selCount > 0 ? ' !bg-purple-50 dark:!bg-purple-900/20' : ''}`
+      },
+        h('div', { className: 'flex-1 min-w-0' },
+          h('div', { className: 'flex items-center gap-1.5 mb-1' },
+            onToggleFolderExpand && h('button', {
+              type: 'button',
+              className: `shrink-0 w-5 h-5 flex items-center justify-center transition-colors ${
+                item._expanded ? 'text-purple-500 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'}`,
+              onClick: () => onToggleFolderExpand(item._folderKey)
+            }, h(Icon, { name: item._expanded ? 'chevronDown' : 'chevronRight', size: 13 })),
+            h(Icon, { name: 'folder', size: 14, className: 'shrink-0 text-amber-400 dark:text-amber-500' }),
+            h('span', {
+              className: 'font-semibold text-sm text-gray-900 dark:text-gray-100',
+              style: { wordBreak: 'break-all', lineHeight: '1.4' }
+            }, item.folderName)
+          ),
+          h('div', { className: 'flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 flex-wrap' },
+            h('span', { className: 'truncate max-w-[120px]', title: item.username }, item.username),
+            h('span', { className: 'text-gray-300 dark:text-gray-600' }, '·'),
+            h('span', null, formatBytes(item.fileSize || 0)),
+            h('span', { className: 'text-gray-300 dark:text-gray-600' }, '·'),
+            h('span', null, `${item.fileCount} file${item.fileCount !== 1 ? 's' : ''}`)
+          )
+        ),
+        h('div', { className: 'flex-shrink-0 mt-0.5' },
+          h('input', {
+            type: 'checkbox',
+            checked: allSel,
+            ref: el => { if (el) el.indeterminate = someSel; },
+            onChange: () => onToggleSelection(item.fileHash),
+            className: 'w-5 h-5 text-purple-600 border-gray-300 rounded cursor-pointer'
+          })
+        )
+      );
+    }
+
+    // Child row: indented file entry inside an expanded folder
+    if (item._isChild) {
+      const { downloaded, onActiveInstance, onAllInstances } = getDownloadStatus(item.fileHash);
+      const isSelected = selectedFiles.has(item.fileHash);
+      const baseName = String(item.fileName || '').split(/[\/\\]/).pop() || item.fileName || '';
+      return h('div', {
+        className: `${getMobileCardRowClass(idx)} pl-6 border-l-2 border-gray-200 dark:border-gray-700${
+          isSelected ? ' !bg-purple-100 dark:!bg-purple-900/40' : ''}`
+      },
+        h(MobileCardHeader, {
+          showBadge: false,
+          fileName: baseName,
+          onNameClick: onAllInstances ? undefined : () => onToggleSelection(item.fileHash),
+          actions: onActiveInstance
+            ? h(Tooltip, { content: onAllInstances ? 'Downloaded on all clients' : 'Already downloaded — tap to select for another client' },
+                h('div', {
+                  className: `flex items-center justify-center w-8 h-8 ${onAllInstances ? '' : 'cursor-pointer'}`,
+                  onClick: onAllInstances ? undefined : () => onToggleSelection(item.fileHash)
+                },
+                  h(Icon, { name: 'check', size: 18, className: onAllInstances ? 'text-green-400 opacity-60' : 'text-green-500' })
+                )
+              )
+            : h('div', { className: 'relative' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: isSelected,
+                  onChange: () => onToggleSelection(item.fileHash),
+                  className: 'w-5 h-5 text-purple-600 border-gray-300 rounded cursor-pointer'
+                }),
+                downloaded && h(Tooltip, { content: 'Downloaded on another client' },
+                  h('div', { className: 'absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border border-white dark:border-gray-800' })
+                )
+              )
+        },
+          h('div', { className: 'flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 flex-wrap' },
+            h(Icon, { name: 'harddrive', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
+            h('span', null, formatBytes(item.fileSize || 0)),
+            (item.bitrate || item.length) && [
+              h('span', { key: 'sep', className: 'text-gray-400' }, '·'),
+              h('span', { key: 'info', className: 'text-gray-500 dark:text-gray-400' },
+                [item.bitrate ? `${item.bitrate}kbps` : '', item.length ? `${Math.floor(item.length / 60)}:${String(item.length % 60).padStart(2, '0')}` : ''].filter(Boolean).join(' ')
+              )
+            ]
+          )
+        )
+      );
+    }
+
+    // Regular item (aMule, Prowlarr)
     const { downloaded, onActiveInstance, onAllInstances } = getDownloadStatus(item.fileHash);
     const isSelected = selectedFiles.has(item.fileHash);
     return h('div', {
@@ -258,10 +361,26 @@ const SearchResultsList = ({
         )
       )
     );
-  }, [getDownloadStatus, selectedFiles, onToggleSelection, isProwlarr]);
+  }, [getDownloadStatus, selectedFiles, onToggleSelection, onToggleFolderExpand, isProwlarr]);
 
-  // Desktop actions renderer — checkbox or green check icon
+  // Desktop actions renderer — folder: indeterminate checkbox; others: checkbox or green check icon
   const renderActions = useCallback((item) => {
+    // Folder row: indeterminate/checked checkbox based on child selection state
+    if (item._isFolder) {
+      const childHashes = (item._files || []).map(f => f.fileHash);
+      const selCount = childHashes.filter(h => selectedFiles.has(h)).length;
+      const allSel = childHashes.length > 0 && selCount === childHashes.length;
+      const someSel = selCount > 0 && !allSel;
+      return h('div', { className: 'flex items-center justify-center' },
+        h('input', {
+          type: 'checkbox',
+          checked: allSel,
+          ref: el => { if (el) el.indeterminate = someSel; },
+          onChange: () => onToggleSelection(item.fileHash),
+          className: 'w-4 h-4 text-purple-600 border-gray-300 rounded cursor-pointer'
+        })
+      );
+    }
     const { downloaded, onActiveInstance, onAllInstances } = getDownloadStatus(item.fileHash);
     if (onActiveInstance) {
       const tooltipMsg = onAllInstances ? 'Downloaded on all clients' : 'Already downloaded — click to select for another client';
@@ -287,8 +406,12 @@ const SearchResultsList = ({
     );
   }, [getDownloadStatus, selectedFiles, onToggleSelection]);
 
-  // Row highlight for selected items
+  // Row highlight for selected items; folder rows get a distinct background
   const getRowClassName = useCallback((item) => {
+    if (item._isFolder) {
+      const someSelected = (item._files || []).some(f => selectedFiles.has(f.fileHash));
+      return `bg-gray-50 dark:bg-gray-800/50${someSelected ? ' !bg-purple-50 dark:!bg-purple-900/20' : ''}`;
+    }
     return selectedFiles.has(item.fileHash) ? '!bg-purple-100 dark:!bg-purple-900/40' : '';
   }, [selectedFiles]);
 

@@ -17,7 +17,7 @@ import { filterByUnifiedFilter, hasBittorrentItems, hasAmuleItems } from '../uti
  */
 export const useClientFilteredData = ({ data }) => {
   // Global client filter from context (toggle in header)
-  const { filterByEnabledClients, isEd2kEnabled, isBittorrentEnabled, disabledInstances } = useClientFilter();
+  const { filterByEnabledClients, isEd2kEnabled, isBittorrentEnabled, isSoulseekEnabled, disabledInstances } = useClientFilter();
 
   // Local category/label filter state (view-specific)
   const [unifiedFilter, setUnifiedFilter] = useState('all');
@@ -58,6 +58,7 @@ export const useClientFilteredData = ({ data }) => {
     // Client filter state (for conditional rendering and page reset)
     isEd2kEnabled,
     isBittorrentEnabled,
+    isSoulseekEnabled,
     disabledInstances
   };
 };

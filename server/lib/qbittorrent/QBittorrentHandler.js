@@ -12,7 +12,7 @@ const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
 const { convertToQBittorrentInfo } = require('./stateMapping');
-const { convertMagnetToEd2k } = require('../linkConverter');
+const { convertMagnetToEd2k, isSlskdMagnet, decodeSlskdFromMagnet } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
 const preferences = require('./preferences.json');
 
@@ -49,7 +49,7 @@ class QBittorrentHandler {
   /**
    * Set all dependencies at once
    */
-  setDependencies({ getAmuleClient, getAmuleInstanceId, hashStore, config, registry, isFirstRun, userManager, createSession, destroySession }) {
+  setDependencies({ getAmuleClient, getAmuleInstanceId, hashStore, config, registry, isFirstRun, userManager, createSession, destroySession, getSlskdManager }) {
     this.getAmuleClient = getAmuleClient;
     this.getAmuleInstanceId = getAmuleInstanceId;
     this.hashStore = hashStore;
@@ -58,6 +58,7 @@ class QBittorrentHandler {
     this.userManager = userManager;
     this.createSession = createSession || null;
     this.destroySession = destroySession || null;
+    this.getSlskdManager = getSlskdManager || null;
     if (isFirstRun) this.isFirstRun = isFirstRun;
 
     // Start category initialization and periodic refresh
@@ -452,11 +453,6 @@ class QBittorrentHandler {
         return response.badRequest(res, 'Missing urls parameter');
       }
 
-      const amuleClient = this.getAmuleClient?.();
-      if (!amuleClient) {
-        return response.serviceUnavailable(res, 'aMule not connected');
-      }
-
       const magnetLinks = urls
         .split(/[\n\r]+/)
         .map(s => s.trim())
@@ -479,6 +475,40 @@ class QBittorrentHandler {
       for (const magnetLink of magnetLinks) {
         try {
           logger.log('[qBittorrent] Processing magnet link:', magnetLink);
+
+          // ── Soulseek (slskd) download ─────────────────────────────────────
+          if (isSlskdMagnet(magnetLink)) {
+            const decoded = decodeSlskdFromMagnet(magnetLink);
+            if (!decoded) {
+              logger.error('[qBittorrent] Failed to decode slskd magnet link');
+              results.push({ magnetLink, success: false });
+              continue;
+            }
+
+            const slskdMgr = this.getSlskdManager?.();
+            if (!slskdMgr || !slskdMgr.isConnected?.()) {
+              logger.error('[qBittorrent] slskd manager not available for download');
+              results.push({ magnetLink, success: false });
+              continue;
+            }
+
+            logger.log('[qBittorrent] Routing to slskd for fileHash:', decoded.fileHash);
+            const success = await slskdMgr.addSearchResult(
+              decoded.fileHash,
+              categoryId || 0,
+              req.apiUser?.username || null
+            );
+            results.push({ magnetLink, success: !!success });
+            continue;
+          }
+
+          // ── ED2K / aMule download ─────────────────────────────────────────
+          const amuleClient = this.getAmuleClient?.();
+          if (!amuleClient) {
+            logger.error('[qBittorrent] aMule not connected for ED2K download');
+            results.push({ magnetLink, success: false });
+            continue;
+          }
 
           const { ed2kLink, ed2kHash, magnetHash, fileName, fileSize } = convertMagnetToEd2k(magnetLink);
           logger.log('[qBittorrent] Converted to ED2K:', { ed2kHash, magnetHash, fileName, fileSize });

@@ -636,6 +636,156 @@ function normalizeTransmissionDownload(torrent) {
   };
 }
 
+// ============================================================================
+// SLSKD NORMALIZERS
+// ============================================================================
+
+const SLSKD_ACTIVE_STATES = new Set([
+  'Requested',
+  'Queued',
+  'Queued, Remotely',
+  'Queued, Locally',
+  'Initializing',
+  'InProgress'
+]);
+
+const SLSKD_ERROR_STATES = new Set([
+  'Completed, TimedOut',
+  'Completed, Errored',
+  'Completed, Rejected',
+  'Completed, Aborted',
+  'Completed, Aborted, Locally',
+  'Completed, Aborted, Remotely'
+]);
+
+/**
+ * Normalize slskd transfer to unified format
+ * @param {Object} transfer - slskd Transfer DTO
+ * @param {Object} context - instance metadata
+ * @returns {Object} Normalized download
+ */
+function normalizeSlskdDownload(transfer, context = {}) {
+  const rawId = transfer.id || transfer.Id || '';
+  const hash = String(rawId).toLowerCase();
+  const state = transfer.state || transfer.State || 'Unknown';
+  const filename = transfer.filename || transfer.Filename || '';
+  const size = Number(transfer.size || transfer.Size || 0) || 0;
+  const downloaded = Number(transfer.bytesTransferred || transfer.BytesTransferred || 0) || 0;
+  const computedProgress = size > 0 ? (downloaded / size) * 100 : 0;
+  const progress = Math.max(
+    0,
+    Math.min(100, Number(transfer.percentComplete || transfer.PercentComplete || computedProgress) || 0)
+  );
+
+  const pathParts = filename.split(/[\\/]/g).filter(Boolean);
+  const name = pathParts[pathParts.length - 1] || filename || hash;
+
+  return {
+    clientType: 'slskd',
+    instanceId: context.instanceId,
+    instanceName: context.displayName,
+    hash,
+    name,
+    rawName: name,
+    size,
+    downloaded,
+    progress: parseFloat(progress.toFixed(2)),
+    speed: Number(transfer.averageSpeed || transfer.AverageSpeed || 0) || 0,
+    statusText: state,
+
+    category: '',
+    label: '',
+    // transfer.directory is the remote virtual share path (e.g. @@ilmto\MOVIES) injected by
+    // _flattenGroupedTransfers — it is NOT a local filesystem path. Use the configured
+    // downloadDirectory as the local base so resolveItemPath can construct a real path.
+    directory: context.downloadDirectory || '',
+    uploadTotal: 0,
+    ratio: 0,
+    trackers: [],
+    trackersDetailed: [],
+    trackerDomain: '',
+    peersDetailed: [],
+    peerCounts: { total: 0, connected: 0, seeders: 0 },
+
+    isComplete: state === 'Completed, Succeeded' || state === 'Succeeded' || progress >= 100,
+    isActive: SLSKD_ACTIVE_STATES.has(state),
+    isMultiFile: false,
+    message: transfer.exception || transfer.Exception || (SLSKD_ERROR_STATES.has(state) ? state : ''),
+
+    raw: {
+      clientType: 'slskd',
+      username: transfer.username || transfer.Username || '',
+      ...transfer
+    },
+
+    creationDate: transfer.startTime || transfer.StartTime || transfer.requestedAt || transfer.RequestedAt || null,
+    startedTime: transfer.startTime || transfer.StartTime || transfer.startedAt || transfer.StartedAt || null,
+    finishedTime: transfer.endTime || transfer.EndTime || transfer.endedAt || transfer.EndedAt || null,
+    addedAt: transfer.enqueuedAt || transfer.EnqueuedAt || null
+  };
+}
+
+function normalizeSlskdSharedFile(file, context = {}) {
+  const share = context.share || {};
+  const directory = context.directory || {};
+  const filename = file.filename || file.Filename || '';
+  const size = Number(file.size || file.Size || 0) || 0;
+  const directoryName = directory.name || directory.Name || '';
+  const localPathBase = share.localPath || '';
+  const remotePathBase = share.remotePath || share.alias || '';
+  const directoryParts = String(directoryName).split(/[\\/]/g).filter(Boolean);
+  const buildPath = (base, name) => [base, ...directoryParts, name].filter(Boolean).join('/');
+  const localFilePath = buildPath(localPathBase, filename);
+  const remoteFilePath = buildPath(remotePathBase, filename);
+  const hash = String(`${share.id || share.alias || remotePathBase}|${directoryName}|${filename}`).toLowerCase();
+
+  return {
+    clientType: 'slskd',
+    instanceId: context.instanceId,
+    instanceName: context.displayName,
+    hash,
+    name: filename || remoteFilePath || hash,
+    rawName: filename || remoteFilePath || hash,
+    size,
+    downloaded: size,
+    progress: 100,
+    speed: 0,
+    statusText: 'Completed, Succeeded',
+
+    category: '',
+    label: '',
+    directory: directoryName || share.alias || share.remotePath || '',
+    path: localFilePath || remoteFilePath,
+    filePath: localFilePath || remoteFilePath,
+    uploadTotal: 0,
+    ratio: 0,
+    trackers: [],
+    trackersDetailed: [],
+    trackerDomain: '',
+    peersDetailed: [],
+    peerCounts: { total: 0, connected: 0, seeders: 0 },
+    canMutate: false,
+    locked: !!share.isExcluded,
+    message: share.isExcluded ? 'Share excluded' : '',
+
+    isComplete: true,
+    isActive: false,
+    isMultiFile: false,
+
+    raw: {
+      clientType: 'slskd',
+      share,
+      directory,
+      file
+    },
+
+    creationDate: null,
+    startedTime: null,
+    finishedTime: null,
+    addedAt: null
+  };
+}
+
 module.exports = {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -645,5 +795,7 @@ module.exports = {
   normalizeQBittorrentDownload,
   normalizeDelugeDownload,
   normalizeTransmissionDownload,
+  normalizeSlskdDownload,
+  normalizeSlskdSharedFile,
   extractTrackerDomain
 };

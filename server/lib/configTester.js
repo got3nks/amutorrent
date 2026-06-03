@@ -10,6 +10,7 @@ const RtorrentHandler = require('./rtorrent/RtorrentHandler');
 const QBittorrentClient = require('./qbittorrent/QBittorrentClient');
 const DelugeClient = require('./deluge/DelugeClient');
 const TransmissionClient = require('./transmission/TransmissionClient');
+const SlskdClient = require('./slskd/SlskdClient');
 const ProwlarrHandler = require('./prowlarr/ProwlarrHandler');
 const { checkDirectoryAccess } = require('./pathUtils');
 const logger = require('./logger');
@@ -408,37 +409,46 @@ async function testArrAPI(serviceName, url, apiKey) {
   try {
     // Remove trailing slash from URL
     const baseUrl = url.replace(/\/$/, '');
-    const endpoint = `${baseUrl}/api/v3/system/status`;
+    const endpoints = [
+      `${baseUrl}/api/v3/system/status`,
+      `${baseUrl}/api/v1/system/status`
+    ];
 
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'X-Api-Key': apiKey
-      },
-      signal: AbortSignal.timeout(10000) // 10 second timeout
-    });
+    let lastHttpError = null;
+    for (const endpoint of endpoints) {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'X-Api-Key': apiKey
+        },
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
 
-    result.reachable = true;
+      result.reachable = true;
 
-    if (response.status === 401 || response.status === 403) {
-      result.error = 'Authentication failed - invalid API key';
+      if (response.status === 401 || response.status === 403) {
+        result.error = 'Authentication failed - invalid API key';
+        return result;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        lastHttpError = `HTTP ${response.status}: ${text}`;
+        continue;
+      }
+
+      const data = await response.json();
+      result.authenticated = true;
+
+      if (data.version) {
+        result.version = data.version;
+      }
+
+      result.success = true;
       return result;
     }
 
-    if (!response.ok) {
-      const text = await response.text();
-      result.error = `HTTP ${response.status}: ${text}`;
-      return result;
-    }
-
-    const data = await response.json();
-    result.authenticated = true;
-
-    if (data.version) {
-      result.version = data.version;
-    }
-
-    result.success = true;
+    result.error = lastHttpError || `${serviceName} API did not return a supported /system/status response`;
     return result;
   } catch (err) {
     result.error = classifyNetworkError(err);
@@ -464,6 +474,26 @@ async function testSonarrAPI(url, apiKey) {
  */
 async function testRadarrAPI(url, apiKey) {
     return testArrAPI('Radarr', url, apiKey);
+}
+
+/**
+ * Test Lidarr API connection
+ * @param {string} url - Lidarr URL
+ * @param {string} apiKey - Lidarr API key
+ * @returns {Promise<{success: boolean, reachable: boolean, authenticated: boolean, version: string|null, error: string|null}>}
+ */
+async function testLidarrAPI(url, apiKey) {
+  return testArrAPI('Lidarr', url, apiKey);
+}
+
+/**
+ * Test Readarr API connection
+ * @param {string} url - Readarr URL
+ * @param {string} apiKey - Readarr API key
+ * @returns {Promise<{success: boolean, reachable: boolean, authenticated: boolean, version: string|null, error: string|null}>}
+ */
+async function testReadarrAPI(url, apiKey) {
+  return testArrAPI('Readarr', url, apiKey);
 }
 
 /**
@@ -671,6 +701,75 @@ async function testTransmissionConnection(host, port, username, password, useSsl
   }
 }
 
+/**
+ * Test slskd API connection
+ * @param {string} host - slskd host
+ * @param {number} port - slskd port
+ * @param {string} pathPrefix - Optional path prefix behind reverse proxy
+ * @param {string} apiKey - API key (preferred)
+ * @param {string} username - Optional username for session login fallback
+ * @param {string} password - Optional password for session login fallback
+ * @param {boolean} useSsl - Whether to use HTTPS
+ * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
+ */
+async function testSlskdConnection(host, port, pathPrefix, apiKey, username, password, useSsl) {
+  const result = {
+    success: false,
+    connected: false,
+    version: null,
+    error: null
+  };
+
+  if (!host) {
+    result.error = 'Host is required';
+    return result;
+  }
+
+  let client = null;
+
+  try {
+    client = new SlskdClient({
+      host,
+      port: port || 5030,
+      path: pathPrefix || '',
+      useSsl: useSsl || false,
+      apiKey: apiKey || '',
+      username: username || '',
+      password: password || ''
+    });
+
+    const testPromise = client.testConnection();
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+    });
+
+    const testResult = await Promise.race([testPromise, timeoutPromise]);
+    if (testResult.success) {
+      result.connected = true;
+      result.version = testResult.version || null;
+      result.success = true;
+      result.message = `Connected to slskd${testResult.version ? ` ${testResult.version}` : ''}`;
+    } else {
+      result.error = testResult.error || 'Connection failed';
+    }
+
+    await client.disconnect();
+    return result;
+  } catch (err) {
+    result.error = classifyNetworkError(err);
+
+    if (client) {
+      try {
+        await client.disconnect();
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+    }
+
+    return result;
+  }
+}
+
 module.exports = {
   testDirectoryAccess,
   testGeoIPDatabase,
@@ -679,7 +778,10 @@ module.exports = {
   testQbittorrentConnection,
   testDelugeConnection,
   testTransmissionConnection,
+  testSlskdConnection,
   testSonarrAPI,
   testRadarrAPI,
+  testLidarrAPI,
+  testReadarrAPI,
   testProwlarrAPI
 };

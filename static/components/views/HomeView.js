@@ -26,8 +26,12 @@ import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useClientChartConfig } from '../../hooks/useClientChartConfig.js';
 import { useCapabilities } from '../../hooks/useCapabilities.js';
 import { useResponsiveLayout } from '../../hooks/useResponsiveLayout.js';
+import { useDashboardPrefs } from '../../hooks/useDashboardPrefs.js';
 
 const { createElement: h, useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } = React;
+
+// Default tint colors per network type (used when a client has no custom color set)
+const NETWORK_COLOR_DEFAULTS = { ed2k: '#8b5cf6', bittorrent: '#3b82f6', soulseek: '#06b6d4' };
 
 // Lazy load chart components for better initial page load performance
 const ClientSpeedChart = lazy(() => import('../common/ClientSpeedChart.js'));
@@ -46,6 +50,9 @@ const HomeView = () => {
   const { disabledInstances } = useClientFilter();
   const { instances } = useStaticData();
   const { isMobile } = useResponsiveLayout();
+
+  // Dashboard display preferences (client-side localStorage)
+  const { combinedGraph } = useDashboardPrefs();
 
   // Compute instanceIds filter param — empty string means all connected (no filter)
   const instanceIdsParam = useMemo(() => {
@@ -104,7 +111,16 @@ const HomeView = () => {
       let url = '/api/metrics/dashboard?range=24h';
       if (!isMobile && instanceIdsParam) url += `&instanceIds=${instanceIdsParam}`;
       const response = await fetch(url);
-      const { speedData, historicalData, historicalStats } = await response.json();
+      if (!response.ok) {
+        setDashboardState(prev => ({ ...prev, loading: false }));
+        return;
+      }
+      const text = await response.text();
+      if (!text) {
+        setDashboardState(prev => ({ ...prev, loading: false }));
+        return;
+      }
+      const { speedData, historicalData, historicalStats } = JSON.parse(text);
 
       setDashboardState({ speedData, historicalData, historicalStats, loading: false });
 
@@ -136,12 +152,44 @@ const HomeView = () => {
   // Get client chart configuration from hook
   const {
     isLoading: clientConfigLoading,
-    showBothCharts,
-    showSingleClient,
-    singleNetworkType,
-    singleNetworkName,
+    visibleNetworkInfo,
     shouldRenderCharts
   } = useClientChartConfig();
+
+  // Representative color per network type: use the first enabled instance's color
+  const networkColorMap = useMemo(() => {
+    const result = { ...NETWORK_COLOR_DEFAULTS };
+    const seen = new Set();
+    Object.entries(instances).forEach(([id, inst]) => {
+      const nt = inst.networkType;
+      if (inst.color && nt && !disabledInstances.has(id) && !seen.has(nt)) {
+        result[nt] = inst.color;
+        seen.add(nt);
+      }
+    });
+    return result;
+  }, [instances, disabledInstances]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Enrich visibleNetworkInfo with the tint color for each network
+  const networksWithColors = useMemo(
+    () => visibleNetworkInfo.map(info => ({ ...info, color: networkColorMap[info.type] })),
+    [visibleNetworkInfo, networkColorMap]
+  );
+
+  // Whether to show the network selector (setting is on AND 2+ networks are visible)
+  const showCombined = combinedGraph && networksWithColors.length >= 2;
+
+  // Which network is selected in the selector view
+  const [selectedChartNetwork, setSelectedChartNetwork] = useState(null);
+
+  // Auto-reset selection when visible networks change
+  useEffect(() => {
+    if (visibleNetworkInfo.length === 0) return;
+    const types = visibleNetworkInfo.map(n => n.type);
+    if (!selectedChartNetwork || !types.includes(selectedChartNetwork)) {
+      setSelectedChartNetwork(types[0]);
+    }
+  }, [visibleNetworkInfo, selectedChartNetwork]);
 
   // Aliases for readability
   const stats = dataStats;
@@ -150,6 +198,95 @@ const HomeView = () => {
   const onSearchTypeChange = setSearchType;
   const onSearch = actions.search.perform;
   const loadingDashboard = dashboardState.loading;
+
+  const chartColClass = visibleNetworkInfo.length >= 3 ? 'col-span-6 md:col-span-2' : visibleNetworkInfo.length === 2 ? 'col-span-6 md:col-span-3' : 'col-span-6';
+
+  const chartFallback = h('div', { className: 'h-full flex items-center justify-center' }, h(LoadingSpinner, { size: 'sm' }));
+
+  const renderDesktopCharts = (kind) => visibleNetworkInfo.map((info) => {
+    const title = kind === 'speed' ? `${info.label} Speed (24h)` : `${info.label} Data Transferred (24h)`;
+    const chart = kind === 'speed'
+      ? h(Suspense, { fallback: chartFallback },
+          h(ClientSpeedChart, { speedData: dashboardState.speedData, networkType: info.type, theme, historicalRange: '24h' }))
+      : h(Suspense, { fallback: chartFallback },
+          h(ClientTransferChart, { historicalData: dashboardState.historicalData, networkType: info.type, theme, historicalRange: '24h' }));
+
+    return h('div', { key: `${kind}-${info.type}`, className: chartColClass },
+      h(DashboardChartWidget, {
+        title: h('span', { className: 'flex items-center gap-2' },
+          h(ClientIcon, { clientType: info.client, size: 16 }),
+          title
+        ),
+        height: '200px'
+      },
+        shouldRenderCharts && (kind === 'speed' ? dashboardState.speedData : dashboardState.historicalData)
+          ? chart
+          : h('div', { className: 'h-full' })
+      )
+    );
+  });
+
+  // Renders a network icon-toggle (floating, identical to mobile) + speed/transfer charts
+  const renderNetworkSelectorRow = () => {
+    if (networksWithColors.length === 0) return null;
+    const selectedNet = networksWithColors.find(n => n.type === selectedChartNetwork) || networksWithColors[0];
+    if (!selectedNet) return null;
+    const hasSpeedData = shouldRenderCharts && dashboardState.speedData;
+    const hasHistData = shouldRenderCharts && dashboardState.historicalData;
+
+    // Icon-only toggle floating in the top-left corner of the speed chart,
+    // matching the mobile MobileSpeedWidget style exactly.
+    const networkToggle = networksWithColors.length >= 2 && h('div', {
+      className: 'absolute top-2 left-2 z-10 flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600'
+    },
+      ...networksWithColors.map((net, index) =>
+        h('button', {
+          key: net.type,
+          onClick: () => setSelectedChartNetwork(net.type),
+          title: net.label,
+          className: `p-1.5 ${index > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''} ${
+            selectedNet.type === net.type
+              ? 'bg-blue-100 dark:bg-blue-900/50'
+              : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+          }`
+        },
+          h(ClientIcon, { clientType: net.client, size: 16 })
+        )
+      )
+    );
+
+    return h(React.Fragment, null,
+      h('div', { key: 'sel-speed', className: 'col-span-6 md:col-span-3' },
+        h(DashboardChartWidget, {
+          title: h('span', { className: 'flex items-center justify-center gap-2' },
+            h(ClientIcon, { clientType: selectedNet.client, size: 16 }),
+            `${selectedNet.label} Speed (24h)`
+          ),
+          height: '200px',
+          overlay: networkToggle
+        },
+          hasSpeedData
+            ? h(Suspense, { fallback: chartFallback },
+                h(ClientSpeedChart, { speedData: dashboardState.speedData, networkType: selectedNet.type, theme, historicalRange: '24h' }))
+            : h('div', { className: 'h-full' })
+        )
+      ),
+      h('div', { key: 'sel-transfer', className: 'col-span-6 md:col-span-3' },
+        h(DashboardChartWidget, {
+          title: h('span', { className: 'flex items-center justify-center gap-2' },
+            h(ClientIcon, { clientType: selectedNet.client, size: 16 }),
+            `${selectedNet.label} Data Transferred (24h)`
+          ),
+          height: '200px'
+        },
+          hasHistData
+            ? h(Suspense, { fallback: chartFallback },
+                h(ClientTransferChart, { historicalData: dashboardState.historicalData, networkType: selectedNet.type, theme, historicalRange: '24h' }))
+            : h('div', { className: 'h-full' })
+        )
+      )
+    );
+  };
 
   return h('div', { className: 'flex-1 flex flex-col py-0 px-2 sm:px-0' },
     // Desktop: Dashboard layout (shown when sidebar is visible at md+)
@@ -188,8 +325,7 @@ const HomeView = () => {
           ),
 
           h('div', { className: `grid grid-cols-6 gap-4${loadingDashboard && !clientConfigLoading ? ' opacity-50 pointer-events-none' : ''}` },
-            // Loading skeleton charts (shown while waiting for WebSocket data)
-            clientConfigLoading && h('div', { className: 'col-span-6 md:col-span-3' },
+            clientConfigLoading && visibleNetworkInfo.length === 0 && h('div', { className: 'col-span-6 md:col-span-3' },
               h('div', {
                 className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 animate-pulse'
               },
@@ -197,126 +333,9 @@ const HomeView = () => {
                 h('div', { style: { height: '200px' } })
               )
             ),
-            clientConfigLoading && h('div', { className: 'col-span-6 md:col-span-3' },
-              h('div', {
-                className: 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 animate-pulse'
-              },
-                h('div', { className: 'h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-3' }),
-                h('div', { style: { height: '200px' } })
-              )
-            ),
-
-            // BOTH CLIENTS: aMule Speed Chart
-            showBothCharts && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: 'ed2k', size: 16 }),
-                  'aMule Speed (24h)'
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.speedData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
-                      },
-                        h(LoadingSpinner, { size: 'sm' })
-                      )
-                    },
-                      h(ClientSpeedChart, {
-                        speedData: dashboardState.speedData,
-                        networkType: 'ed2k',
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
-              )
-            ),
-
-            // BOTH CLIENTS: BitTorrent Speed Chart (aggregated rtorrent + qbittorrent)
-            showBothCharts && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: 'bittorrent', size: 16 }),
-                  'BitTorrent Speed (24h)'
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.speedData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
-                      },
-                        h(LoadingSpinner, { size: 'sm' })
-                      )
-                    },
-                      h(ClientSpeedChart, {
-                        speedData: dashboardState.speedData,
-                        networkType: 'bittorrent',
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
-              )
-            ),
-
-            // SINGLE CLIENT: Speed Chart
-            showSingleClient && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: singleNetworkType, size: 16 }),
-                  `${singleNetworkName} Speed (24h)`
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.speedData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
-                      },
-                        h(LoadingSpinner, { size: 'sm' })
-                      )
-                    },
-                      h(ClientSpeedChart, {
-                        speedData: dashboardState.speedData,
-                        networkType: singleNetworkType,
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
-              )
-            ),
-
-            // SINGLE CLIENT: Data Transferred Chart
-            showSingleClient && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: singleNetworkType, size: 16 }),
-                  `${singleNetworkName} Data Transferred (24h)`
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.historicalData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
-                      },
-                        h(LoadingSpinner, { size: 'sm' })
-                      )
-                    },
-                      h(ClientTransferChart, {
-                        historicalData: dashboardState.historicalData,
-                        networkType: singleNetworkType,
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
-              )
-            ),
+            visibleNetworkInfo.length > 0 && showCombined && renderNetworkSelectorRow(),
+            visibleNetworkInfo.length > 0 && !showCombined && renderDesktopCharts('speed'),
+            visibleNetworkInfo.length > 0 && !showCombined && renderDesktopCharts('transfer'),
 
             // 24h Stats Widget (full width)
             h('div', { className: 'col-span-6' },

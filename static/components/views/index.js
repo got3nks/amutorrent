@@ -19,3 +19,4 @@ export { default as SetupWizardView } from './SetupWizardView.js';
 export { default as LoginView } from './LoginView.js';
 export { default as HistoryView } from './HistoryView.js';
 export { default as NotificationsView } from './NotificationsView.js';
+export { default as ChatView } from './ChatView.js';

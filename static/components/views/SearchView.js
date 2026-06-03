@@ -11,7 +11,7 @@ import QuickSearchWidget from '../dashboard/QuickSearchWidget.js';
 import { useSearch } from '../../contexts/SearchContext.js';
 import { useActions } from '../../contexts/ActionsContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
-import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { useSearchProviderSelector } from '../../hooks/useSearchProviderSelector.js';
 
 const { createElement: h, useEffect } = React;
 
@@ -36,17 +36,17 @@ const SearchView = () => {
   const actions = useActions();
   const { fetchPreviousSearchResults } = useDataFetch();
   const {
-    connectedInstances: amuleInstances,
-    showSelector: showAmuleSelector,
-    selectedId: effectiveAmuleInstance,
-    selectInstance: selectAmuleInstance
-  } = useAmuleInstanceSelector({ selectedId: searchInstanceId, onSelect: setSearchInstanceId });
+    connectedInstances: providerInstances,
+    showSelector: showProviderSelector,
+    selectedId: effectiveProviderInstance,
+    selectInstance: selectProviderInstance
+  } = useSearchProviderSelector({ searchType, selectedId: searchInstanceId, onSelect: setSearchInstanceId });
 
   // Fetch previous search results on mount (always fetch fresh from backend)
   useEffect(() => {
     setSearchPreviousResultsLoaded(false);
-    fetchPreviousSearchResults(effectiveAmuleInstance);
-  }, [fetchPreviousSearchResults, setSearchPreviousResultsLoaded, effectiveAmuleInstance]);
+    fetchPreviousSearchResults(effectiveProviderInstance);
+  }, [fetchPreviousSearchResults, setSearchPreviousResultsLoaded, effectiveProviderInstance]);
 
   return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Search form (reusing QuickSearchWidget without border)
@@ -59,10 +59,10 @@ const SearchView = () => {
         onSearch: actions.search.perform,
         searchLocked,
         noBorder: true,
-        searchInstanceId: effectiveAmuleInstance,
-        onSearchInstanceChange: selectAmuleInstance,
-        amuleInstances,
-        showAmuleSelector
+        searchInstanceId: effectiveProviderInstance,
+        onSearchInstanceChange: selectProviderInstance,
+        providerInstances,
+        showProviderSelector
       })
     ),
 

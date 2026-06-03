@@ -38,8 +38,10 @@ export { useFileRatingCommentModal } from './useFileRatingCommentModal.js';
 export { useNotifications } from './useNotifications.js';
 export { useBitTorrentClientSelector } from './useBitTorrentClientSelector.js';
 export { useAmuleInstanceSelector } from './useAmuleInstanceSelector.js';
+export { useSearchProviderSelector } from './useSearchProviderSelector.js';
 export { useCapabilities } from './useCapabilities.js';
 export { useDebouncedValue } from './useDebouncedValue.js';
 export { useSettingsFormData } from './useSettingsFormData.js';
 export { useClientManagement } from './useClientManagement.js';
+export { useSlskdDirectoryBrowse } from './useSlskdDirectoryBrowse.js';
 // Note: useClientFilter is now in contexts/ClientFilterContext.js for global client filtering

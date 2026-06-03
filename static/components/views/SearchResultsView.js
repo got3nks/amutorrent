@@ -22,9 +22,11 @@ const SearchResultsView = () => {
   const { setAppCurrentView } = useAppState();
   const { instances, hasMultiInstance } = useStaticData();
 
-  // Instance badge for multi-instance ED2K/Kad searches
+  // Instance badge for multi-instance searches (ED2K/Kad or Soulseek)
   const isAmuleSearch = searchType === 'global' || searchType === 'kad';
-  const instanceInfo = isAmuleSearch && hasMultiInstance && searchInstanceId && instances?.[searchInstanceId];
+  const isSoulseekSearch = searchType === 'soulseek';
+  const showInstanceBadge = (isAmuleSearch || isSoulseekSearch) && hasMultiInstance && searchInstanceId;
+  const instanceInfo = showInstanceBadge && instances?.[searchInstanceId];
   const instanceName = instanceInfo ? (instanceInfo.name || searchInstanceId) : null;
 
   // Handler for new search button

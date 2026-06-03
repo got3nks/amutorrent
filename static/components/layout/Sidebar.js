@@ -47,6 +47,7 @@ const Sidebar = ({ currentView, onNavigate, isLandscape }) => {
   const { hasType, hasCategoryPathWarnings, hasClientConnectionWarnings } = useStaticData();
   const { hasCap, isAdmin } = useCapabilities();
   const amuleEnabled = hasType('amule');
+  const slskdEnabled = hasType('slskd');
 
   return h('aside', {
     className: 'hidden md:flex md:flex-col w-56 bg-white dark:bg-gray-800 p-3 rounded-lg shadow border border-gray-200 dark:border-gray-700'
@@ -60,6 +61,7 @@ const Sidebar = ({ currentView, onNavigate, isLandscape }) => {
       hasCap('view_uploads') && h(NavButton, { icon: 'upload', label: 'Uploads', view: 'uploads', active: currentView === 'uploads', onNavigate }),
       hasCap('manage_categories') && h(WarningNavButton, { currentView, onNavigate, icon: 'folder', label: 'Categories', view: 'categories', hasWarning: hasCategoryPathWarnings }),
       amuleEnabled && hasCap('view_servers') && h(NavButton, { icon: 'server', label: 'ED2K Servers', shortLabel: 'Servers', view: 'servers', active: currentView === 'servers', onNavigate }),
+      slskdEnabled && hasCap('search') && h(NavButton, { icon: 'messageSquare', label: 'Soulseek Chat', shortLabel: 'Chat', view: 'chat', active: currentView === 'chat', onNavigate }),
       hasCap('view_logs') && h(NavButton, { icon: 'fileText', label: 'Logs', view: 'logs', active: currentView === 'logs', onNavigate }),
       hasCap('view_statistics') && h(NavButton, { icon: 'chartBar', label: 'Statistics', view: 'statistics', active: currentView === 'statistics', onNavigate }),
       isAdmin && h(NavButton, { icon: 'bell', label: 'Notifications', view: 'notifications', active: currentView === 'notifications', onNavigate }),

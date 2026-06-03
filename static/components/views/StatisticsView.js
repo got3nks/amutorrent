@@ -55,8 +55,7 @@ const StatisticsView = () => {
 
   // Get client chart configuration from hook
   const {
-    ed2kConnected,
-    isEd2kEnabled,
+    visibleNetworkInfo,
     showBothCharts,
     showSingleClient,
     singleNetworkType,
@@ -68,7 +67,7 @@ const StatisticsView = () => {
   const amuleConfigEnabled = hasType('amule');
 
   // Show ED2K stats tree button only when aMule is enabled in config, connected, and enabled in filter
-  const showAmuleStatsTree = amuleConfigEnabled && ed2kConnected && isEd2kEnabled;
+  const showAmuleStatsTree = amuleConfigEnabled && visibleNetworkInfo.some(info => info.type === 'ed2k');
 
   // State for stats tree modal
   const [showStatsTreeModal, setShowStatsTreeModal] = useState(false);
@@ -170,6 +169,22 @@ const StatisticsView = () => {
     title
   );
 
+  const chartColClass = visibleNetworkInfo.length >= 3 ? 'col-span-6 md:col-span-2' : visibleNetworkInfo.length === 2 ? 'col-span-6 md:col-span-3' : 'col-span-6';
+
+  const renderChartCards = (kind) => visibleNetworkInfo.map((info) => {
+    const title = kind === 'speed' ? `${info.label} Speed` : `${info.label} Data Transferred`;
+    const chart = kind === 'speed'
+      ? renderSpeedChart(info.type)
+      : renderTransferChart(info.type);
+
+    return h('div', { key: `${kind}-${info.type}`, className: chartColClass },
+      h(DashboardChartWidget, {
+        title: chartTitle(title, info.client),
+        height: '225px'
+      }, chart)
+    );
+  });
+
   return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Header
     h('div', { className: 'flex justify-between items-center gap-2' },
@@ -243,42 +258,10 @@ const StatisticsView = () => {
 
       // Charts content (always rendered, dimmed when loading)
       h('div', { className: `space-y-2 sm:space-y-3${loadingHistory ? ' opacity-50 pointer-events-none' : ''}` },
-        // BOTH CLIENTS: Show toggle-controlled charts
-        showBothCharts && h(React.Fragment, null,
-          // Speed charts (when chartMode === 'speed')
-          chartMode === 'speed' && h(React.Fragment, null,
-            h(DashboardChartWidget, {
-              title: chartTitle('aMule Speed', 'ed2k'),
-              height: '225px'
-            }, renderSpeedChart('ed2k')),
-            h(DashboardChartWidget, {
-              title: chartTitle('BitTorrent Speed', 'bittorrent'),
-              height: '225px'
-            }, renderSpeedChart('bittorrent'))
-          ),
-          // Transfer charts (when chartMode === 'transfer')
-          chartMode === 'transfer' && h(React.Fragment, null,
-            h(DashboardChartWidget, {
-              title: chartTitle('aMule Data Transferred', 'ed2k'),
-              height: '225px'
-            }, renderTransferChart('ed2k')),
-            h(DashboardChartWidget, {
-              title: chartTitle('BitTorrent Data Transferred', 'bittorrent'),
-              height: '225px'
-            }, renderTransferChart('bittorrent'))
-          )
-        ),
-
-        // SINGLE CLIENT: Show both chart types (no toggle needed)
-        showSingleClient && h(React.Fragment, null,
-          h(DashboardChartWidget, {
-            title: chartTitle(`${singleNetworkName} Speed`, singleNetworkType),
-            height: '225px'
-          }, renderSpeedChart(singleNetworkType)),
-          h(DashboardChartWidget, {
-            title: chartTitle(`${singleNetworkName} Data Transferred`, singleNetworkType),
-            height: '225px'
-          }, renderTransferChart(singleNetworkType))
+        // Charts for the visible network types
+        visibleNetworkInfo.length > 0 && h(React.Fragment, null,
+          chartMode === 'speed' && renderChartCards('speed'),
+          chartMode === 'transfer' && renderChartCards('transfer')
         )
       )
     ),

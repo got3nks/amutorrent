@@ -75,7 +75,8 @@ const CLIENT_ENV_PREFIX = {
   rtorrent: 'RTORRENT',
   qbittorrent: 'QBITTORRENT',
   deluge: 'DELUGE',
-  transmission: 'TRANSMISSION'
+  transmission: 'TRANSMISSION',
+  slskd: 'SLSKD'
 };
 
 /**
@@ -140,6 +141,19 @@ const CLIENT_ENV_FIELDS = {
     PATH: { field: 'path', type: 'string' },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }
+  },
+  slskd: {
+    ENABLED: { field: 'enabled', type: 'boolean' },
+    HOST: { field: 'host', type: 'string' },
+    PORT: { field: 'port', type: 'int' },
+    PATH: { field: 'path', type: 'string' },
+    API_KEY: { field: 'apiKey', type: 'string', sensitive: true },
+    USERNAME: { field: 'username', type: 'string' },
+    PASSWORD: { field: 'password', type: 'string', sensitive: true },
+    USE_SSL: { field: 'useSsl', type: 'boolean' },
+    ID: { field: 'id', type: 'string' },
+    NAME: { field: 'name', type: 'string' },
+    DOWNLOAD_DIRECTORY: { field: 'downloadDirectory', type: 'string' }
   }
 };
 
@@ -709,7 +723,7 @@ class Config extends BaseModule {
     // At least one download client must be enabled
     const hasEnabledClient = Array.isArray(config.clients) && config.clients.some(c => c.enabled !== false);
     if (!hasEnabledClient) {
-      errors.push('At least one download client (aMule, rTorrent, or qBittorrent) must be enabled');
+      errors.push('At least one download client must be enabled');
     }
 
     // Validate clients array entries

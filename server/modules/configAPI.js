@@ -84,6 +84,14 @@ class ConfigAPI extends BaseModule {
       transmissionPassword: config.isFromEnv('transmission.password'),
       transmissionUseSsl: config.isFromEnv('transmission.useSsl'),
       transmissionPath: config.isFromEnv('transmission.path'),
+      slskdEnabled: config.isFromEnv('slskd.enabled'),
+      slskdHost: config.isFromEnv('slskd.host'),
+      slskdPort: config.isFromEnv('slskd.port'),
+      slskdPath: config.isFromEnv('slskd.path'),
+      slskdApiKey: config.isFromEnv('slskd.apiKey'),
+      slskdUsername: config.isFromEnv('slskd.username'),
+      slskdPassword: config.isFromEnv('slskd.password'),
+      slskdUseSsl: config.isFromEnv('slskd.useSsl'),
       sonarrUrl: config.isFromEnv('integrations.sonarr.url'),
       sonarrApiKey: config.isFromEnv('integrations.sonarr.apiKey'),
       sonarrSearchInterval: config.isFromEnv('integrations.sonarr.searchIntervalHours'),
@@ -283,7 +291,7 @@ class ConfigAPI extends BaseModule {
    */
   async testConfig(req, res) {
     try {
-      const { amule, rtorrent, directories, sonarr, radarr, prowlarr } = req.body;
+      const { amule, rtorrent, directories, sonarr, radarr, prowlarr, slskd } = req.body;
       const results = {};
       const currentConfig = config.getConfig();
 
@@ -351,6 +359,24 @@ class ConfigAPI extends BaseModule {
         this.log(`🧪 Testing Transmission connection to ${transmission.host}:${transmission.port}...`);
         results.transmission = await configTester.testTransmissionConnection(transmission.host, transmission.port, username, password, transmission.useSsl, transmission.path);
         this.logTestResult('Transmission connection', results.transmission);
+      }
+
+      // Test slskd connection if provided and enabled
+      if (slskd && slskd.enabled) {
+        const apiKey = slskd.apiKey || (slskd.instanceId ? config.getClientConfig(slskd.instanceId)?.apiKey : null);
+        const username = slskd.username || (slskd.instanceId ? config.getClientConfig(slskd.instanceId)?.username : null);
+        const password = slskd.password || (slskd.instanceId ? config.getClientConfig(slskd.instanceId)?.password : null);
+        this.log(`🧪 Testing slskd connection to ${slskd.host}:${slskd.port}...`);
+        results.slskd = await configTester.testSlskdConnection(
+          slskd.host,
+          slskd.port,
+          slskd.path,
+          apiKey,
+          username,
+          password,
+          slskd.useSsl
+        );
+        this.logTestResult('slskd connection', results.slskd);
       }
 
       // Test directories if provided
@@ -507,7 +533,11 @@ class ConfigAPI extends BaseModule {
       for (const mgr of registry.getAll()) {
         this.log(`🔄 Closing existing ${mgr.displayName} connection (${mgr.instanceId})...`);
         try {
-          await mgr.shutdown();
+          if (typeof mgr.shutdown === 'function') {
+            await mgr.shutdown();
+          } else if (typeof mgr.cleanup === 'function') {
+            await mgr.cleanup();
+          }
         } catch (err) {
           this.warn(`⚠️  Error shutting down ${mgr.instanceId}:`, err.message);
         }

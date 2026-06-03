@@ -8,7 +8,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { SearchResultsList, SEARCH_RESULTS_COLUMNS, PROWLARR_RESULTS_COLUMNS, FilterInput, MobileSortButton, ExpandableSearch, Select, Button, Icon, SelectionModeSection, ClientIcon, MobileFilterSheet, MobileFilterPills, MobileFilterButton, LoadingSpinner, Tooltip } from './index.js';
-import { DEFAULT_SORT_CONFIG, sortFiles, calculateLoadMore, VIEW_TITLE_STYLES, makeFilterHeaderRender, createIndexerFilter } from '../../utils/index.js';
+import { DEFAULT_SORT_CONFIG, sortFiles, calculateLoadMore, VIEW_TITLE_STYLES, makeFilterHeaderRender, createIndexerFilter, formatBytes } from '../../utils/index.js';
 import { useAppState } from '../../contexts/AppStateContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useSearch } from '../../contexts/SearchContext.js';
@@ -180,26 +180,96 @@ const SearchResultsSection = ({
     [filteredResults, sortConfig.sortBy, sortConfig.sortDirection]
   );
 
+  // Detect if results are from slskd
+  const isSlskd = useMemo(() => results.length > 0 && results[0].isSlskd, [results]);
+
+  // Track which slskd folder groups are expanded
+  const [expandedFolders, setExpandedFolders] = useState(new Set());
+
+  // Reset expanded folders when results change
+  useEffect(() => { setExpandedFolders(new Set()); }, [results]);
+
+  const toggleFolderExpand = useCallback((folderKey) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderKey)) next.delete(folderKey);
+      else next.add(folderKey);
+      return next;
+    });
+  }, []);
+
+  // Number of unique folder groups (for header count)
+  const slskdFolderCount = useMemo(() => {
+    if (!isSlskd) return 0;
+    return new Set(filteredResults.map(r => `${r.username || ''}|${r.directoryPath || ''}`)).size;
+  }, [isSlskd, filteredResults]);
+
+  // For slskd: group files into folder rows; expand/collapse shows individual files
+  const displayedResults = useMemo(() => {
+    if (!isSlskd) return sortedResults;
+
+    // Build insertion-order groups (order follows first occurrence in sortedResults)
+    const groupMap = new Map();
+    for (const item of sortedResults) {
+      const key = `${item.username || ''}|${item.directoryPath || ''}`;
+      if (!groupMap.has(key)) {
+        const dirParts = (item.directoryPath || '').split('/').filter(Boolean);
+        const folderName = dirParts[dirParts.length - 1] || item.directoryPath || item.username || 'Unknown';
+        groupMap.set(key, {
+          _isFolder: true,
+          _folderKey: key,
+          fileHash: `folder:${key}`,
+          username: item.username || '',
+          directoryPath: item.directoryPath || '',
+          folderName,
+          fileName: folderName,
+          fileCount: 0,
+          fileSize: 0,
+          sourceCount: 0,
+          _files: [],
+          isSlskd: true
+        });
+      }
+      const g = groupMap.get(key);
+      g.fileCount++;
+      g.fileSize += item.fileSize || 0;
+      g._files.push(item);
+    }
+
+    const out = [];
+    for (const folder of groupMap.values()) {
+      folder._expanded = expandedFolders.has(folder._folderKey);
+      out.push(folder);
+      if (folder._expanded) {
+        for (const file of folder._files) {
+          out.push({ ...file, _isChild: true, _parentKey: folder._folderKey });
+        }
+      }
+    }
+    return out;
+  }, [isSlskd, sortedResults, expandedFolders]);
+
   // Load-more pagination (cumulative) - used for mobile in hybrid scrollable mode
   const loadedPages = appPage + 1;
   const { loadedData, loadedCount, hasMore, remaining } = useMemo(() =>
-    calculateLoadMore(sortedResults, loadedPages, appPageSize),
-    [sortedResults, loadedPages, appPageSize]
+    calculateLoadMore(displayedResults, loadedPages, appPageSize),
+    [displayedResults, loadedPages, appPageSize]
   );
 
   const loadMore = useCallback(() => setAppPage(prev => prev + 1), [setAppPage]);
 
   // Load all handler - sets page to load everything
   const loadAll = useCallback(() => {
-    const totalPages = Math.ceil(sortedResults.length / appPageSize);
+    const totalPages = Math.ceil(displayedResults.length / appPageSize);
     setAppPage(totalPages - 1);
-  }, [sortedResults.length, appPageSize, setAppPage]);
+  }, [displayedResults.length, appPageSize, setAppPage]);
 
   // Gmail-style selection
   const { shownFullySelected, allItemsSelected, hasMoreToLoad,
           handleSelectShown, handleSelectAll, shownCount, totalCount } = usePageSelection({
-    shownData: loadedData,
-    allData: sortedResults,
+    // For slskd folder grouping: use raw file results (not grouped) for selection tracking
+    shownData: isSlskd ? sortedResults : loadedData,
+    allData: isSlskd ? sortedResults : displayedResults,
     selectedCount,
     selectShown,
     selectAll,
@@ -208,7 +278,82 @@ const SearchResultsSection = ({
   });
 
   // Build columns with indexer filter dropdown in header (for Prowlarr)
+  // and folder grouping for slskd results
   const columnsWithIndexerFilter = useMemo(() => {
+    if (isSlskd) {
+      return [
+        {
+          key: 'fileName',
+          label: 'Name / File',
+          sortable: true,
+          width: 'auto',
+          render: (item) => {
+            if (item._isFolder) {
+              const expanded = expandedFolders.has(item._folderKey);
+              return h('div', { className: 'flex items-center gap-1.5 min-w-0' },
+                h('button', {
+                  type: 'button',
+                  className: `shrink-0 w-4 h-4 flex items-center justify-center transition-colors
+                    ${expanded ? 'text-purple-500 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500 hover:text-purple-500 dark:hover:text-purple-400'}`,
+                  title: expanded ? `Collapse: ${item.directoryPath}` : `Expand: ${item.directoryPath}`,
+                  onClick: (e) => { e.stopPropagation(); toggleFolderExpand(item._folderKey); }
+                }, h(Icon, { name: expanded ? 'chevronDown' : 'chevronRight', size: 12 })),
+                h(Icon, { name: 'folder', size: 13, className: 'shrink-0 text-amber-400 dark:text-amber-500' }),
+                h('span', {
+                  className: 'font-semibold text-xs text-gray-900 dark:text-gray-100 truncate ml-0.5',
+                  title: `${item.username}: ${item.directoryPath}`
+                }, item.folderName)
+              );
+            }
+            // Child row: indented with file icon
+            const baseName = String(item.fileName || '').split(/[\/\\]/).pop() || item.fileName || '';
+            return h('div', { className: 'flex items-center gap-1.5 min-w-0 pl-5' },
+              h(Icon, { name: 'file', size: 11, className: 'shrink-0 text-gray-400 dark:text-gray-500' }),
+              h('span', {
+                className: 'text-xs break-words min-w-0',
+                style: { wordBreak: 'break-all', overflowWrap: 'anywhere' }
+              }, baseName)
+            );
+          }
+        },
+        {
+          key: 'username',
+          label: 'User',
+          sortable: true,
+          width: '120px',
+          render: (item) => item._isFolder
+            ? h('span', { className: 'text-xs text-gray-500 dark:text-gray-400 truncate block', title: item.username }, item.username)
+            : null
+        },
+        {
+          key: 'fileSize',
+          label: 'Size',
+          sortable: true,
+          width: '90px',
+          render: (item) => h('span', { className: 'text-xs' }, formatBytes(item.fileSize || 0))
+        },
+        {
+          key: 'sourceCount',
+          label: 'Files / Info',
+          sortable: false,
+          width: '100px',
+          render: (item) => {
+            if (item._isFolder) {
+              return h('span', { className: 'text-xs text-gray-500 dark:text-gray-400' },
+                `${item.fileCount} file${item.fileCount !== 1 ? 's' : ''}`
+              );
+            }
+            const parts = [];
+            if (item.bitrate) parts.push(`${item.bitrate}kbps`);
+            if (item.length) {
+              parts.push(`${Math.floor(item.length / 60)}:${String(item.length % 60).padStart(2, '0')}`);
+            }
+            return h('span', { className: 'text-xs text-gray-400 dark:text-gray-500' }, parts.join(' ') || '—');
+          }
+        }
+      ];
+    }
+
     if (!isProwlarr) return null;
 
     // Modify the indexer column to use filter header dropdown
@@ -226,10 +371,30 @@ const SearchResultsSection = ({
       }
       return col;
     });
-  }, [isProwlarr, indexerFilter, indexerOptions, resetLoaded]);
+  }, [isProwlarr, isSlskd, indexerFilter, indexerOptions, resetLoaded, expandedFolders, toggleFolderExpand]);
+
+  // Folder-aware selection toggle: clicking a folder hash selects/deselects all its children
+  const handleToggleSelection = useCallback((fileHash) => {
+    if (typeof fileHash === 'string' && fileHash.startsWith('folder:')) {
+      const folderKey = fileHash.slice(7);
+      const folderItem = displayedResults.find(item => item._isFolder && item._folderKey === folderKey);
+      if (!folderItem?._files?.length) return;
+      const childHashes = folderItem._files.map(f => f.fileHash);
+      const allSelected = childHashes.every(h => selectedFiles.has(h));
+      const current = Array.from(selectedFiles);
+      if (allSelected) {
+        const toRemove = new Set(childHashes);
+        selectAll(current.filter(h => !toRemove.has(h)));
+      } else {
+        selectAll(Array.from(new Set([...current, ...childHashes])));
+      }
+      return;
+    }
+    toggleFileSelection(fileHash);
+  }, [displayedResults, selectedFiles, selectAll, toggleFileSelection]);
 
   // Count of downloadable (not already downloaded on the selected client) selected items
-  const activeInstanceId = isProwlarr ? selectedClientId : (searchInstanceId || 'amule');
+  const activeInstanceId = isProwlarr ? selectedClientId : searchInstanceId;
   const downloadableCount = useMemo(() =>
     Array.from(selectedFiles).filter(hash => {
       const instances = dataDownloadedFiles.get(hash);
@@ -304,7 +469,7 @@ const SearchResultsSection = ({
   // MOBILE HEADER CONTENT (shared between sticky toolbar and in-page header)
   // ============================================================================
   // Determine client type for icon (only show if results exist)
-  const clientType = isProwlarr ? 'prowlarr' : 'amule';
+  const clientType = isProwlarr ? 'prowlarr' : isSlskd ? 'slskd' : 'amule';
 
   // Show filter button only for Prowlarr with multiple indexers
   const showMobileFilterButton = isProwlarr && indexerOptions.length > 2;
@@ -313,7 +478,11 @@ const SearchResultsSection = ({
     h('div', { className: 'flex items-center gap-2' },
       results.length > 0 && h(ClientIcon, { client: clientType, size: 18 }),
       h('h2', { className: VIEW_TITLE_STYLES.mobile }, mobileTitle),
-      h('span', { className: 'text-sm text-gray-500 dark:text-gray-400' }, `(${filteredResults.length})`),
+      h('span', { className: 'text-sm text-gray-500 dark:text-gray-400' },
+        isSlskd
+          ? `(${slskdFolderCount} folder${slskdFolderCount !== 1 ? 's' : ''}, ${filteredResults.length} files)`
+          : `(${filteredResults.length})`
+      ),
       h('div', { className: 'flex-1' }),
       results.length > 0 && h(ExpandableSearch, {
         value: filterText,
@@ -362,7 +531,11 @@ const SearchResultsSection = ({
       h('div', { className: 'flex items-center gap-3' },
         results.length > 0 && h(ClientIcon, { client: clientType, size: 20 }),
         h('h2', { className: VIEW_TITLE_STYLES.desktop }, title),
-        h('span', { className: 'text-sm text-gray-500 dark:text-gray-400' }, `(${filteredResults.length})`)
+        h('span', { className: 'text-sm text-gray-500 dark:text-gray-400' },
+          isSlskd
+            ? `(${slskdFolderCount} folder${slskdFolderCount !== 1 ? 's' : ''}, ${filteredResults.length} files)`
+            : `(${filteredResults.length})`
+        )
       ),
       h('div', { className: 'flex items-center gap-2' },
         results.length > 0 && h(FilterInput, {
@@ -379,7 +552,7 @@ const SearchResultsSection = ({
     // Search results list with checkboxes
     // Hybrid scrollable mode: desktop shows all items, mobile uses load-more
     h(SearchResultsList, {
-      results: sortedResults,
+      results: displayedResults,
       loadedData,
       sortConfig,
       onSortChange: handleSortChange,
@@ -387,10 +560,11 @@ const SearchResultsSection = ({
       activeInstanceId,
       connectedClientIds: isProwlarr ? connectedClients.map(c => c.id) : [activeInstanceId],
       selectedFiles,
-      onToggleSelection: toggleFileSelection,
+      onToggleSelection: handleToggleSelection,
+      onToggleFolderExpand: toggleFolderExpand,
       // Load-more props for mobile in hybrid scrollable mode
       loadedCount,
-      totalCount: sortedResults.length,
+      totalCount: displayedResults.length,
       hasMore,
       remaining,
       onLoadMore: loadMore,
@@ -400,7 +574,7 @@ const SearchResultsSection = ({
       emptyMessage: filterText ? filterEmptyMessage : emptyMessage,
       isProwlarr,
       scrollHeight,
-      // Custom columns with indexer filter dropdown (for Prowlarr)
+      // Custom columns with indexer filter dropdown (for Prowlarr) / directory expand (for slskd)
       customColumns: columnsWithIndexerFilter
     }),
 

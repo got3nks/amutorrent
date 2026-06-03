@@ -36,6 +36,7 @@ export const StaticDataProvider = ({ children }) => {
   const [dataAppLogs, setDataAppLogs] = useState([]);
   const [dataAppLogSources, setDataAppLogSources] = useState([]);
   const [dataQbittorrentLogs, setDataQbittorrentLogs] = useState('');
+  const [dataSlskdLogs, setDataSlskdLogs] = useState('');
   const [dataStatsTree, setDataStatsTree] = useState(null);
   // Map<hash, Set<instanceId>> — tracks which instances have each download
   const [dataDownloadedFiles, setDataDownloadedFiles] = useState(new Map());
@@ -50,7 +51,8 @@ export const StaticDataProvider = ({ children }) => {
     logs: false,
     serverInfo: false,
     appLogs: false,
-    qbittorrentLogs: false
+    qbittorrentLogs: false,
+    slskdLogs: false
   });
 
   // Helper to mark a data type as loaded
@@ -161,6 +163,7 @@ export const StaticDataProvider = ({ children }) => {
     dataAppLogs,
     dataAppLogSources,
     dataQbittorrentLogs,
+    dataSlskdLogs,
     dataStatsTree,
     dataDownloadedFiles,
     downloadedAliasRef,
@@ -182,6 +185,7 @@ export const StaticDataProvider = ({ children }) => {
     setDataAppLogs,
     setDataAppLogSources,
     setDataQbittorrentLogs,
+    setDataSlskdLogs,
     setDataStatsTree,
     setDataDownloadedFiles,
     setDataServersEd2kLinks,
@@ -191,7 +195,7 @@ export const StaticDataProvider = ({ children }) => {
     dataServers, dataCategories, clientDefaultPaths, prowlarrEnabled, knownTrackers,
     historyTrackUsername, hasCategoryPathWarnings, instances, multiInstanceTypes, hasMultiInstance,
     isTypeConnected, isNetworkTypeConnected, hasType, getCapabilities, hasClientConnectionWarnings, multipleClientsConnected,
-    dataLogs, dataServerInfo, dataAppLogs, dataQbittorrentLogs, dataStatsTree, dataDownloadedFiles, dataServersEd2kLinks,
+    dataLogs, dataServerInfo, dataAppLogs, dataQbittorrentLogs, dataSlskdLogs, dataStatsTree, dataDownloadedFiles, dataServersEd2kLinks,
     dataLoaded, markDataLoaded, resetDataLoaded
   ]);
 

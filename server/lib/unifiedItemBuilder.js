@@ -169,9 +169,11 @@ function applyDownloadData(item, download, categoryManager = null) {
 
     // Links
     item.ed2kLink = download.ed2kLink || item.ed2kLink;
-  } else if (clientMeta.isBittorrent(download.clientType)) {
+  } else if (clientMeta.isBittorrent(download.clientType) || clientMeta.isSoulseek(download.clientType)) {
+    const isBittorrent = clientMeta.isBittorrent(download.clientType);
+
     // BitTorrent clients (rtorrent, qbittorrent) — all items are always shared/seeding
-    item.shared = true;
+    item.shared = isBittorrent;
 
     // Determine seeding status from clientMeta
     const seedingStatuses = clientMeta.get(download.clientType).seedingStatuses;
@@ -214,7 +216,9 @@ function applyDownloadData(item, download, categoryManager = null) {
     }
 
     // Links
-    item.magnetLink = generateMagnetLink(download);
+    if (isBittorrent) {
+      item.magnetLink = generateMagnetLink(download);
+    }
 
     // Timestamps - use startedTime (when torrent was first started)
     // Treat 0 as null (0 = epoch time 1970, not a real timestamp)
@@ -241,6 +245,20 @@ function applySharedData(item, sharedFile) {
   item.name = item.name || sharedFile.name || '';
   item.rawName = item.rawName || sharedFile.rawName;
   item.size = item.size || sharedFile.size || 0;
+  item.directory = item.directory || sharedFile.directory || '';
+  item.filePath = item.filePath || sharedFile.filePath || sharedFile.path || '';
+  item.message = item.message || sharedFile.message || '';
+  item.locked = item.locked || sharedFile.locked || false;
+  if (sharedFile.canMutate === false) {
+    item.canMutate = false;
+  }
+
+  if (clientMeta.hasCapability(sharedFile.clientType, 'sharedMeansComplete') && !item.downloading) {
+    item.progress = 100;
+    item.complete = true;
+    item.seeding = true;
+    item.sizeDownloaded = item.size;
+  }
 
   // Upload speed from aggregated aMule uploads or rtorrent stats
   if (sharedFile.uploadSpeed > 0) {
@@ -248,14 +266,6 @@ function applySharedData(item, sharedFile) {
   }
 
   if (clientMeta.isEd2k(sharedFile.clientType)) {
-    // aMule shared files are completed downloads - mark them as such
-    // (unless already set by applyDownloadData for files still downloading)
-    if (!item.downloading) {
-      item.progress = 100;
-      item.complete = true;
-      item.seeding = true;
-      item.sizeDownloaded = item.size;
-    }
     // Organization — shared file may have path-derived category
     // Only update category if item doesn't already have one (from download data)
     // or if shared file has a non-default category (path-based match)
@@ -284,11 +294,6 @@ function applySharedData(item, sharedFile) {
 
     // Links
     item.ed2kLink = sharedFile.ed2kLink || item.ed2kLink;
-
-    // Store file path for aMule shared files (needed for delete permission checks)
-    if (sharedFile.path) {
-      item.filePath = sharedFile.path;
-    }
 
     // Raw data: merge shared file's EC_TAG fields into item.raw
     // For files that are both downloading and shared, this adds KNOWNFILE fields

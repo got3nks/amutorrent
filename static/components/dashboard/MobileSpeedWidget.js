@@ -3,7 +3,7 @@
  *
  * Compact speed chart with current speeds and network status for mobile view
  * Shows 24h speed history with simplified data points for performance
- * Supports switching between aMule and BitTorrent (rTorrent + qBittorrent) when both are active
+ * Supports switching between aMule, BitTorrent (rTorrent + qBittorrent), and Soulseek when active
  * Multi-instance mode: per-instance network status dots with instance names
  */
 
@@ -17,11 +17,18 @@ import { useStaticData } from '../../contexts/StaticDataContext.js';
 
 const { createElement: h, useEffect, useRef, useState } = React;
 
+const NETWORK_ORDER = ['ed2k', 'bittorrent', 'soulseek'];
+const NETWORK_LABELS = {
+  ed2k: 'aMule',
+  bittorrent: 'BitTorrent',
+  soulseek: 'Soulseek'
+};
+
 /**
  * Downsample data for mobile performance
  * 288 points = 1 data point every 5 minutes for 24 hours
  * @param {Array} data - Original data array
- * @param {string} networkType - 'ed2k' or 'bittorrent'
+ * @param {string} networkType - 'ed2k', 'bittorrent', or 'soulseek'
  * @param {number} targetPoints - Target number of data points
  * @returns {Array} Downsampled data
  */
@@ -112,25 +119,28 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
   });
 
   // Get client connection status from context
-  const { ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { ed2kConnected, bittorrentConnected, soulseekConnected } = useClientFilter();
   const { instances } = useStaticData();
 
-  // Show toggle when both aMule and BitTorrent clients are connected
-  const showBothClients = ed2kConnected && bittorrentConnected;
+  const activeNetworkTypes = NETWORK_ORDER.filter((networkType) => {
+    if (networkType === 'ed2k') return ed2kConnected;
+    if (networkType === 'bittorrent') return bittorrentConnected;
+    return soulseekConnected;
+  });
 
-  // State for selected network type (when both are available)
-  const [selectedNetwork, setSelectedNetwork] = useState('ed2k');
+  // Show toggle when multiple networks are connected
+  const showMultipleClients = activeNetworkTypes.length > 1;
+
+  // State for selected network type (when multiple are available)
+  const [selectedNetwork, setSelectedNetwork] = useState(activeNetworkTypes[0] || 'ed2k');
 
   // Auto-select the available network when only one is connected
   useEffect(() => {
-    if (!showBothClients) {
-      if (ed2kConnected) {
-        setSelectedNetwork('ed2k');
-      } else if (bittorrentConnected) {
-        setSelectedNetwork('bittorrent');
-      }
+    if (activeNetworkTypes.length === 0) return;
+    if (!activeNetworkTypes.includes(selectedNetwork)) {
+      setSelectedNetwork(activeNetworkTypes[0]);
     }
-  }, [showBothClients, ed2kConnected, bittorrentConnected]);
+  }, [activeNetworkTypes, selectedNetwork]);
 
   // Load Chart.js library on mount
   useEffect(() => {
@@ -301,6 +311,19 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
         }).filter(Boolean)
       );
     }
+  } else if (selectedNetwork === 'soulseek') {
+    networkStatus = h(React.Fragment, null,
+      ...tabInstances.map(inst => {
+        const ns = inst.networkStatus;
+        if (!ns) return null;
+        return h('div', { key: inst.id, className: 'flex items-center gap-1.5' },
+          h('div', { className: `w-2 h-2 rounded-full ${getStatusDotClass(ns.status)}` }),
+          h('span', { className: 'text-xs font-medium text-gray-600 dark:text-gray-400' },
+            `${inst.name}: ${ns.text}`
+          )
+        );
+      }).filter(Boolean)
+    );
   } else {
     // BitTorrent: per-instance status
     networkStatus = h(React.Fragment, null,
@@ -332,23 +355,17 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
   }
 
   // Network toggle button component
-  const networkToggle = showBothClients && h('div', {
+  const networkToggle = showMultipleClients && h('div', {
     className: 'absolute top-2 left-2 z-10 flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600'
   },
-    h('button', {
-      onClick: () => setSelectedNetwork('ed2k'),
-      className: `p-1.5 ${selectedNetwork === 'ed2k'
+    ...activeNetworkTypes.map((networkType, index) => h('button', {
+      key: networkType,
+      onClick: () => setSelectedNetwork(networkType),
+      className: `p-1.5 ${index > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''} ${selectedNetwork === networkType
         ? 'bg-blue-100 dark:bg-blue-900/50'
         : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`,
-      title: 'Show aMule'
-    }, h(ClientIcon, { clientType: 'ed2k', size: 16 })),
-    h('button', {
-      onClick: () => setSelectedNetwork('bittorrent'),
-      className: `p-1.5 border-l border-gray-300 dark:border-gray-600 ${selectedNetwork === 'bittorrent'
-        ? 'bg-blue-100 dark:bg-blue-900/50'
-        : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`,
-      title: 'Show BitTorrent'
-    }, h(ClientIcon, { clientType: 'bittorrent', size: 16 }))
+      title: `Show ${NETWORK_LABELS[networkType]}`
+    }, h(ClientIcon, { clientType: networkType === 'soulseek' ? 'soulseek' : networkType, size: 16 })))
   );
 
   // Determine displayed speeds: hovered historical point or live current

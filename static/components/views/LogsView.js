@@ -37,6 +37,9 @@ const CLIENT_LOG_SECTIONS = {
   qbittorrent: [
     { key: 'qbittorrentLogs', title: 'qBittorrent Logs', dataKey: 'dataQbittorrentLogs', loadedKey: 'qbittorrentLogs', fetchKey: 'fetchQbittorrentLogs' }
   ],
+  slskd: [
+    { key: 'slskdLogs', title: 'Soulseek Logs', dataKey: 'dataSlskdLogs', loadedKey: 'slskdLogs', fetchKey: 'fetchSlskdLogs' }
+  ],
   amule: [
     { key: 'logs', title: 'aMule Logs', dataKey: 'dataLogs', loadedKey: 'logs', fetchKey: 'fetchLogs' },
     { key: 'serverInfo', title: 'ED2K Server Info', dataKey: 'dataServerInfo', loadedKey: 'serverInfo', fetchKey: 'fetchServerInfo' }
@@ -444,15 +447,15 @@ const AppLogSection = ({ records, sources, instances, fetchAppLogs, loaded, maxH
  * Logs view component
  */
 const LogsView = () => {
-  const { dataLogs, dataServerInfo, dataAppLogs, dataAppLogSources, dataQbittorrentLogs, dataLoaded, instances } = useStaticData();
-  const { fetchLogs, fetchServerInfo, fetchAppLogs, fetchQbittorrentLogs } = useDataFetch();
+  const { dataLogs, dataServerInfo, dataAppLogs, dataAppLogSources, dataQbittorrentLogs, dataSlskdLogs, dataLoaded, instances } = useStaticData();
+  const { fetchLogs, fetchServerInfo, fetchAppLogs, fetchQbittorrentLogs, fetchSlskdLogs } = useDataFetch();
   const { fontSize } = useFontSize();
 
   // Lookup tables for dynamic access by config keys
-  const dataByKey = { dataLogs, dataServerInfo, dataQbittorrentLogs };
+  const dataByKey = { dataLogs, dataServerInfo, dataQbittorrentLogs, dataSlskdLogs };
   const fetchByKey = useMemo(
-    () => ({ fetchLogs, fetchServerInfo, fetchQbittorrentLogs }),
-    [fetchLogs, fetchServerInfo, fetchQbittorrentLogs]
+    () => ({ fetchLogs, fetchServerInfo, fetchQbittorrentLogs, fetchSlskdLogs }),
+    [fetchLogs, fetchServerInfo, fetchQbittorrentLogs, fetchSlskdLogs]
   );
 
   // Group connected log-capable instances by type (capability-driven)

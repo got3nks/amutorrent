@@ -18,6 +18,12 @@ import ClientIcon from '../common/ClientIcon.js';
 
 const { createElement: h } = React;
 
+const NETWORK_FILTERS = {
+  ed2k: 'ed2k',
+  bittorrent: 'bittorrent',
+  soulseek: 'soulseek'
+};
+
 // Status priority for worst-of computation (lower = worse)
 const STATUS_PRIORITY = { red: 0, yellow: 1, green: 2 };
 
@@ -67,7 +73,7 @@ const renderBadge = (status, text, tooltip) => {
 const Footer = ({ currentView, onOpenAbout }) => {
   const { dataStats: stats } = useLiveData();
   const { updateAvailable, latestVersion } = useVersion();
-  const { ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { ed2kConnected, bittorrentConnected, soulseekConnected } = useClientFilter();
   const { instances, hasMultiInstance } = useStaticData();
   if (!stats) {
     return h('footer', { className: 'hidden md:block bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4 text-center text-sm text-gray-500 dark:text-gray-400' },
@@ -173,7 +179,11 @@ const Footer = ({ currentView, onOpenAbout }) => {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 
   for (const inst of connectedInsts) {
-    const isEnabled = inst.networkType === 'ed2k' ? ed2kConnected : bittorrentConnected;
+    const isEnabled = inst.networkType === NETWORK_FILTERS.ed2k
+      ? ed2kConnected
+      : inst.networkType === NETWORK_FILTERS.soulseek
+        ? soulseekConnected
+        : bittorrentConnected;
     if (!isEnabled) continue;
     const speeds = instanceSpeeds[inst.id];
     if (speeds) {
@@ -227,19 +237,24 @@ const Footer = ({ currentView, onOpenAbout }) => {
               renderBadge(kad.status, kad.text, kadTooltip || buildKadTooltip(kad))
             )
           ),
-          // Divider between aMule and BitTorrent status
-          ed2kConnected && bittorrentConnected && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
-          // BitTorrent client statuses (dynamic — works for rtorrent, qbittorrent, deluge, etc.)
-          ...btTypes.map(type => {
+          // Divider between aMule and BitTorrent/Soulseek status
+          ed2kConnected && (bittorrentConnected || soulseekConnected) && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
+          // BitTorrent + Soulseek client statuses; a pipe separator is inserted before the slskd entry
+          ...btTypes.flatMap(type => {
             const { status: st, tooltip } = btStatusMap[type];
             const names = CLIENT_NAMES[type] || { name: type, shortName: type.slice(0, 3) };
-            return h('div', { key: type, className: 'flex items-center gap-1.5 flex-shrink-0' },
+            const statusItem = h('div', { key: type, className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },
                 h('span', { className: 'lg:hidden' }, `${names.shortName}:`),
                 h('span', { className: 'hidden lg:inline' }, `${names.name}:`)
               ),
               renderBadge(st.status, st.text, tooltip || (st.listenPort ? `Port ${st.listenPort}` : null))
             );
+            // Separator before Soulseek when other BT clients are also present
+            if (type === 'slskd' && btTypes.some(t => t !== 'slskd')) {
+              return [h('div', { key: 'sep-slskd', className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }), statusItem];
+            }
+            return [statusItem];
           })
         ),
         // Right: System indicators + Speeds (fixed, never compressed)

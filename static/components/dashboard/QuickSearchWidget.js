@@ -19,10 +19,12 @@ const { createElement: h } = React;
  * @param {function} onSearch - Search submit handler
  * @param {boolean} searchLocked - Whether search is in progress
  * @param {boolean} noBorder - Whether to hide the outer border/padding (default: false)
- * @param {string} searchInstanceId - Selected aMule instance ID for search
+ * @param {string} searchInstanceId - Selected provider instance ID for search
  * @param {function} onSearchInstanceChange - Instance selection change handler
- * @param {Array} amuleInstances - Connected aMule instances from useAmuleInstanceSelector
- * @param {boolean} showAmuleSelector - Whether to show aMule instance selector
+ * @param {Array} providerInstances - Connected provider instances (ED2K or Soulseek) from useSearchProviderSelector
+ * @param {boolean} showProviderSelector - Whether to show provider instance selector
+ * @param {Array} [amuleInstances] - Alias for providerInstances (backward compat, ignored if providerInstances provided)
+ * @param {boolean} [showAmuleSelector] - Alias for showProviderSelector (backward compat)
  */
 const QuickSearchWidget = ({
   searchType,
@@ -34,14 +36,22 @@ const QuickSearchWidget = ({
   noBorder = false,
   searchInstanceId,
   onSearchInstanceChange,
-  amuleInstances = [],
-  showAmuleSelector = false
+  // Preferred: provider-agnostic props
+  providerInstances,
+  showProviderSelector,
+  // Backward-compat aliases (used when providerInstances is not supplied)
+  amuleInstances,
+  showAmuleSelector
 }) => {
+  // Resolve to the provided props, falling back to backward-compat aliases
+  const resolvedInstances = providerInstances !== undefined ? providerInstances : (amuleInstances || []);
+  const resolvedShowSelector = providerInstances !== undefined ? showProviderSelector : (showAmuleSelector || false);
   const { isNetworkTypeConnected, prowlarrEnabled } = useStaticData();
 
   // Check client connection and configuration status
   const amuleConnected = isNetworkTypeConnected('ed2k');
   const bittorrentConnected = isNetworkTypeConnected('bittorrent');
+  const soulseekConnected = isNetworkTypeConnected('soulseek');
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -57,6 +67,7 @@ const QuickSearchWidget = ({
     { value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png', disabled: !amuleConnected },
     // { value: 'local', label: 'Local', icon: '/static/logo-brax.png', disabled: !amuleConnected }, // Hidden temporarily
     { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png', disabled: !amuleConnected },
+    { value: 'soulseek', label: 'Soulseek', icon: '/static/soulseek.png', disabled: !soulseekConnected },
     { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !bittorrentConnected }
   ];
 
@@ -70,7 +81,7 @@ const QuickSearchWidget = ({
         onSearchTypeChange(firstAvailable.value);
       }
     }
-  }, [selectedTypeDisabled, amuleConnected, bittorrentConnected, prowlarrEnabled]);
+  }, [selectedTypeDisabled, amuleConnected, bittorrentConnected, soulseekConnected, prowlarrEnabled]);
 
   return h('div', {
     className: noBorder ? '' : 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700'
@@ -114,12 +125,12 @@ const QuickSearchWidget = ({
           className: 'flex-1 min-w-0'
         }),
 
-        // Instance selector (only when multi-aMule + ED2K/Kad type)
-        (searchType === 'global' || searchType === 'kad') && h(AmuleInstanceSelector, {
-          connectedInstances: amuleInstances,
+        // Instance selector for multi-instance ED2K/Kad or Soulseek searches
+        (searchType === 'global' || searchType === 'kad' || searchType === 'soulseek') && h(AmuleInstanceSelector, {
+          connectedInstances: resolvedInstances,
           selectedId: searchInstanceId,
           onSelect: onSearchInstanceChange,
-          showSelector: showAmuleSelector,
+          showSelector: resolvedShowSelector,
           variant: 'dropdown',
           disabled: searchLocked
         }),
