@@ -18,6 +18,12 @@ import ClientIcon from '../common/ClientIcon.js';
 
 const { createElement: h } = React;
 
+const NETWORK_FILTERS = {
+  ed2k: 'ed2k',
+  bittorrent: 'bittorrent',
+  soulseek: 'soulseek'
+};
+
 // Status priority for worst-of computation (lower = worse)
 const STATUS_PRIORITY = { red: 0, yellow: 1, green: 2 };
 
@@ -92,9 +98,10 @@ const Footer = ({ currentView, onOpenAbout }) => {
           const detail = ns.connected && ns.serverName
             ? ` (${ns.serverName}${ns.serverPing ? ` - ${ns.serverPing}ms` : ''})`
             : '';
+          const portSuffix = ns.listenPort ? ` · Port ${ns.listenPort}` : '';
           return h('div', { key: inst.id, className: 'flex items-center gap-2' },
             h('div', { className: `w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotClass(ns.status)}` }),
-            h('span', null, `${inst.name}: ${ns.text}${detail}`)
+            h('span', null, `${inst.name}: ${ns.text}${detail}${portSuffix}`)
           );
         }).filter(Boolean)
       );
@@ -106,7 +113,7 @@ const Footer = ({ currentView, onOpenAbout }) => {
           if (!ns) return null;
           return h('div', { key: inst.id, className: 'flex items-center gap-2' },
             h('div', { className: `w-2 h-2 rounded-full flex-shrink-0 ${getStatusDotClass(ns.status)}` }),
-            h('span', null, `${inst.name}: ${ns.text}`)
+            h('span', null, `${inst.name}: ${ns.text}${ns.listenPort ? ` (Port ${ns.listenPort})` : ''}`)
           );
         }).filter(Boolean)
       );
@@ -199,13 +206,13 @@ const Footer = ({ currentView, onOpenAbout }) => {
           ed2kConnected && h(React.Fragment, null,
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
-              renderBadge(ed2k.status, ed2k.text, ed2kTooltip),
+              renderBadge(ed2k.status, ed2k.text, ed2kTooltip || (ed2k.listenPort ? `Port ${ed2k.listenPort}` : null)),
               // Show inline server info only in single-instance mode
               !ed2kTooltip && ed2k.connected && ed2k.serverName && h('span', { className: 'hidden xl:inline text-gray-600 dark:text-gray-400 text-xs' }, `(${ed2k.serverName} - ${ed2k.serverPing}ms)`)
             ),
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'KAD:'),
-              renderBadge(kad.status, kad.text, kadTooltip)
+              renderBadge(kad.status, kad.text, kadTooltip || (kad.listenPort ? `Port ${kad.listenPort}` : null))
             )
           ),
           // Divider between aMule and BitTorrent status
