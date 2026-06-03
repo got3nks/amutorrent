@@ -21,19 +21,19 @@ const { createElement: h } = React;
 // Status priority for worst-of computation (lower = worse)
 const STATUS_PRIORITY = { red: 0, yellow: 1, green: 2 };
 
-// Build the KAD tooltip detail string: per-port status when we have it,
-// since aMule exposes UDP-firewall and TCP-firewall as independent flags
-// and a node can be one without the other (e.g. NAT that forwards TCP but not UDP).
+// Build the KAD tooltip element: one line per port. Tooltip styles use
+// whiteSpace: 'normal' so '\n' in a plain string collapses — we have to
+// emit a real element tree to get visual line breaks.
 const buildKadTooltip = (ns) => {
   if (!ns || !ns.connected) return null;
   const lines = [];
   if (ns.listenPort) {
-    lines.push(`UDP ${ns.listenPort}: ${ns.firewalledUdp ? 'Firewalled' : 'OK'}`);
+    lines.push(h('div', { key: 'udp' }, `UDP ${ns.listenPort}: ${ns.firewalledUdp ? 'Firewalled' : 'OK'}`));
   }
   if (ns.tcpPort) {
-    lines.push(`TCP ${ns.tcpPort}: ${ns.firewalledTcp ? 'Firewalled' : 'OK'}`);
+    lines.push(h('div', { key: 'tcp' }, `TCP ${ns.tcpPort}: ${ns.firewalledTcp ? 'Firewalled' : 'OK'}`));
   }
-  return lines.length > 0 ? lines.join('\n') : null;
+  return lines.length > 0 ? h('div', { className: 'space-y-1' }, ...lines) : null;
 };
 
 /**
