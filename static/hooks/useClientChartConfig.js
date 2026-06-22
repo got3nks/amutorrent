@@ -12,6 +12,7 @@
 import React from 'https://esm.sh/react@18.2.0';
 import { useClientFilter } from '../contexts/ClientFilterContext.js';
 import { useLiveData } from '../contexts/LiveDataContext.js';
+import { NETWORK_NAMES, NETWORK_ORDER } from '../utils/constants.js';
 
 const { useState, useEffect } = React;
 
@@ -31,20 +32,25 @@ const { useState, useEffect } = React;
  *   - shouldRenderCharts: boolean - deferred rendering state for performance
  */
 export const useClientChartConfig = () => {
-  const { isEd2kEnabled, isBittorrentEnabled, ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { isNetworkTypeEnabled, isEd2kEnabled, isBittorrentEnabled, ed2kConnected, bittorrentConnected } = useClientFilter();
   const { dataStats } = useLiveData();
 
   // Check if we're still waiting for WebSocket data
   const isLoading = !dataStats;
 
-  // Determine chart display mode (isXEnabled includes connection check)
-  const showBothCharts = isEd2kEnabled && isBittorrentEnabled;
-  const showSingleAmule = isEd2kEnabled && !isBittorrentEnabled;
-  const showSingleBittorrent = isBittorrentEnabled && !isEd2kEnabled;
-  const showSingleClient = showSingleAmule || showSingleBittorrent;
-  // Network type for chart data keys (e.g. 'ed2kUploadSpeed', 'bittorrentUploadSpeed')
-  const singleNetworkType = showSingleAmule ? 'ed2k' : 'bittorrent';
-  const singleNetworkName = showSingleAmule ? 'aMule' : 'BitTorrent';
+  // Networks to chart: every connected+enabled network type, in display order.
+  // Each chart reads keys like `${type}UploadSpeed` (built per-networkType by
+  // the metrics API), so this scales to any number of networks (ed2k, rucio,
+  // bittorrent, ...). Views map over this list rather than branching on 2.
+  const networks = NETWORK_ORDER
+    .filter(t => isNetworkTypeEnabled(t))
+    .map(t => ({ type: t, name: NETWORK_NAMES[t] || t }));
+
+  // Back-compat fields (still consumed by some views) — derived from the list.
+  const showBothCharts = networks.length > 1;
+  const showSingleClient = networks.length === 1;
+  const singleNetworkType = networks[0]?.type || 'ed2k';
+  const singleNetworkName = networks[0]?.name || NETWORK_NAMES.ed2k;
 
   // Defer chart rendering until after initial paint for better performance
   const [shouldRenderCharts, setShouldRenderCharts] = useState(false);
@@ -58,6 +64,7 @@ export const useClientChartConfig = () => {
 
   return {
     isLoading,
+    networks,
     ed2kConnected,
     bittorrentConnected,
     isEd2kEnabled,

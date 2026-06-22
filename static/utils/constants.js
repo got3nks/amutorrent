@@ -247,6 +247,15 @@ export const NETWORK_TYPE_LABELS = {
 };
 
 // Client display names (single source of truth for UI labels)
+// Display name + stable order for each network type (used by charts, filters,
+// stats). Order here drives the order networks appear in the UI.
+export const NETWORK_NAMES = {
+  ed2k: 'aMule',
+  rucio: 'Rucio',
+  bittorrent: 'BitTorrent'
+};
+export const NETWORK_ORDER = ['ed2k', 'rucio', 'bittorrent'];
+
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },
   rucio: { name: 'Rucio', shortName: 'Ruc' },

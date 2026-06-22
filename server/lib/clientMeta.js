@@ -65,12 +65,13 @@ const CLIENT_TYPES = {
     }
   },
   rucio: {
-    // Rucio is its own P2P network (libp2p, BLAKE3) but bridges eMule/Kad too.
-    // We model it under 'ed2k' because its capability profile matches aMule
-    // (search + shared files + categories, no trackers, single-file), which
-    // lets the unified pipeline and the search instance selector light up with
-    // no frontend branching. metricsPrefix keeps its metrics separate.
-    networkType: 'ed2k',
+    // Rucio is its own P2P network (libp2p, BLAKE3) that also bridges eMule/Kad.
+    // It gets its own networkType so it is a first-class entity everywhere
+    // (charts, filters, metrics, footer) rather than being conflated with aMule.
+    // Its capability profile still matches aMule (search + shared files +
+    // categories, no trackers, single-file); the unified item builder applies
+    // the source-based (non-BitTorrent) shape to it the same as ed2k.
+    networkType: 'rucio',
     displayName: 'Rucio',
     metricsPrefix: 'ru_',         // ru_upload_speed, ru_total_uploaded
     hashLength: 64,               // BLAKE3 root hash (eMule MD4 results are 32; only used by demo data)

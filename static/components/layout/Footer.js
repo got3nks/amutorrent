@@ -67,7 +67,7 @@ const renderBadge = (status, text, tooltip) => {
 const Footer = ({ currentView, onOpenAbout }) => {
   const { dataStats: stats } = useLiveData();
   const { updateAvailable, latestVersion } = useVersion();
-  const { ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { ed2kConnected, bittorrentConnected, isNetworkTypeEnabled } = useClientFilter();
   const { instances, hasMultiInstance } = useStaticData();
   if (!stats) {
     return h('footer', { className: 'hidden md:block bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4 text-center text-sm text-gray-500 dark:text-gray-400' },
@@ -173,8 +173,9 @@ const Footer = ({ currentView, onOpenAbout }) => {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 
   for (const inst of connectedInsts) {
-    const isEnabled = inst.networkType === 'ed2k' ? ed2kConnected : bittorrentConnected;
-    if (!isEnabled) continue;
+    // Count this instance's speed if its network type is enabled in the filter
+    // (generic over ed2k / rucio / bittorrent / ...).
+    if (!isNetworkTypeEnabled(inst.networkType)) continue;
     const speeds = instanceSpeeds[inst.id];
     if (speeds) {
       totalUploadSpeed += speeds.uploadSpeed || 0;
