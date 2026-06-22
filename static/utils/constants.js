@@ -249,6 +249,7 @@ export const NETWORK_TYPE_LABELS = {
 // Client display names (single source of truth for UI labels)
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },
+  rucio: { name: 'Rucio', shortName: 'Ruc' },
   rtorrent: { name: 'rTorrent', shortName: 'rTor' },
   qbittorrent: { name: 'qBittorrent', shortName: 'qBit' },
   deluge: { name: 'Deluge', shortName: 'Dlg' },

@@ -34,9 +34,24 @@ const useWebSocketActions = () => {
     setSearchLocked,
     setSearchResults,
     setSearchPreviousResults,
-    setSearchError
+    setSearchError,
+    setSearchInstanceId
   } = useSearch();
-  const { setDataDownloadedFiles, lastEd2kWasServerListRef } = useStaticData();
+  const { setDataDownloadedFiles, lastEd2kWasServerListRef, instances } = useStaticData();
+
+  // Resolve which instance a search/download should target, by the selected
+  // source's client TYPE: 'rucio' → a Rucio instance, ED2K/Kad → an aMule
+  // instance. Keeps the current selection if it already matches the type,
+  // otherwise falls back to the first connected instance of that type. Returns
+  // null when none is connected (the handler then surfaces a clear error).
+  const resolveSearchInstanceId = () => {
+    const wantType = searchType === 'rucio' ? 'rucio' : 'amule';
+    const ofType = Object.entries(instances || {})
+      .filter(([, i]) => i.connected && i.type === wantType)
+      .map(([id]) => id);
+    if (ofType.includes(searchInstanceId)) return searchInstanceId;
+    return ofType[0] || null;
+  };
 
   // ============================================================================
   // CATEGORY MANAGEMENT
@@ -155,12 +170,18 @@ const useWebSocketActions = () => {
       return;
     }
 
+    // Target the instance matching the selected source's client type, and
+    // persist it so the follow-up batch download routes to the same instance.
+    const targetInstanceId = resolveSearchInstanceId();
+    if (targetInstanceId && targetInstanceId !== searchInstanceId) {
+      setSearchInstanceId(targetInstanceId);
+    }
     sendMessage({
       action: 'search',
       query: searchQuery,
       type: searchType,
       extension: null,
-      ...(searchInstanceId && { instanceId: searchInstanceId })
+      ...(targetInstanceId && { instanceId: targetInstanceId })
     });
   };
 

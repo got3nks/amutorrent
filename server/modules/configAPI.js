@@ -353,6 +353,15 @@ class ConfigAPI extends BaseModule {
         this.logTestResult('Transmission connection', results.transmission);
       }
 
+      // Test Rucio connection if provided and enabled
+      const { rucio } = req.body;
+      if (rucio && rucio.enabled) {
+        const password = rucio.password || (rucio.instanceId ? config.getClientConfig(rucio.instanceId)?.password : null);
+        this.log(`🧪 Testing Rucio connection to ${rucio.host}:${rucio.port}...`);
+        results.rucio = await configTester.testRucioConnection(rucio.host, rucio.port, rucio.useSsl, rucio.basePath, rucio.username, password);
+        this.logTestResult('Rucio connection', results.rucio);
+      }
+
       // Test directories if provided
       if (directories) {
         results.directories = {};

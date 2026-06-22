@@ -636,6 +636,81 @@ function normalizeTransmissionDownload(torrent) {
   };
 }
 
+// ============================================================================
+// RUCIO NORMALIZERS
+// ============================================================================
+
+// Rucio is modelled under the ed2k networkType, so these emit the field names
+// the ed2k branch of unifiedItemBuilder reads (category id + categoryName,
+// sourceCount/sourceCountXfer, ed2kLink, state for the status map).
+
+/**
+ * Normalize a Rucio download (GET /api/v1/downloads item) to unified format.
+ * @param {Object} d - raw Rucio download
+ * @param {Function} resolveCategoryName - (categoryId) => category name string
+ * @returns {Object} Normalized download
+ */
+function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
+  const size = d.size || 0;
+  const downloaded = d.bytes_done || 0;
+  return {
+    clientType: 'rucio',
+    hash: d.root_hash,
+    name: d.name || '',
+    rawName: d.name || '',
+    size,
+    downloaded,
+    progress: size > 0 ? Math.round((downloaded / size) * 100) : 0,
+    speed: d.speed_bps || 0,
+    // Accept both casings (see statusMap note in clientMeta.js)
+    isComplete: d.state === 'completed' || d.state === 'Completed',
+    // Drives resolveStatus() via clientMeta statusField: 'state'
+    state: d.state,
+
+    // Organization (ed2k branch reads `category` as the id + `categoryName`)
+    category: d.category_id ?? null,
+    categoryName: resolveCategoryName(d.category_id),
+
+    // Sources
+    sourceCount: d.sources_total || 0,
+    sourceCountXfer: d.sources_active || 0,
+    sourceCountA4AF: 0,
+    sourceCountNotCurrent: 0,
+
+    // No segment/part visualization data from the daemon (yet)
+    priority: null,
+    partStatus: null,
+    gapStatus: null,
+    reqStatus: null,
+
+    // The "copy link" value — rucio: or ed2k: depending on the source network
+    ed2kLink: d.link || null,
+
+    raw: { clientType: 'rucio', ...d }
+  };
+}
+
+/**
+ * Normalize a Rucio shared file (GET /api/v1/shares/files item) to unified
+ * format. Shared files are complete files the node is providing.
+ * @param {Object} s - raw Rucio shared file
+ * @returns {Object} Normalized shared file
+ */
+function normalizeRucioSharedFile(s) {
+  return {
+    clientType: 'rucio',
+    hash: s.root_hash,
+    name: s.name || '',
+    rawName: s.name || '',
+    size: s.size || 0,
+    uploadSpeed: 0,
+    // ed2k branch marks shared files complete/seeding and uses these
+    ed2kLink: s.magnet || null,
+    path: s.path || null,
+    raw: { clientType: 'rucio', ...s }
+  };
+}
+
 module.exports = {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -645,5 +720,7 @@ module.exports = {
   normalizeQBittorrentDownload,
   normalizeDelugeDownload,
   normalizeTransmissionDownload,
+  normalizeRucioDownload,
+  normalizeRucioSharedFile,
   extractTrackerDomain
 };
