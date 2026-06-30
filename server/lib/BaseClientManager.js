@@ -68,6 +68,35 @@ class BaseClientManager extends BaseModule {
   }
 
   /**
+   * Per-instance category sync gates. Default to `true` so existing setups
+   * keep cross-syncing untouched.
+   *
+   * The UI exposes a single `categorySync` toggle today, which controls both
+   * directions. We split the check into `In` / `Out` here so a future
+   * advanced-config UI can override per direction (e.g. push-only or
+   * receive-only) without any data migration: when `categorySyncIn` /
+   * `categorySyncOut` are absent, both fall back to the unified
+   * `categorySync` value.
+   *
+   * Semantics:
+   *  - `In`  → does central CategoryManager push categories TO this instance?
+   *           Used by CategoryManager when iterating clients for propagation.
+   *  - `Out` → does this instance publish its local categories INTO the central
+   *           registry on connect-sync? Used by each manager's onConnectSync().
+   */
+  isCategorySyncIn() {
+    const cfg = this._clientConfig || {};
+    if (cfg.categorySyncIn !== undefined) return cfg.categorySyncIn !== false;
+    return cfg.categorySync !== false;
+  }
+
+  isCategorySyncOut() {
+    const cfg = this._clientConfig || {};
+    if (cfg.categorySyncOut !== undefined) return cfg.categorySyncOut !== false;
+    return cfg.categorySync !== false;
+  }
+
+  /**
    * Register a callback to be called when the client connects
    * @param {Function} callback - Callback function
    */

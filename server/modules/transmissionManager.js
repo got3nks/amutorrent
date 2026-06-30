@@ -717,23 +717,29 @@ class TransmissionManager extends BaseClientManager {
       return;
     }
 
-    // Phase 1: Import Transmission labels into app
+    // Phase 1: Import Transmission labels into app (gated by sync-out).
+    // Transmission has no explicit category objects; labels are per-torrent
+    // string tags set at add-time, so there's no "push central to instance"
+    // phase, and sync-in is effectively a no-op here.
     let createdInApp = 0;
-    for (const label of torrentLabels) {
-      if (!label) continue;
-      if (categoryManager.getByName(label)) continue;
-      categoryManager.importCategory({
-        name: label,
-        comment: 'Auto-created from Transmission label'
-      });
-      createdInApp++;
+    if (this.isCategorySyncOut()) {
+      for (const label of torrentLabels) {
+        if (!label) continue;
+        if (categoryManager.getByName(label)) continue;
+        categoryManager.importCategory({
+          name: label,
+          comment: 'Auto-created from Transmission label'
+        });
+        createdInApp++;
+      }
+      if (createdInApp > 0) await categoryManager.save();
     }
-    if (createdInApp > 0) await categoryManager.save();
 
     this.log(`Transmission sync complete: ${createdInApp} imported`);
 
-    // Propagate all app categories to other connected clients
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 

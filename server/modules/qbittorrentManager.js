@@ -792,50 +792,56 @@ class QbittorrentManager extends BaseClientManager {
     if (!qbCategories || typeof qbCategories !== 'object') qbCategories = {};
     const categoryNames = Object.keys(qbCategories);
 
-    // Phase 1: Import qBittorrent categories into app
+    // Phase 1: Import qBittorrent categories into app (gated by sync-out)
     let createdInApp = 0;
-    for (const name of categoryNames) {
-      if (!name) continue;
-      if (categoryManager.getByName(name)) continue;
-      const savePath = qbCategories[name]?.savePath || null;
-      categoryManager.importCategory({
-        name, path: savePath,
-        comment: 'Auto-created from qBittorrent category'
-      });
-      createdInApp++;
+    if (this.isCategorySyncOut()) {
+      for (const name of categoryNames) {
+        if (!name) continue;
+        if (categoryManager.getByName(name)) continue;
+        const savePath = qbCategories[name]?.savePath || null;
+        categoryManager.importCategory({
+          name, path: savePath,
+          comment: 'Auto-created from qBittorrent category'
+        });
+        createdInApp++;
+      }
+      if (createdInApp > 0) await categoryManager.save();
     }
-    if (createdInApp > 0) await categoryManager.save();
 
-    // Phase 2: Push app categories to qBittorrent + update paths
+    // Phase 2: Push app categories to qBittorrent + update paths (gated by sync-in)
     let createdInQb = 0, updatedInQb = 0;
-    for (const [name, category] of categoryManager.getCategoriesSnapshot().entries()) {
-      if (name === 'Default') continue;
-      const qbCat = qbCategories[name];
-      const appPath = category.path || '';
+    if (this.isCategorySyncIn()) {
+      for (const [name, category] of categoryManager.getCategoriesSnapshot().entries()) {
+        if (name === 'Default') continue;
+        const qbCat = qbCategories[name];
+        const appPath = category.path || '';
 
-      if (!qbCat) {
-        try {
-          await this.createCategory({ name, path: appPath });
-          createdInQb++;
-          this.log(`📤 Created category "${name}" in qBittorrent (path: ${appPath})`);
-        } catch (err) {
-          this.warn(`⚠️ Failed to create category "${name}" in qBittorrent: ${err.message}`);
-        }
-      } else if (qbCat.savePath !== appPath) {
-        try {
-          await this.editCategory({ name, path: appPath });
-          updatedInQb++;
-          this.log(`🔄 Updated qBittorrent category "${name}" path: ${qbCat.savePath} -> ${appPath}`);
-        } catch (err) {
-          this.warn(`⚠️ Failed to update category "${name}" in qBittorrent: ${err.message}`);
+        if (!qbCat) {
+          try {
+            await this.createCategory({ name, path: appPath });
+            createdInQb++;
+            this.log(`📤 Created category "${name}" in qBittorrent (path: ${appPath})`);
+          } catch (err) {
+            this.warn(`⚠️ Failed to create category "${name}" in qBittorrent: ${err.message}`);
+          }
+        } else if (qbCat.savePath !== appPath) {
+          try {
+            await this.editCategory({ name, path: appPath });
+            updatedInQb++;
+            this.log(`🔄 Updated qBittorrent category "${name}" path: ${qbCat.savePath} -> ${appPath}`);
+          } catch (err) {
+            this.warn(`⚠️ Failed to update category "${name}" in qBittorrent: ${err.message}`);
+          }
         }
       }
     }
 
     this.log(`📊 qBittorrent sync complete: ${createdInApp} imported, ${createdInQb} pushed, ${updatedInQb} updated`);
 
-    // Propagate all app categories to other connected clients that may not have them
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    // Only broadcast outward if this instance shared anything inward.
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 

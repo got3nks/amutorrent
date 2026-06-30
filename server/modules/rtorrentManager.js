@@ -592,25 +592,33 @@ class RtorrentManager extends BaseClientManager {
     if (defaultDir) {
       categoryManager.setClientDefaultPath(this.instanceId, defaultDir);
     }
-    const downloads = await this.getDownloads();
-    const labels = [...new Set(downloads.map(d => d.label).filter(Boolean))];
-
+    // rTorrent has labels (free-form strings on each download), not category
+    // objects. The only sync work is importing seen labels into the central
+    // registry — there's no "push central categories to rTorrent" step, since
+    // labels are set per-download at download-add time. So sync-in is a no-op
+    // here; only sync-out gates the import + outward propagation.
     let created = 0;
-    for (const label of labels) {
-      if (!label || label === '(none)') continue;
-      if (categoryManager.getByName(label)) continue;
-      categoryManager.importCategory({
-        name: label,
-        comment: 'Auto-created from rTorrent label'
-      });
-      created++;
+    if (this.isCategorySyncOut()) {
+      const downloads = await this.getDownloads();
+      const labels = [...new Set(downloads.map(d => d.label).filter(Boolean))];
+
+      for (const label of labels) {
+        if (!label || label === '(none)') continue;
+        if (categoryManager.getByName(label)) continue;
+        categoryManager.importCategory({
+          name: label,
+          comment: 'Auto-created from rTorrent label'
+        });
+        created++;
+      }
+      if (created > 0) await categoryManager.save();
     }
-    if (created > 0) await categoryManager.save();
 
     this.log(`📊 rTorrent sync complete: ${created} categories created`);
 
-    // Propagate all app categories to other connected clients that may not have them
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 

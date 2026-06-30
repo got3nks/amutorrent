@@ -756,7 +756,9 @@ class DelugeManager extends BaseClientManager {
 
     if (!this._labelPluginAvailable) {
       this.log('Label plugin not available, skipping category sync');
-      await categoryManager.propagateToOtherClients(this.instanceId);
+      if (this.isCategorySyncOut()) {
+        await categoryManager.propagateToOtherClients(this.instanceId);
+      }
       return;
     }
 
@@ -768,40 +770,45 @@ class DelugeManager extends BaseClientManager {
       return;
     }
 
-    // Phase 1: Import Deluge labels into app
+    // Phase 1: Import Deluge labels into app (gated by sync-out)
     let createdInApp = 0;
-    for (const label of delugeLabels) {
-      if (!label) continue;
-      if (categoryManager.getByName(label)) continue;
-      categoryManager.importCategory({
-        name: label,
-        comment: 'Auto-created from Deluge label'
-      });
-      createdInApp++;
+    if (this.isCategorySyncOut()) {
+      for (const label of delugeLabels) {
+        if (!label) continue;
+        if (categoryManager.getByName(label)) continue;
+        categoryManager.importCategory({
+          name: label,
+          comment: 'Auto-created from Deluge label'
+        });
+        createdInApp++;
+      }
+      if (createdInApp > 0) await categoryManager.save();
     }
-    if (createdInApp > 0) await categoryManager.save();
 
-    // Phase 2: Push app categories to Deluge as labels
+    // Phase 2: Push app categories to Deluge as labels (gated by sync-in)
     let createdInDeluge = 0;
-    const existingSet = new Set(delugeLabels);
-    for (const [name] of categoryManager.getCategoriesSnapshot().entries()) {
-      if (name === 'Default') continue;
-      const lowerName = name.toLowerCase();
-      if (existingSet.has(lowerName)) continue;
+    if (this.isCategorySyncIn()) {
+      const existingSet = new Set(delugeLabels);
+      for (const [name] of categoryManager.getCategoriesSnapshot().entries()) {
+        if (name === 'Default') continue;
+        const lowerName = name.toLowerCase();
+        if (existingSet.has(lowerName)) continue;
 
-      try {
-        await this.client.addLabel(lowerName);
-        createdInDeluge++;
-        this.log(`Pushed label "${lowerName}" to Deluge`);
-      } catch (err) {
-        this.error(`Failed to push label "${lowerName}" to Deluge: ${err.message}`);
+        try {
+          await this.client.addLabel(lowerName);
+          createdInDeluge++;
+          this.log(`Pushed label "${lowerName}" to Deluge`);
+        } catch (err) {
+          this.error(`Failed to push label "${lowerName}" to Deluge: ${err.message}`);
+        }
       }
     }
 
     this.log(`Deluge sync complete: ${createdInApp} imported, ${createdInDeluge} pushed`);
 
-    // Propagate all app categories to other connected clients
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 

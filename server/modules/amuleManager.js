@@ -1209,7 +1209,10 @@ class AmuleManager extends BaseClientManager {
             categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
             linked++;
           }
-        } else {
+        } else if (this.isCategorySyncOut()) {
+          // Only IMPORT this instance's local categories into the central
+          // registry when sync-out is enabled. Linking (above) is always
+          // allowed since it doesn't share data outward.
           categoryManager.importCategory({
             name: amuleTitle, color: amuleColorToHex(amuleCat.color),
             path: amuleCat.path || null, comment: amuleCat.comment || 'Imported from aMule',
@@ -1222,35 +1225,40 @@ class AmuleManager extends BaseClientManager {
 
     if (imported > 0 || linked > 0) await categoryManager.save();
 
-    // Phase 2: Push app-only categories (no amuleId for this instance) to this aMule instance
+    // Phase 2 + 3 modify this aMule instance — both gated by sync-in.
     let pushed = 0;
-    for (const unlinkedCat of categoryManager.getCategoriesSnapshot().getUnlinkedFor(this.instanceId)) {
-      try {
-        const result = await this.createCategory({
-          name: unlinkedCat.name, path: unlinkedCat.path || '',
-          comment: unlinkedCat.comment || '',
-          color: hexColorToAmule(unlinkedCat.color), priority: unlinkedCat.priority || 0
-        });
-        if (result.success && result.categoryId != null) {
-          categoryManager.linkAmuleId(unlinkedCat.name, this.instanceId, result.categoryId);
-          pushed++;
-          this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
+    if (this.isCategorySyncIn()) {
+      // Phase 2: Push app-only categories (no amuleId for this instance) to this aMule instance
+      for (const unlinkedCat of categoryManager.getCategoriesSnapshot().getUnlinkedFor(this.instanceId)) {
+        try {
+          const result = await this.createCategory({
+            name: unlinkedCat.name, path: unlinkedCat.path || '',
+            comment: unlinkedCat.comment || '',
+            color: hexColorToAmule(unlinkedCat.color), priority: unlinkedCat.priority || 0
+          });
+          if (result.success && result.categoryId != null) {
+            categoryManager.linkAmuleId(unlinkedCat.name, this.instanceId, result.categoryId);
+            pushed++;
+            this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
+          }
+        } catch (err) {
+          this.warn(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
         }
-      } catch (err) {
-        this.warn(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
       }
-    }
-    if (pushed > 0) await categoryManager.save();
+      if (pushed > 0) await categoryManager.save();
 
-    // Phase 3: Push app-wins updates back to aMule
-    for (const catUpdate of toUpdateInAmule) {
-      await this.editCategory(catUpdate);
+      // Phase 3: Push app-wins updates back to aMule
+      for (const catUpdate of toUpdateInAmule) {
+        await this.editCategory(catUpdate);
+      }
     }
 
     this.log(`📊 aMule sync complete: ${imported} imported, ${updated} to update, ${linked} linked, ${pushed} pushed`);
 
-    // Propagate all app categories to other connected clients that may not have them
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    // Only broadcast central state outward if we actually shared anything inward.
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 
