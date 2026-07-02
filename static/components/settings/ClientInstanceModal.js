@@ -30,6 +30,14 @@ const CLIENT_FIELDS = {
     { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
     { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated — useful when foreign categories from BitTorrent clients would create stray directories in aMule.', toggle: true, defaultValue: true }
   ],
+  rucio: [
+    { field: 'host', label: 'Host', description: 'Rucio daemon host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
+    { field: 'port', label: 'Port', description: 'Rucio daemon API port (default: 3003)', placeholder: '3003', defaultValue: 3003, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 3003 },
+    { field: 'basePath', label: 'Base Path (Optional)', description: 'Base path when the daemon is served under a sub-path behind a reverse proxy (e.g., /rucio)', placeholder: 'Leave empty if not using a reverse proxy' },
+    { field: 'username', label: 'Username (Optional)', description: 'Only if the daemon is behind HTTP basic auth — Rucio itself has no authentication', placeholder: 'Leave empty if not required' },
+    { field: 'password', label: 'Password (Optional)', description: 'Only if the daemon is behind HTTP basic auth', placeholder: 'Leave empty if not required', sensitive: true },
+    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to the Rucio daemon using HTTPS', toggle: true }
+  ],
   rtorrent: [
     { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
     { field: 'host', label: 'Host', description: 'rTorrent host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
@@ -71,6 +79,7 @@ const CLIENT_FIELDS = {
 
 const TYPE_LABELS = {
   amule: 'aMule',
+  rucio: 'Rucio',
   rtorrent: 'rTorrent',
   qbittorrent: 'qBittorrent',
   deluge: 'Deluge',
@@ -93,6 +102,7 @@ const INSTANCE_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#e67e22', 
 
 const TYPE_DESCRIPTIONS = {
   amule: 'ED2K / Kademlia downloads',
+  rucio: 'P2P (libp2p + eMule/Kad)',
   rtorrent: 'BitTorrent via XML-RPC / SCGI',
   qbittorrent: 'BitTorrent via WebUI API',
   deluge: 'BitTorrent via WebUI JSON-RPC',

@@ -55,6 +55,7 @@ const StatisticsView = () => {
 
   // Get client chart configuration from hook
   const {
+    networks,
     ed2kConnected,
     isEd2kEnabled,
     showBothCharts,
@@ -241,35 +242,28 @@ const StatisticsView = () => {
         h('p', { className: 'text-sm text-gray-500 dark:text-gray-400 mt-2' }, 'Loading historical data...')
       ),
 
-      // Charts content (always rendered, dimmed when loading)
+      // Charts content (always rendered, dimmed when loading). One chart per
+      // connected network (aMule / Rucio / BitTorrent / ...). With 2+ networks
+      // a Speed/Transferred toggle keeps it compact; with one, both are shown.
       h('div', { className: `space-y-2 sm:space-y-3${loadingHistory ? ' opacity-50 pointer-events-none' : ''}` },
-        // BOTH CLIENTS: Show toggle-controlled charts
         showBothCharts && h(React.Fragment, null,
-          // Speed charts (when chartMode === 'speed')
-          chartMode === 'speed' && h(React.Fragment, null,
+          chartMode === 'speed' && networks.map(n =>
             h(DashboardChartWidget, {
-              title: chartTitle('aMule Speed', 'ed2k'),
+              key: `speed-${n.type}`,
+              title: chartTitle(`${n.name} Speed`, n.type),
               height: '225px'
-            }, renderSpeedChart('ed2k')),
-            h(DashboardChartWidget, {
-              title: chartTitle('BitTorrent Speed', 'bittorrent'),
-              height: '225px'
-            }, renderSpeedChart('bittorrent'))
+            }, renderSpeedChart(n.type))
           ),
-          // Transfer charts (when chartMode === 'transfer')
-          chartMode === 'transfer' && h(React.Fragment, null,
+          chartMode === 'transfer' && networks.map(n =>
             h(DashboardChartWidget, {
-              title: chartTitle('aMule Data Transferred', 'ed2k'),
+              key: `transfer-${n.type}`,
+              title: chartTitle(`${n.name} Data Transferred`, n.type),
               height: '225px'
-            }, renderTransferChart('ed2k')),
-            h(DashboardChartWidget, {
-              title: chartTitle('BitTorrent Data Transferred', 'bittorrent'),
-              height: '225px'
-            }, renderTransferChart('bittorrent'))
+            }, renderTransferChart(n.type))
           )
         ),
 
-        // SINGLE CLIENT: Show both chart types (no toggle needed)
+        // SINGLE NETWORK: Show both chart types (no toggle needed)
         showSingleClient && h(React.Fragment, null,
           h(DashboardChartWidget, {
             title: chartTitle(`${singleNetworkName} Speed`, singleNetworkType),

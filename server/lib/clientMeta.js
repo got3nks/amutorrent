@@ -64,6 +64,67 @@ const CLIENT_TYPES = {
       customSavePath: false        // ed2k uses category paths only
     }
   },
+  rucio: {
+    // Rucio is its own P2P network (libp2p, BLAKE3) that also bridges eMule/Kad.
+    // It gets its own networkType so it is a first-class entity everywhere
+    // (charts, filters, metrics, footer) rather than being conflated with aMule.
+    // Its capability profile still matches aMule (search + shared files +
+    // categories, no trackers, single-file); the unified item builder applies
+    // the source-based (non-BitTorrent) shape to it the same as ed2k.
+    networkType: 'rucio',
+    displayName: 'Rucio',
+    metricsPrefix: 'ru_',         // ru_upload_speed, ru_total_uploaded
+    hashLength: 64,               // BLAKE3 root hash (eMule MD4 results are 32; only used by demo data)
+    statusField: 'state',         // resolveStatus reads the daemon's `state`
+    // Accept both casings: Rucio ≤0.32 serialized DownloadState in PascalCase
+    // (a missing serde rename_all, since fixed to snake_case to match the rest
+    // of its API). Keeping both keys makes the integration version-agnostic.
+    statusMap: {
+      'finding_providers': 'active', 'FindingProviders': 'active',
+      'queued':            'active', 'Queued':           'active',
+      'downloading':       'active', 'Downloading':      'active',
+      'stalled':           'active', 'Stalled':          'active',
+      'paused':            'paused', 'Paused':           'paused',
+      'completed':         'seeding', 'Completed':       'seeding', // completed files are seeded back
+      'failed':            'error',  'Failed':           'error',
+      'cancelled':         'stopped', 'Cancelled':       'stopped'
+    },
+    connectionDefaults: {
+      host: '', port: 3003, useSsl: false, basePath: '', username: '', password: ''
+    },
+    defaults: {
+      downloadPriority: null,
+      partStatus: null,
+      gapStatus: null,
+      reqStatus: null,
+      lastSeenComplete: 0,
+      ed2kLink: null,
+      addedAt: null
+    },
+    capabilities: {
+      nativeMove: false,                 // dir is category-driven, no move-by-path API
+      categoryChangeAutoMoves: false,
+      multiFile: false,                  // one file per root hash
+      sharedFiles: true,                 // has a shared-files concept (GET /shares/files)
+      sharedMeansComplete: true,         // a shared file is a complete file
+      removeSharedMustDeleteFiles: false, // can un-share via API without deleting the file
+      moveSharedForCategoryChange: false,
+      refreshSharedAfterMove: false,
+      moveActiveDownloads: false,
+      pauseBeforeMove: false,
+      trackers: false,                   // DHT/libp2p, no trackers
+      search: true,                      // unified rucio + eMule/Kad search
+      cancelDeletesFiles: true,          // cancel discards the partial download
+      apiDeletesFiles: false,            // deleting from the list never wipes the on-disk file
+      refreshSharedAfterDelete: false,
+      categories: true,                  // full category CRUD in the daemon
+      logs: false,
+      renameFile: true,                  // can rename a not-yet-complete download
+      fileRatingComment: false,
+      customSavePath: false              // path follows the category, not per-download
+    },
+    seedingStatuses: ['completed', 'Completed']
+  },
   rtorrent: {
     networkType: 'bittorrent',
     displayName: 'rTorrent',

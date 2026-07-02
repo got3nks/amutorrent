@@ -123,7 +123,9 @@ function applyDownloadData(item, download, categoryManager = null) {
     item.eta = null;
   }
 
-  if (clientMeta.isEd2k(download.clientType)) {
+  if (!clientMeta.isBittorrent(download.clientType)) {
+    // Source-based networks (ed2k/aMule and rucio): sources, category id +
+    // name, no trackers, single-file, ed2k-style link.
     // Organization
     item.categoryId = download.category ?? item.categoryId;
     item.category = download.categoryName || item.category;
@@ -247,7 +249,8 @@ function applySharedData(item, sharedFile) {
     item.uploadSpeed = sharedFile.uploadSpeed;
   }
 
-  if (clientMeta.isEd2k(sharedFile.clientType)) {
+  if (!clientMeta.isBittorrent(sharedFile.clientType)) {
+    // Source-based networks (ed2k/aMule and rucio) share completed files.
     // aMule shared files are completed downloads - mark them as such
     // (unless already set by applyDownloadData for files still downloading)
     if (!item.downloading) {

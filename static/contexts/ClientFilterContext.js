@@ -138,16 +138,14 @@ export const ClientFilterProvider = ({ children }) => {
         // Disable all of this type
         for (const id of typeIds) next.add(id);
 
-        // Safety: don't disable ALL connected instances — enable the other type
+        // Safety: never disable ALL connected instances. If this toggle would,
+        // keep this network type enabled (no-op). Works for any number of
+        // network types, not just two.
         const allConnectedIds = Object.entries(instances)
           .filter(([, inst]) => inst.connected)
           .map(([id]) => id);
         if (allConnectedIds.every(id => next.has(id))) {
-          const otherType = networkType === 'ed2k' ? 'bittorrent' : 'ed2k';
-          const otherIds = Object.entries(instances)
-            .filter(([, inst]) => inst.networkType === otherType && inst.connected)
-            .map(([id]) => id);
-          for (const id of otherIds) next.delete(id);
+          return prev;
         }
       } else {
         // Enable all of this type
@@ -195,18 +193,20 @@ export const ClientFilterProvider = ({ children }) => {
     });
   }, [disabledInstances]);
 
-  // Derived: is network type enabled (any connected instance of that type is not disabled)
-  const isEd2kEnabled = useMemo(() => {
+  // Derived: is a network type enabled (any connected instance of that type is
+  // not disabled). Generic over network type so it works for ed2k, rucio,
+  // bittorrent, or any future network.
+  const isNetworkTypeEnabled = useCallback((networkType) => {
     return Object.entries(instances).some(([id, inst]) =>
-      inst.networkType === 'ed2k' && inst.connected && !disabledInstances.has(id)
+      inst.networkType === networkType && inst.connected && !disabledInstances.has(id)
     );
   }, [instances, disabledInstances]);
 
-  const isBittorrentEnabled = useMemo(() => {
-    return Object.entries(instances).some(([id, inst]) =>
-      inst.networkType === 'bittorrent' && inst.connected && !disabledInstances.has(id)
-    );
-  }, [instances, disabledInstances]);
+  // Back-compat convenience booleans (still consumed across the UI).
+  const isEd2kEnabled = useMemo(() => isNetworkTypeEnabled('ed2k'), [isNetworkTypeEnabled]);
+  const isBittorrentEnabled = useMemo(() => isNetworkTypeEnabled('bittorrent'), [isNetworkTypeEnabled]);
+  const isRucioEnabled = useMemo(() => isNetworkTypeEnabled('rucio'), [isNetworkTypeEnabled]);
+  const rucioConnected = isNetworkTypeConnected('rucio');
 
   // Memoize context value
   const value = useMemo(() => ({
@@ -222,14 +222,18 @@ export const ClientFilterProvider = ({ children }) => {
     // Connection state (pure, not affected by filter preference)
     ed2kConnected,
     bittorrentConnected,
+    rucioConnected,
 
     // Convenience booleans: user preference AND connected
     isEd2kEnabled,
     isBittorrentEnabled,
-    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled
+    isRucioEnabled,
+    isNetworkTypeEnabled,
+    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled && (rucioConnected ? isRucioEnabled : true)
   }), [toggleNetworkType, filterByEnabledClients,
     disabledInstances, toggleInstance, isInstanceEnabled,
-    ed2kConnected, bittorrentConnected, isEd2kEnabled, isBittorrentEnabled]);
+    ed2kConnected, bittorrentConnected, rucioConnected,
+    isEd2kEnabled, isBittorrentEnabled, isRucioEnabled, isNetworkTypeEnabled]);
 
   return h(ClientFilterContext.Provider, { value }, children);
 };

@@ -10,6 +10,7 @@ const RtorrentHandler = require('./rtorrent/RtorrentHandler');
 const QBittorrentClient = require('./qbittorrent/QBittorrentClient');
 const DelugeClient = require('./deluge/DelugeClient');
 const TransmissionClient = require('./transmission/TransmissionClient');
+const RucioClient = require('./rucio/RucioClient');
 const ProwlarrHandler = require('./prowlarr/ProwlarrHandler');
 const { checkDirectoryAccess } = require('./pathUtils');
 const logger = require('./logger');
@@ -671,10 +672,42 @@ async function testTransmissionConnection(host, port, username, password, useSsl
   }
 }
 
+/**
+ * Test a Rucio daemon connection via its /health endpoint.
+ * @param {string} host
+ * @param {number} port
+ * @param {boolean} [useSsl]
+ * @param {string} [basePath] - sub-path behind a reverse proxy
+ * @param {string} [username] - optional HTTP basic auth
+ * @param {string} [password] - optional HTTP basic auth
+ * @returns {Promise<{success, connected, version, error, message}>}
+ */
+async function testRucioConnection(host, port, useSsl, basePath, username, password) {
+  const result = { success: false, connected: false, version: null, error: null };
+  try {
+    const client = new RucioClient({ host, port, useSsl, basePath, username, password, timeoutMs: 10000 });
+    const r = await client.testConnection();
+    if (r.success) {
+      result.connected = true;
+      result.success = true;
+      result.version = r.version;
+      result.message = `Connected to Rucio ${r.version}`;
+    } else {
+      result.error = r.error;
+      result.message = `Connection failed: ${r.error}`;
+    }
+  } catch (err) {
+    result.error = err.message;
+    result.message = `Connection failed: ${err.message}`;
+  }
+  return result;
+}
+
 module.exports = {
   testDirectoryAccess,
   testGeoIPDatabase,
   testAmuleConnection,
+  testRucioConnection,
   testRtorrentConnection,
   testQbittorrentConnection,
   testDelugeConnection,

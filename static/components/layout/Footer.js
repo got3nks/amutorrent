@@ -67,7 +67,7 @@ const renderBadge = (status, text, tooltip) => {
 const Footer = ({ currentView, onOpenAbout }) => {
   const { dataStats: stats } = useLiveData();
   const { updateAvailable, latestVersion } = useVersion();
-  const { ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { ed2kConnected, bittorrentConnected, isNetworkTypeEnabled } = useClientFilter();
   const { instances, hasMultiInstance } = useStaticData();
   if (!stats) {
     return h('footer', { className: 'hidden md:block bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4 text-center text-sm text-gray-500 dark:text-gray-400' },
@@ -173,8 +173,9 @@ const Footer = ({ currentView, onOpenAbout }) => {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 
   for (const inst of connectedInsts) {
-    const isEnabled = inst.networkType === 'ed2k' ? ed2kConnected : bittorrentConnected;
-    if (!isEnabled) continue;
+    // Count this instance's speed if its network type is enabled in the filter
+    // (generic over ed2k / rucio / bittorrent / ...).
+    if (!isNetworkTypeEnabled(inst.networkType)) continue;
     const speeds = instanceSpeeds[inst.id];
     if (speeds) {
       totalUploadSpeed += speeds.uploadSpeed || 0;
@@ -214,8 +215,10 @@ const Footer = ({ currentView, onOpenAbout }) => {
       h('div', { className: 'flex justify-between items-center text-xs gap-4' },
         // Left: Connection status (scrollable when many clients configured)
         h('div', { className: 'flex items-center gap-1.5 lg:gap-3 min-w-0 overflow-x-auto flex-nowrap', style: { scrollbarWidth: 'none' } },
-          // aMule: ED2K and KAD status
-          ed2kConnected && h(React.Fragment, null,
+          // aMule: ED2K and KAD status (only when an actual aMule instance is
+          // connected — other ed2k-networkType clients, e.g. Rucio, render as
+          // their own badge below rather than under the ED2K/KAD headers)
+          amuleInsts.length > 0 && h(React.Fragment, null,
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
               renderBadge(ed2k.status, ed2k.text, ed2kTooltip || (ed2k.listenPort ? `Port ${ed2k.listenPort}` : null)),
@@ -227,8 +230,8 @@ const Footer = ({ currentView, onOpenAbout }) => {
               renderBadge(kad.status, kad.text, kadTooltip || buildKadTooltip(kad))
             )
           ),
-          // Divider between aMule and BitTorrent status
-          ed2kConnected && bittorrentConnected && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
+          // Divider between aMule and other per-client status badges
+          amuleInsts.length > 0 && btTypes.length > 0 && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
           // BitTorrent client statuses (dynamic — works for rtorrent, qbittorrent, deluge, etc.)
           ...btTypes.map(type => {
             const { status: st, tooltip } = btStatusMap[type];

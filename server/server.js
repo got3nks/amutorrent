@@ -27,6 +27,7 @@ const registry = require('./lib/ClientRegistry');
 // Manager class registry — adding a new client type requires one entry here + clientMeta.js
 const MANAGER_CLASSES = {
   amule: require('./modules/amuleManager').AmuleManager,
+  rucio: require('./modules/rucioManager').RucioManager,
   rtorrent: require('./modules/rtorrentManager').RtorrentManager,
   qbittorrent: require('./modules/qbittorrentManager').QbittorrentManager,
   deluge: require('./modules/delugeManager').DelugeManager,

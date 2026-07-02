@@ -37,10 +37,20 @@ const QuickSearchWidget = ({
   amuleInstances = [],
   showAmuleSelector = false
 }) => {
-  const { isNetworkTypeConnected, prowlarrEnabled } = useStaticData();
+  const { isNetworkTypeConnected, prowlarrEnabled, instances } = useStaticData();
 
-  // Check client connection and configuration status
-  const amuleConnected = isNetworkTypeConnected('ed2k');
+  // Connected instances grouped by client type. ED2K Server / Kad are aMule
+  // search methods; Rucio is its own source (a single unified rucio + eMule/Kad
+  // query). Check by client TYPE rather than networkType, since Rucio shares the
+  // 'ed2k' networkType but must not enable the aMule-specific buttons on its own.
+  const byType = (t) => Object.entries(instances || {})
+    .filter(([, i]) => i.connected && i.type === t)
+    .map(([id, i]) => ({ id, type: i.type, name: i.name || t, color: i.color, order: i.order }))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const amuleInsts = byType('amule');
+  const rucioInsts = byType('rucio');
+  const amuleConnected = amuleInsts.length > 0;
+  const rucioConnected = rucioInsts.length > 0;
   const bittorrentConnected = isNetworkTypeConnected('bittorrent');
 
   const handleSubmit = (e) => {
@@ -51,14 +61,36 @@ const QuickSearchWidget = ({
   };
 
   // Search types with availability based on client status
-  // - ED2K and Kad require aMule to be connected
+  // - ED2K and Kad require an aMule instance
+  // - Rucio requires a Rucio instance
   // - Prowlarr requires prowlarr enabled AND any BitTorrent client connected
   const searchTypes = [
     { value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png', disabled: !amuleConnected },
     // { value: 'local', label: 'Local', icon: '/static/logo-brax.png', disabled: !amuleConnected }, // Hidden temporarily
     { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png', disabled: !amuleConnected },
+    { value: 'rucio', label: 'Rucio', icon: '/static/logo-rucio.svg', disabled: !rucioConnected },
     { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !bittorrentConnected }
   ];
+
+  // Keep the targeted instance consistent with the selected source: a Rucio
+  // search must hit a Rucio instance, an ED2K/Kad search an aMule instance.
+  const amuleIds = amuleInsts.map(i => i.id).join(',');
+  const rucioIds = rucioInsts.map(i => i.id).join(',');
+  useEffect(() => {
+    // Only views that manage instance selection (e.g. SearchView) pass this;
+    // the dashboard quick-search omits it and lets the dispatcher resolve it.
+    if (typeof onSearchInstanceChange !== 'function') return;
+    if (searchType === 'rucio') {
+      if (rucioInsts.length && !rucioInsts.some(i => i.id === searchInstanceId)) {
+        onSearchInstanceChange(rucioInsts[0].id);
+      }
+    } else if (searchType === 'global' || searchType === 'kad') {
+      if (amuleInsts.length && !amuleInsts.some(i => i.id === searchInstanceId)) {
+        onSearchInstanceChange(amuleInsts[0].id);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchType, searchInstanceId, amuleIds, rucioIds]);
 
   const selectedTypeDisabled = searchTypes.find(t => t.value === searchType)?.disabled;
 
@@ -114,15 +146,21 @@ const QuickSearchWidget = ({
           className: 'flex-1 min-w-0'
         }),
 
-        // Instance selector (only when multi-aMule + ED2K/Kad type)
-        (searchType === 'global' || searchType === 'kad') && h(AmuleInstanceSelector, {
-          connectedInstances: amuleInstances,
-          selectedId: searchInstanceId,
-          onSelect: onSearchInstanceChange,
-          showSelector: showAmuleSelector,
-          variant: 'dropdown',
-          disabled: searchLocked
-        }),
+        // Instance selector — only when 2+ instances of the selected source.
+        // ED2K/Kad pick among aMule instances; Rucio among Rucio instances.
+        (() => {
+          const list = searchType === 'rucio'
+            ? rucioInsts
+            : (searchType === 'global' || searchType === 'kad') ? amuleInsts : [];
+          return typeof onSearchInstanceChange === 'function' && list.length > 1 && h(AmuleInstanceSelector, {
+            connectedInstances: list,
+            selectedId: searchInstanceId,
+            onSelect: onSearchInstanceChange,
+            showSelector: true,
+            variant: 'dropdown',
+            disabled: searchLocked
+          });
+        })(),
 
         // Search button
         h(Button, {
