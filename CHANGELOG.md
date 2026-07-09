@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.6] - Per-Instance Category & Notification Toggles + KAD Firewall Accuracy
+
+### ✨ Added
+
+- **Per-instance "Category Sync" toggle** on every client-instance modal (default ON). Turn it off on any instance to isolate it from the central category registry — the instance won't publish its local categories out, won't accept categories pushed in, and manually-created categories from the aMuTorrent UI won't be pushed to it either. Motivation: users running mixed aMule + BitTorrent setups reported that BitTorrent categories like "Film" / "FreeLeech" were being pushed to aMule, creating stray directories on paths that don't match aMule's local layout and cluttering `amule.conf`. Existing configs stay synced without migration (missing field defaults to true). Internally split into `categorySyncIn` / `categorySyncOut` with the UI unified today, so a future advanced-config UI can override per direction without any data migration (#62).
+- **Per-instance "Notifications" toggle** on every client-instance modal (default ON). Silence Apprise notifications sourced from a single client — both download-lifecycle events (`downloadAdded`, `downloadFinished`) and health alerts (`clientAvailable` / `clientUnavailable`) — without touching global notification settings. Event script execution (post-import moves, file cleanup, etc.) stays independent because scripts are automation, not messaging (#67).
+- **Status footer tooltip now shows ED2K TCP and KAD UDP listen ports** for aMule. Cached from `getConnectionPreferences()` on connect, surfaced in the single-instance footer and per-instance multi-line summaries. Contributed by @paulo-roger (#56).
+- **KAD tooltip: per-port TCP/UDP firewall status breakdown** — when the headline shows "Firewalled," the tooltip now spells out which side (UDP `<port>`, TCP `<port>`) is firewalled versus OK, so users can see exactly what needs work (#57).
+
+### 🐛 Fixed
+
+- **aMule footer shows "Firewalled" when aMule's own GUI shows "Firewall: OK"** for the same node (#57). Root cause: we only checked `EC_TAG_STATS_KAD_FIREWALLED_UDP`, while aMule's Kad panel uses `Kademlia::CKademlia::IsFirewalled()` — the TCP-side check. A node can be UDP-firewalled with TCP fine (or vice versa) depending on how the NAT/router handles each protocol. TCP status is exposed via EC, packed as bit `0x08` of the `EC_TAG_CONNSTATE` value bitfield, per aMule's `ECSpecialCoreTags.cpp`. `getNetworkStatus()` now reads both, and the headline uses the combined "either firewalled → Firewalled" semantic (more conservative than aMule's GUI which only checks TCP — matches user expectation that "Firewalled" means "Kad isn't fully functional"). Per-port breakdown lives in the tooltip.
+- **Footer KAD tooltip collapsed UDP and TCP status onto one line.** The tooltip's inner container has `whiteSpace: 'normal'` (so the background pill wraps cleanly), which collapses `\n` in plain-string content to a single space. The two port statuses ended up rendered as `UDP 4672: OK TCP 4662: Firewalled` on one line instead of stacked. `buildKadTooltip` now emits one `<div>` per port wrapped in `space-y-1`, matching how the multi-instance kadTooltip already builds its per-instance rows.
+- **Latent toggle-default bug in `ClientInstanceModal`.** The toggle binding was `formState[field] || false`, which silently forced any `toggle` field with `defaultValue: true` to OFF when the field was absent from a legacy saved config — meaning users editing an existing instance would see the new `categorySync` / `notifications` toggles rendered as OFF even though the backend was treating them as ON. Now uses `?? defaultValue ?? false`, so absence gets the declared default and the UI matches backend behavior.
+
+### ♻️ Improved
+
+- **`ClientInstanceModal` field-def dedupe.** Extracted the repeated per-client field definitions (host, port, password, useSsl, reverse-proxy path, categorySync, notifications) into a small factory block. Descriptions interpolate `TYPE_LABELS` (short-form, "qBittorrent") or `DAEMON_LABELS` (long-form, "qBittorrent WebUI"). Fields whose call site would need three or more property overrides (aMule's password, rTorrent's mode + socketPath + XML-RPC path + basic-auth username/password, qBittorrent's admin-default username, Transmission's RPC path + generic username) stay inlined with a comment explaining why — cleaner than growing factory options. Adding a 6th client type (slskd, eMuleBB, etc.) is now mostly picking factories rather than copy-pasting field defs. Bundle shrunk by ~3 KB (string dedupe).
+
+---
+
 ## [3.8.5] - Deluge Statistics & Sonarr/Radarr Auth Compatibility
 
 ### ✨ Added
