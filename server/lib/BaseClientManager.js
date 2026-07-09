@@ -97,6 +97,18 @@ class BaseClientManager extends BaseModule {
   }
 
   /**
+   * Per-instance notifications gate. When `false`, the EventScriptingManager
+   * skips Apprise notifications sourced from this instance (both download-
+   * lifecycle events and health events). Event scripts still run — they're
+   * automation, not messaging. Defaults to `true` (missing field = enabled)
+   * so legacy configs keep notifying as before.
+   */
+  isNotificationsEnabled() {
+    const cfg = this._clientConfig || {};
+    return cfg.notifications !== false;
+  }
+
+  /**
    * Register a callback to be called when the client connects
    * @param {Function} callback - Callback function
    */

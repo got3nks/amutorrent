@@ -17,64 +17,134 @@ import TestResultIndicator from './TestResultIndicator.js';
 
 const { createElement: h, useState, useEffect } = React;
 
-/**
- * Type-specific field definitions (moved from ClientInstanceCard)
- */
-// Field definitions per client type. defaultValue is the source of truth for new instance defaults.
-// Mirrors server/lib/clientMeta.js connectionDefaults.
-const CLIENT_FIELDS = {
-  amule: [
-    { field: 'host', label: 'Host', description: 'aMule External Connection (EC) host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'aMule EC port (default: 4712)', placeholder: '4712', defaultValue: 4712, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 4712 },
-    { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
-    { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
-    { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated — useful when foreign categories from BitTorrent clients would create stray directories in aMule.', toggle: true, defaultValue: true }
-  ],
-  rtorrent: [
-    { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
-    { field: 'host', label: 'Host', description: 'rTorrent host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
-    { field: 'port', label: 'Port', description: 'rTorrent port (default: 8000)', placeholder: '8000', defaultValue: 8000, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8000, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
-    { field: 'socketPath', label: 'Socket Path', description: 'Path to rTorrent SCGI Unix socket', placeholder: '/path/to/rtorrent.sock', required: true, hideWhen: form => (form.mode || 'http') !== 'scgi-socket' },
-    { field: 'path', label: 'XML-RPC Path', description: 'Path for XML-RPC endpoint (default: /RPC2)', placeholder: '/RPC2', defaultValue: '/RPC2', hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'username', label: 'Username (Optional)', description: 'Username for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'password', label: 'Password (Optional)', description: 'Password for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', sensitive: true, hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to rTorrent using HTTPS', toggle: true, hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated.', toggle: true, defaultValue: true }
-  ],
-  qbittorrent: [
-    { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'qBittorrent WebUI port (default: 8080)', placeholder: '8080', defaultValue: 8080, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8080 },
-    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)', placeholder: 'Leave empty if not using a reverse proxy' },
-    { field: 'username', label: 'Username', description: 'qBittorrent WebUI username (default: admin)', placeholder: 'admin', defaultValue: 'admin' },
-    { field: 'password', label: 'Password', description: 'qBittorrent WebUI password', placeholder: 'Enter qBittorrent password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to qBittorrent using HTTPS', toggle: true },
-    { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated.', toggle: true, defaultValue: true }
-  ],
-  deluge: [
-    { field: 'host', label: 'Host', description: 'Deluge Web UI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Deluge Web UI port (default: 8112)', placeholder: '8112', defaultValue: 8112, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8112 },
-    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /deluge)', placeholder: 'Leave empty if not using a reverse proxy' },
-    { field: 'password', label: 'Password', description: 'Deluge Web UI password', placeholder: 'Enter Deluge password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Deluge using HTTPS', toggle: true },
-    { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated.', toggle: true, defaultValue: true }
-  ],
-  transmission: [
-    { field: 'host', label: 'Host', description: 'Transmission RPC host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Transmission RPC port (default: 9091)', placeholder: '9091', defaultValue: 9091, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 9091 },
-    { field: 'path', label: 'RPC Path', description: 'Path for RPC endpoint (default: /transmission/rpc)', placeholder: '/transmission/rpc', defaultValue: '/transmission/rpc' },
-    { field: 'username', label: 'Username', description: 'Transmission RPC username', placeholder: 'Enter username' },
-    { field: 'password', label: 'Password', description: 'Transmission RPC password', placeholder: 'Enter Transmission password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Transmission using HTTPS', toggle: true },
-    { field: 'categorySync', label: 'Category Sync', description: 'When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated.', toggle: true, defaultValue: true }
-  ]
-};
-
 const TYPE_LABELS = {
   amule: 'aMule',
   rtorrent: 'rTorrent',
   qbittorrent: 'qBittorrent',
   deluge: 'Deluge',
   transmission: 'Transmission'
+};
+
+// Full daemon labels used in descriptions (e.g. "qBittorrent WebUI host address").
+// Kept separate from TYPE_LABELS so short-form usage (badges, buttons) stays clean.
+const DAEMON_LABELS = {
+  amule: 'aMule External Connection (EC)',
+  rtorrent: 'rTorrent',
+  qbittorrent: 'qBittorrent WebUI',
+  deluge: 'Deluge Web UI',
+  transmission: 'Transmission RPC'
+};
+
+/**
+ * Field factories — parameterized by client type + (optional) overrides.
+ *
+ * Each factory returns a field-def object; callers can pass an `extras` object
+ * as the last argument to override any property (typically `hideWhen`,
+ * `required`, or `defaultValue`). Kept minimal on purpose: fields with
+ * ≥3 property overrides are cleaner inlined at the call site than as
+ * heavily-parameterized factories.
+ */
+const F = {
+  host: (type, extras = {}) => ({
+    field: 'host', label: 'Host',
+    description: `${DAEMON_LABELS[type]} host address`,
+    placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true, ...extras
+  }),
+  port: (type, port, extras = {}) => ({
+    field: 'port', label: 'Port',
+    description: `${TYPE_LABELS[type]} port (default: ${port})`,
+    placeholder: String(port), defaultValue: port, type: 'number', required: true,
+    parseValue: v => parseInt(v, 10) || port, ...extras
+  }),
+  password: (type, extras = {}) => ({
+    field: 'password', label: 'Password',
+    description: `${DAEMON_LABELS[type]} password`,
+    placeholder: `Enter ${TYPE_LABELS[type]} password`,
+    sensitive: true, ...extras
+  }),
+  useSsl: (type, extras = {}) => ({
+    field: 'useSsl', label: 'Use SSL (HTTPS)',
+    description: `Connect to ${TYPE_LABELS[type]} using HTTPS`,
+    toggle: true, ...extras
+  }),
+  // "URL Path (Optional)" reverse-proxy path — used by qBit + Deluge.
+  // rTorrent (XML-RPC path) and Transmission (RPC path) are semantically
+  // different and stay inlined.
+  reverseProxyPath: (example) => ({
+    field: 'path', label: 'URL Path (Optional)',
+    description: `Base path when behind a reverse proxy (e.g., ${example})`,
+    placeholder: 'Leave empty if not using a reverse proxy'
+  }),
+  // Category sync — shared base description, aMule appends an extra sentence
+  // explaining the concrete symptom (foreign categories creating stray dirs).
+  categorySync: (extraSentence = '') => ({
+    field: 'categorySync', label: 'Category Sync',
+    description: `When ON, this instance shares its categories with the central registry and accepts categories pushed from other clients. Turn OFF to keep this instance isolated.${extraSentence ? ' ' + extraSentence : ''}`,
+    toggle: true, defaultValue: true
+  }),
+  notifications: () => ({
+    field: 'notifications', label: 'Notifications',
+    description: 'When ON, Apprise notifications (downloads added/finished, client availability) fire for events from this instance. Turn OFF to silence this client without touching global notification settings or event scripts.',
+    toggle: true, defaultValue: true
+  })
+};
+
+// Field definitions per client type. defaultValue is the source of truth for
+// new instance defaults. Mirrors server/lib/clientMeta.js connectionDefaults.
+const CLIENT_FIELDS = {
+  amule: [
+    F.host('amule'),
+    F.port('amule', 4712),
+    // Inlined — three properties (description, placeholder, required) all
+    // differ from the F.password template, not worth the override overhead.
+    { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
+    { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
+    F.categorySync('Useful when foreign categories from BitTorrent clients would create stray directories in aMule.'),
+    F.notifications()
+  ],
+  rtorrent: [
+    { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
+    F.host('rtorrent', { hideWhen: form => (form.mode || 'http') === 'scgi-socket' }),
+    F.port('rtorrent', 8000, { hideWhen: form => (form.mode || 'http') === 'scgi-socket' }),
+    { field: 'socketPath', label: 'Socket Path', description: 'Path to rTorrent SCGI Unix socket', placeholder: '/path/to/rtorrent.sock', required: true, hideWhen: form => (form.mode || 'http') !== 'scgi-socket' },
+    { field: 'path', label: 'XML-RPC Path', description: 'Path for XML-RPC endpoint (default: /RPC2)', placeholder: '/RPC2', defaultValue: '/RPC2', hideWhen: form => (form.mode || 'http') !== 'http' },
+    // rTorrent's HTTP basic auth username/password have "Optional" semantics
+    // distinct from the daemon's own password field — inlined.
+    { field: 'username', label: 'Username (Optional)', description: 'Username for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', hideWhen: form => (form.mode || 'http') !== 'http' },
+    { field: 'password', label: 'Password (Optional)', description: 'Password for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', sensitive: true, hideWhen: form => (form.mode || 'http') !== 'http' },
+    F.useSsl('rtorrent', { hideWhen: form => (form.mode || 'http') !== 'http' }),
+    F.categorySync(),
+    F.notifications()
+  ],
+  qbittorrent: [
+    F.host('qbittorrent'),
+    F.port('qbittorrent', 8080),
+    F.reverseProxyPath('/qbittorrent'),
+    { field: 'username', label: 'Username', description: 'qBittorrent WebUI username (default: admin)', placeholder: 'admin', defaultValue: 'admin' },
+    F.password('qbittorrent'),
+    F.useSsl('qbittorrent'),
+    F.categorySync(),
+    F.notifications()
+  ],
+  deluge: [
+    F.host('deluge'),
+    F.port('deluge', 8112),
+    F.reverseProxyPath('/deluge'),
+    F.password('deluge'),
+    F.useSsl('deluge'),
+    F.categorySync(),
+    F.notifications()
+  ],
+  transmission: [
+    F.host('transmission'),
+    F.port('transmission', 9091),
+    { field: 'path', label: 'RPC Path', description: 'Path for RPC endpoint (default: /transmission/rpc)', placeholder: '/transmission/rpc', defaultValue: '/transmission/rpc' },
+    { field: 'username', label: 'Username', description: 'Transmission RPC username', placeholder: 'Enter username' },
+    F.password('transmission'),
+    F.useSsl('transmission'),
+    F.categorySync(),
+    F.notifications()
+  ]
 };
 
 
