@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.7] - Setup Wizard Field Parity
+
+### 🐛 Fixed
+
+- **Setup wizard was missing the "Category Sync" and "Notifications" toggles** on every client-instance section, so users configuring aMuTorrent for the first time couldn't opt out of either behavior during the initial installation flow — they had to complete setup and then edit each instance individually to change the defaults. Backend behavior was unaffected (missing fields default to `true`, meaning sync + notifications on), so this was purely a first-run UX gap, not a functional break. Root cause: the wizard's per-client sections used their own hand-coded field blocks instead of consuming the same `CLIENT_FIELDS` schema the "edit instance" modal uses, so any new field added to the modal quietly missed the wizard. See the "Improved" entry below for the structural fix (#68).
+
+### ♻️ Improved
+
+- **Single source of truth for client-instance fields.** Extracted the per-client-type field schema (`CLIENT_FIELDS`, `TYPE_LABELS`, `DAEMON_LABELS`, the `F.*` factories, `TYPE_DEFAULTS`) and the field renderer into a new shared module `static/components/settings/clientFields.js`. Both `ClientInstanceModal` (edit an existing instance) and `SetupWizardView` (initial installation flow) now consume the same `<ClientFieldsRenderer>` component. Adding a field to the schema surfaces in both surfaces automatically — no more "we shipped a toggle in the modal but forgot to wire it in the wizard" bugs like the one that hit us with #68. Adapter layer is deliberately thin: each surface passes its own `onFieldChange(field, value)` wrapper and `isFieldFromEnv(field) => bool` accessor, letting the wizard and modal keep their native state models (wizard's flat client-prefixed `fromEnv` map, modal's per-instance `_fromEnv` object). Net −464 lines across both consumers; bundle 729 KB → 721 KB from string + JSX dedupe.
+
+---
+
 ## [3.8.6] - Per-Instance Category & Notification Toggles + KAD Firewall Accuracy
 
 ### ✨ Added
