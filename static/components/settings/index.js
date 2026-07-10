@@ -14,4 +14,5 @@ export { default as TestSummary } from './TestSummary.js';
 export { default as IntegrationConfigInfo } from './IntegrationConfigInfo.js';
 export { default as ClientInstanceCard } from './ClientInstanceCard.js';
 export { default as ClientInstanceModal } from './ClientInstanceModal.js';
+export { ClientFieldsRenderer, CLIENT_FIELDS, TYPE_LABELS, DAEMON_LABELS, TYPE_DEFAULTS } from './clientFields.js';
 export { default as UserManagement } from './UserManagement.js';

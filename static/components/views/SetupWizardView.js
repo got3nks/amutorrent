@@ -17,10 +17,28 @@ import {
   PasswordField,
   EnableToggle,
   TestSummary,
-  IntegrationConfigInfo
+  IntegrationConfigInfo,
+  ClientFieldsRenderer,
+  CLIENT_FIELDS
 } from '../settings/index.js';
 import { validatePassword } from '../../utils/passwordValidator.js';
 import { hasTestErrors as checkTestErrors, checkResultsForErrors, buildTestPayload } from '../../utils/testHelpers.js';
+
+// Adapter — the wizard stores `fromEnv` as a flat object with client-prefixed
+// camelCase keys (`rtorrentHost`, `qbittorrentPassword`), so translate the
+// renderer's field-name lookup to that convention.
+const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
+// A few env-var keys don't exactly match the schema field name — historical
+// naming. Kept as an explicit alias table rather than renaming schema fields
+// or backend env vars.
+const FROM_ENV_ALIASES = {
+  amule: { sharedFilesReloadIntervalHours: 'amuleSharedFilesReloadInterval' }
+};
+const wizardFromEnv = (meta, type, field) => {
+  const alias = FROM_ENV_ALIASES[type]?.[field];
+  if (alias && meta?.fromEnv?.[alias]) return true;
+  return !!meta?.fromEnv?.[`${type}${capitalize(field)}`];
+};
 
 /**
  * SetupWizardView component
@@ -745,55 +763,13 @@ const SetupWizardView = ({ onComplete }) => {
         h('p', {}, 'You are running in Docker. If aMule is running on your host machine, use the special hostname ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), '. If aMule is running in another container, use that container\'s name as the hostname.')
       ),
 
-      h(ConfigField, {
-        label: 'Host',
-        description: 'aMule External Connection (EC) host address',
-        value: formData.amule.host,
-        onChange: (value) => updateField('amule', 'host', value),
-        placeholder: '127.0.0.1',
-        required: formData.amule.enabled !== false,
-        fromEnv: meta?.fromEnv.amuleHost
-      }),
-      h(ConfigField, {
-        label: 'Port',
-        description: 'aMule EC port (default: 4712)',
-        value: formData.amule.port,
-        onChange: (value) => updateField('amule', 'port', value),
-        type: 'number',
-        placeholder: '4712',
-        required: formData.amule.enabled !== false,
-        fromEnv: meta?.fromEnv.amulePort
-      }),
-
-      // Warning if aMule password is from environment
-      meta?.fromEnv.amulePassword && h(AlertBox, { type: 'warning' },
-        h('p', {}, 'aMule password is set via AMULE_PASSWORD environment variable and cannot be changed here. To change the password, update the environment variable and restart the server.')
-      ),
-
-      !meta?.fromEnv.amulePassword && h(ConfigField, {
-        label: 'Password',
-        description: 'aMule EC password (set in aMule preferences)',
-        value: formData.amule.password,
-        onChange: (value) => updateField('amule', 'password', value),
-        required: formData.amule.enabled !== false,
-        fromEnv: meta?.fromEnv.amulePassword
-      },
-        h(PasswordField, {
-          value: formData.amule.password,
-          onChange: (value) => updateField('amule', 'password', value),
-          placeholder: 'Enter aMule EC password',
-          disabled: meta?.fromEnv.amulePassword
-        })
-      ),
-
-      h(ConfigField, {
-        label: 'Shared Files Auto-Reload Interval (hours)',
-        description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.',
-        value: formData.amule.sharedFilesReloadIntervalHours ?? 3,
-        onChange: (value) => updateField('amule', 'sharedFilesReloadIntervalHours', parseInt(value) || 0),
-        type: 'number',
-        placeholder: '3',
-        fromEnv: meta?.fromEnv.amuleSharedFilesReloadInterval
+      h(ClientFieldsRenderer, {
+        type: 'amule',
+        fields: CLIENT_FIELDS.amule,
+        values: formData.amule,
+        onFieldChange: (field, value) => updateField('amule', field, value),
+        isFieldFromEnv: (field) => wizardFromEnv(meta, 'amule', field),
+        isEnabled: formData.amule.enabled !== false
       }),
 
       h('div', { className: 'mt-6' },
@@ -843,101 +819,13 @@ const SetupWizardView = ({ onComplete }) => {
         }),
 
         formData.rtorrent.enabled && h('div', { className: 'mt-4 space-y-4' },
-          // Connection mode selector
-          h(ConfigField, {
-            label: 'Connection Mode',
-            description: 'HTTP: via XML-RPC proxy (nginx/ruTorrent). SCGI: direct TCP connection. SCGI Socket: Unix socket.'
-          },
-            h('select', {
-              value: formData.rtorrent.mode || 'http',
-              onChange: (e) => updateField('rtorrent', 'mode', e.target.value),
-              disabled: meta?.fromEnv.rtorrentMode,
-              className: 'w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50'
-            },
-              h('option', { value: 'http' }, 'HTTP (XML-RPC proxy)'),
-              h('option', { value: 'scgi' }, 'SCGI (direct TCP)'),
-              h('option', { value: 'scgi-socket' }, 'SCGI (Unix socket)')
-            )
-          ),
-
-          // Host (hidden for scgi-socket)
-          formData.rtorrent.mode !== 'scgi-socket' && h(ConfigField, {
-            label: 'Host',
-            description: 'rTorrent host address',
-            value: formData.rtorrent.host,
-            onChange: (value) => updateField('rtorrent', 'host', value),
-            placeholder: '127.0.0.1',
-            required: formData.rtorrent.enabled,
-            fromEnv: meta?.fromEnv.rtorrentHost
-          }),
-
-          // Port (hidden for scgi-socket)
-          formData.rtorrent.mode !== 'scgi-socket' && h(ConfigField, {
-            label: 'Port',
-            description: 'rTorrent port (default: 8000)',
-            value: formData.rtorrent.port,
-            onChange: (value) => updateField('rtorrent', 'port', parseInt(value, 10) || 8000),
-            type: 'number',
-            placeholder: '8000',
-            required: formData.rtorrent.enabled,
-            fromEnv: meta?.fromEnv.rtorrentPort
-          }),
-
-          // Socket path (only for scgi-socket)
-          formData.rtorrent.mode === 'scgi-socket' && h(ConfigField, {
-            label: 'Socket Path',
-            description: 'Path to rTorrent SCGI Unix socket',
-            value: formData.rtorrent.socketPath || '',
-            onChange: (value) => updateField('rtorrent', 'socketPath', value),
-            placeholder: '/path/to/rtorrent.sock',
-            required: formData.rtorrent.enabled,
-            fromEnv: meta?.fromEnv.rtorrentSocketPath
-          }),
-
-          // XML-RPC path (only for http mode)
-          formData.rtorrent.mode === 'http' && h(ConfigField, {
-            label: 'XML-RPC Path',
-            description: 'Path for XML-RPC endpoint (default: /RPC2)',
-            value: formData.rtorrent.path,
-            onChange: (value) => updateField('rtorrent', 'path', value),
-            placeholder: '/RPC2',
-            fromEnv: meta?.fromEnv.rtorrentPath
-          }),
-
-          // Username (only for http mode)
-          formData.rtorrent.mode === 'http' && h(ConfigField, {
-            label: 'Username (Optional)',
-            description: 'Username for HTTP basic authentication (if required)',
-            value: formData.rtorrent.username,
-            onChange: (value) => updateField('rtorrent', 'username', value),
-            placeholder: 'Leave empty if not required',
-            fromEnv: meta?.fromEnv.rtorrentUsername
-          }),
-
-          // Password (only for http mode)
-          formData.rtorrent.mode === 'http' && !meta?.fromEnv.rtorrentPassword && h(ConfigField, {
-            label: 'Password (Optional)',
-            description: 'Password for HTTP basic authentication (if required)',
-            fromEnv: meta?.fromEnv.rtorrentPassword
-          },
-            h(PasswordField, {
-              value: formData.rtorrent.password || '',
-              onChange: (value) => updateField('rtorrent', 'password', value),
-              placeholder: 'Leave empty if not required',
-              disabled: meta?.fromEnv.rtorrentPassword
-            })
-          ),
-
-          formData.rtorrent.mode === 'http' && meta?.fromEnv.rtorrentPassword && h(AlertBox, { type: 'warning' },
-            h('p', {}, 'rTorrent password is set via RTORRENT_PASSWORD environment variable.')
-          ),
-
-          // SSL (only for http mode)
-          formData.rtorrent.mode === 'http' && h(EnableToggle, {
-            label: 'Use SSL (HTTPS)',
-            description: 'Connect to rTorrent using HTTPS',
-            enabled: formData.rtorrent?.useSsl || false,
-            onChange: (enabled) => updateField('rtorrent', 'useSsl', enabled)
+          h(ClientFieldsRenderer, {
+            type: 'rtorrent',
+            fields: CLIENT_FIELDS.rtorrent,
+            values: formData.rtorrent,
+            onFieldChange: (field, value) => updateField('rtorrent', field, value),
+            isFieldFromEnv: (field) => wizardFromEnv(meta, 'rtorrent', field),
+            isEnabled: formData.rtorrent.enabled
           }),
 
           clientTestResults.rtorrent && h(TestResultIndicator, {
@@ -959,67 +847,13 @@ const SetupWizardView = ({ onComplete }) => {
         }),
 
         formData.qbittorrent?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ConfigField, {
-            label: 'Host',
-            description: 'qBittorrent WebUI host address',
-            value: formData.qbittorrent?.host || '',
-            onChange: (value) => updateField('qbittorrent', 'host', value),
-            placeholder: '127.0.0.1',
-            required: formData.qbittorrent?.enabled,
-            fromEnv: meta?.fromEnv.qbittorrentHost
-          }),
-
-          h(ConfigField, {
-            label: 'Port',
-            description: 'qBittorrent WebUI port (default: 8080)',
-            value: formData.qbittorrent?.port || 8080,
-            onChange: (value) => updateField('qbittorrent', 'port', parseInt(value, 10) || 8080),
-            type: 'number',
-            placeholder: '8080',
-            required: formData.qbittorrent?.enabled,
-            fromEnv: meta?.fromEnv.qbittorrentPort
-          }),
-
-          h(ConfigField, {
-            label: 'URL Path (Optional)',
-            description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)',
-            value: formData.qbittorrent?.path || '',
-            onChange: (value) => updateField('qbittorrent', 'path', value),
-            placeholder: 'Leave empty if not using a reverse proxy',
-            fromEnv: meta?.fromEnv.qbittorrentPath
-          }),
-
-          h(ConfigField, {
-            label: 'Username',
-            description: 'qBittorrent WebUI username (default: admin)',
-            value: formData.qbittorrent?.username || 'admin',
-            onChange: (value) => updateField('qbittorrent', 'username', value),
-            placeholder: 'admin',
-            fromEnv: meta?.fromEnv.qbittorrentUsername
-          }),
-
-          !meta?.fromEnv.qbittorrentPassword && h(ConfigField, {
-            label: 'Password',
-            description: 'qBittorrent WebUI password',
-            fromEnv: meta?.fromEnv.qbittorrentPassword
-          },
-            h(PasswordField, {
-              value: formData.qbittorrent?.password || '',
-              onChange: (value) => updateField('qbittorrent', 'password', value),
-              placeholder: 'Enter qBittorrent password',
-              disabled: meta?.fromEnv.qbittorrentPassword
-            })
-          ),
-
-          meta?.fromEnv.qbittorrentPassword && h(AlertBox, { type: 'warning' },
-            h('p', {}, 'qBittorrent password is set via QBITTORRENT_PASSWORD environment variable.')
-          ),
-
-          h(EnableToggle, {
-            label: 'Use SSL (HTTPS)',
-            description: 'Connect to qBittorrent using HTTPS',
-            enabled: formData.qbittorrent?.useSsl || false,
-            onChange: (enabled) => updateField('qbittorrent', 'useSsl', enabled)
+          h(ClientFieldsRenderer, {
+            type: 'qbittorrent',
+            fields: CLIENT_FIELDS.qbittorrent,
+            values: formData.qbittorrent || {},
+            onFieldChange: (field, value) => updateField('qbittorrent', field, value),
+            isFieldFromEnv: (field) => wizardFromEnv(meta, 'qbittorrent', field),
+            isEnabled: !!formData.qbittorrent?.enabled
           }),
 
           clientTestResults.qbittorrent && h(TestResultIndicator, {
@@ -1041,58 +875,13 @@ const SetupWizardView = ({ onComplete }) => {
         }),
 
         formData.deluge?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ConfigField, {
-            label: 'Host',
-            description: 'Deluge Web UI host address',
-            value: formData.deluge?.host || '',
-            onChange: (value) => updateField('deluge', 'host', value),
-            placeholder: '127.0.0.1',
-            required: formData.deluge?.enabled,
-            fromEnv: meta?.fromEnv.delugeHost
-          }),
-
-          h(ConfigField, {
-            label: 'Port',
-            description: 'Deluge Web UI port (default: 8112)',
-            value: formData.deluge?.port || 8112,
-            onChange: (value) => updateField('deluge', 'port', parseInt(value, 10) || 8112),
-            type: 'number',
-            placeholder: '8112',
-            required: formData.deluge?.enabled,
-            fromEnv: meta?.fromEnv.delugePort
-          }),
-
-          h(ConfigField, {
-            label: 'URL Path (Optional)',
-            description: 'Base path when behind a reverse proxy (e.g., /deluge)',
-            value: formData.deluge?.path || '',
-            onChange: (value) => updateField('deluge', 'path', value),
-            placeholder: 'Leave empty if not using a reverse proxy',
-            fromEnv: meta?.fromEnv.delugePath
-          }),
-
-          !meta?.fromEnv.delugePassword && h(ConfigField, {
-            label: 'Password',
-            description: 'Deluge Web UI password',
-            fromEnv: meta?.fromEnv.delugePassword
-          },
-            h(PasswordField, {
-              value: formData.deluge?.password || '',
-              onChange: (value) => updateField('deluge', 'password', value),
-              placeholder: 'Enter Deluge password',
-              disabled: meta?.fromEnv.delugePassword
-            })
-          ),
-
-          meta?.fromEnv.delugePassword && h(AlertBox, { type: 'warning' },
-            h('p', {}, 'Deluge password is set via DELUGE_PASSWORD environment variable.')
-          ),
-
-          h(EnableToggle, {
-            label: 'Use SSL (HTTPS)',
-            description: 'Connect to Deluge using HTTPS',
-            enabled: formData.deluge?.useSsl || false,
-            onChange: (enabled) => updateField('deluge', 'useSsl', enabled)
+          h(ClientFieldsRenderer, {
+            type: 'deluge',
+            fields: CLIENT_FIELDS.deluge,
+            values: formData.deluge || {},
+            onFieldChange: (field, value) => updateField('deluge', field, value),
+            isFieldFromEnv: (field) => wizardFromEnv(meta, 'deluge', field),
+            isEnabled: !!formData.deluge?.enabled
           }),
 
           clientTestResults.deluge && h(TestResultIndicator, {
@@ -1114,67 +903,13 @@ const SetupWizardView = ({ onComplete }) => {
         }),
 
         formData.transmission?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ConfigField, {
-            label: 'Host',
-            description: 'Transmission RPC host address',
-            value: formData.transmission?.host || '',
-            onChange: (value) => updateField('transmission', 'host', value),
-            placeholder: '127.0.0.1',
-            required: formData.transmission?.enabled,
-            fromEnv: meta?.fromEnv.transmissionHost
-          }),
-
-          h(ConfigField, {
-            label: 'Port',
-            description: 'Transmission RPC port (default: 9091)',
-            value: formData.transmission?.port || 9091,
-            onChange: (value) => updateField('transmission', 'port', parseInt(value, 10) || 9091),
-            type: 'number',
-            placeholder: '9091',
-            required: formData.transmission?.enabled,
-            fromEnv: meta?.fromEnv.transmissionPort
-          }),
-
-          h(ConfigField, {
-            label: 'RPC Path',
-            description: 'Transmission RPC path (default: /transmission/rpc)',
-            value: formData.transmission?.path || '/transmission/rpc',
-            onChange: (value) => updateField('transmission', 'path', value),
-            placeholder: '/transmission/rpc',
-            fromEnv: meta?.fromEnv.transmissionPath
-          }),
-
-          !meta?.fromEnv.transmissionUsername && h(ConfigField, {
-            label: 'Username',
-            description: 'Transmission RPC username (optional)',
-            value: formData.transmission?.username || '',
-            onChange: (value) => updateField('transmission', 'username', value),
-            placeholder: 'Enter username',
-            fromEnv: meta?.fromEnv.transmissionUsername
-          }),
-
-          !meta?.fromEnv.transmissionPassword && h(ConfigField, {
-            label: 'Password',
-            description: 'Transmission RPC password',
-            fromEnv: meta?.fromEnv.transmissionPassword
-          },
-            h(PasswordField, {
-              value: formData.transmission?.password || '',
-              onChange: (value) => updateField('transmission', 'password', value),
-              placeholder: 'Enter Transmission password',
-              disabled: meta?.fromEnv.transmissionPassword
-            })
-          ),
-
-          (meta?.fromEnv.transmissionUsername || meta?.fromEnv.transmissionPassword) && h(AlertBox, { type: 'warning' },
-            h('p', {}, 'Transmission credentials are set via environment variables.')
-          ),
-
-          h(EnableToggle, {
-            label: 'Use SSL (HTTPS)',
-            description: 'Connect to Transmission using HTTPS',
-            enabled: formData.transmission?.useSsl || false,
-            onChange: (enabled) => updateField('transmission', 'useSsl', enabled)
+          h(ClientFieldsRenderer, {
+            type: 'transmission',
+            fields: CLIENT_FIELDS.transmission,
+            values: formData.transmission || {},
+            onFieldChange: (field, value) => updateField('transmission', field, value),
+            isFieldFromEnv: (field) => wizardFromEnv(meta, 'transmission', field),
+            isEnabled: !!formData.transmission?.enabled
           }),
 
           clientTestResults.transmission && h(TestResultIndicator, {
