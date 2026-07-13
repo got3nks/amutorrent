@@ -11,7 +11,7 @@ const logger = require('../logger');
 const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
-const { convertToQBittorrentInfo } = require('./stateMapping');
+const { convertToQBittorrentInfo, convertToQBittorrentProperties } = require('./stateMapping');
 const { convertMagnetToEd2k } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
 const preferences = require('./preferences.json');
@@ -38,6 +38,7 @@ class QBittorrentHandler {
     this.getWebApiVersion = this.getWebApiVersion.bind(this);
     this.getPreferences = this.getPreferences.bind(this);
     this.getTorrentsInfo = this.getTorrentsInfo.bind(this);
+    this.getTorrentProperties = this.getTorrentProperties.bind(this);
     this.addTorrent = this.addTorrent.bind(this);
     this.deleteTorrent = this.deleteTorrent.bind(this);
     this.pauseTorrent = this.pauseTorrent.bind(this);
@@ -376,6 +377,65 @@ class QBittorrentHandler {
   }
 
   /**
+   * Map a unified DataFetchService item to the download shape used by converters.
+   */
+  _mapUnifiedItemToDownload(item) {
+    return {
+      fileName: item.name,
+      fileHash: item.hash,
+      fileSize: String(item.size || 0),
+      fileSizeDownloaded: String(item.sizeDownloaded || 0),
+      progress: String(item.progress || 0),
+      sourceCount: item.sources?.connected || 0,
+      speed: item.downloadSpeed || 0,
+      priority: item.downloadPriority ?? 0,
+      category: item.categoryId || null,
+      status: item.status,
+      uploadSpeed: item.uploadSpeed || 0,
+      ratio: item.ratio || 0,
+      uploadTotal: item.uploadTotal || 0,
+      directory: item.directory || ''
+    };
+  }
+
+  /**
+   * Fetch active aMule downloads in the normalized download shape.
+   */
+  async _getAmuleDownloads() {
+    const dataFetchService = require('../DataFetchService');
+    const data = await dataFetchService.getOrFetchBatchData(10000);
+    const items = data?.items || [];
+    const targetInstanceId = this.getAmuleInstanceId?.();
+
+    return items
+      .filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId))
+      .map(item => this._mapUnifiedItemToDownload(item));
+  }
+
+  /**
+   * Resolve a torrent hash (magnet or ED2K) to qBittorrent info format.
+   * @returns {Promise<object|null>}
+   */
+  async _findTorrentInfoByHash(hash) {
+    const lower = String(hash).toLowerCase();
+    const ed2kHash = this.hashStore.getEd2kHash(lower);
+    const downloads = await this._getAmuleDownloads();
+
+    for (const download of downloads) {
+      const enriched = await this.enrichDownload(download);
+      const info = convertToQBittorrentInfo(enriched);
+      const infoHash = String(info.hash || '').toLowerCase();
+      const fileHash = String(download.fileHash || '').toLowerCase();
+
+      if (infoHash === lower || fileHash === lower || (ed2kHash && fileHash === ed2kHash)) {
+        return info;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * GET /api/v2/torrents/info
    */
   async getTorrentsInfo(req, res) {
@@ -394,25 +454,9 @@ class QBittorrentHandler {
 
       // Filter to the target aMule instance
       const targetInstanceId = this.getAmuleInstanceId?.();
-      let downloads = items.filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId));
-
-      // Map unified items to the format expected by convertToQBittorrentInfo
-      downloads = downloads.map(item => ({
-        fileName: item.name,
-        fileHash: item.hash,
-        fileSize: String(item.size || 0),
-        fileSizeDownloaded: String(item.sizeDownloaded || 0),
-        progress: String(item.progress || 0),
-        sourceCount: item.sources?.connected || 0,
-        speed: item.downloadSpeed || 0,
-        priority: item.downloadPriority ?? 0,
-        category: item.categoryId || null,
-        status: item.status,
-        uploadSpeed: item.uploadSpeed || 0,
-        ratio: item.ratio || 0,
-        uploadTotal: item.uploadTotal || 0,
-        directory: item.directory || ''
-      }));
+      let downloads = items
+        .filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId))
+        .map(item => this._mapUnifiedItemToDownload(item));
 
       // Filter by category if requested
       if (category) {
@@ -442,11 +486,38 @@ class QBittorrentHandler {
   }
 
   /**
+   * GET /api/v2/torrents/properties
+   *
+   * LazyLibrarian and other clients call this after add to verify the torrent
+   * exists. Returns 404 with an empty body when the hash is unknown, matching
+   * qBittorrent Web API behavior.
+   */
+  async getTorrentProperties(req, res) {
+    try {
+      const { hash } = req.query;
+      if (!hash) {
+        return response.badRequest(res, 'Missing hash parameter');
+      }
+
+      const info = await this._findTorrentInfoByHash(hash);
+      if (!info) {
+        return res.status(404).send('');
+      }
+
+      res.json(convertToQBittorrentProperties(info));
+    } catch (error) {
+      logger.error('[qBittorrent] Get torrent properties error:', error);
+      return response.serverError(res, 'Failed to get torrent properties');
+    }
+  }
+
+  /**
    * POST /api/v2/torrents/add
    */
   async addTorrent(req, res) {
     try {
-      const { urls, category } = req.body;
+      const urls = req.body.urls;
+      const category = req.body.category || req.body.label || '';
 
       if (!urls) {
         return response.badRequest(res, 'Missing urls parameter');

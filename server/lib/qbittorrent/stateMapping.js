@@ -154,4 +154,51 @@ function convertToQBittorrentInfo(download) {
   };
 }
 
-module.exports = { convertToQBittorrentInfo, STATE_MAP };
+/**
+ * Convert qBittorrent torrent info to generic properties format.
+ * Used by GET /api/v2/torrents/properties for LazyLibrarian and other clients
+ * that verify adds via properties rather than torrents/info.
+ *
+ * @param {object} info - Output of convertToQBittorrentInfo()
+ * @returns {object} qBittorrent properties response
+ */
+function convertToQBittorrentProperties(info) {
+  return {
+    save_path: info.save_path || '',
+    creation_date: info.added_on || -1,
+    piece_size: -1,
+    comment: info.comment || '',
+    total_wasted: 0,
+    total_uploaded: info.uploaded || 0,
+    total_uploaded_session: info.uploaded_session || 0,
+    total_downloaded: info.downloaded || 0,
+    total_downloaded_session: info.downloaded_session || 0,
+    up_limit: info.up_limit ?? -1,
+    dl_limit: info.dl_limit ?? -1,
+    time_elapsed: info.time_active || 0,
+    seeding_time: info.seeding_time || 0,
+    nb_connections: -1,
+    nb_connections_limit: -1,
+    share_ratio: info.ratio || 0,
+    addition_date: info.added_on || -1,
+    completion_date: info.completion_on > 0 ? info.completion_on : -1,
+    created_by: '',
+    dl_speed_avg: info.dlspeed || 0,
+    dl_speed: info.dlspeed || 0,
+    eta: info.eta ?? 8640000,
+    last_seen: info.seen_complete > 0 ? info.seen_complete : -1,
+    peers: info.num_leechs || 0,
+    peers_total: info.num_incomplete || 0,
+    pieces_have: -1,
+    pieces_num: -1,
+    reannounce: info.reannounce || 0,
+    seeds: info.num_seeds || 0,
+    seeds_total: info.num_complete || 0,
+    total_size: info.total_size || info.size || 0,
+    up_speed_avg: info.upspeed || 0,
+    up_speed: info.upspeed || 0,
+    isPrivate: !!info.private
+  };
+}
+
+module.exports = { convertToQBittorrentInfo, convertToQBittorrentProperties, STATE_MAP };
