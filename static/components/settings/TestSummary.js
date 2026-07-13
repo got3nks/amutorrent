@@ -116,6 +116,26 @@ const TestSummary = ({ testResults, clientTestResults, showDetails = false }) =>
     }
   }
 
+  // Count Lidarr
+  if (results.lidarr) {
+    summary.total++;
+    if (results.lidarr.success === false) {
+      summary.failed++;
+    } else if (results.lidarr.success) {
+      summary.passed++;
+    }
+  }
+
+  // Count Readarr
+  if (results.readarr) {
+    summary.total++;
+    if (results.readarr.success === false) {
+      summary.failed++;
+    } else if (results.readarr.success) {
+      summary.passed++;
+    }
+  }
+
   // Count Prowlarr
   if (results.prowlarr) {
     summary.total++;
@@ -191,6 +211,26 @@ const TestSummary = ({ testResults, clientTestResults, showDetails = false }) =>
         label: 'Radarr API',
         success: false,
         message: results.radarr.message || results.radarr.error,
+        warning: false
+      });
+    }
+
+    // Lidarr result
+    if (results.lidarr && !results.lidarr.success) {
+      detailedResults.push({
+        label: 'Lidarr API',
+        success: false,
+        message: results.lidarr.message || results.lidarr.error,
+        warning: false
+      });
+    }
+
+    // Readarr result
+    if (results.readarr && !results.readarr.success) {
+      detailedResults.push({
+        label: 'Readarr API',
+        success: false,
+        message: results.readarr.message || results.readarr.error,
         warning: false
       });
     }

@@ -44,6 +44,12 @@ const ENV_VAR_MAP = {
   RADARR_URL: { path: 'integrations.radarr.url', type: 'string', enablesIntegration: 'integrations.radarr.enabled' },
   RADARR_API_KEY: { path: 'integrations.radarr.apiKey', type: 'string' },
   RADARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.radarr.searchIntervalHours', type: 'int' },
+  LIDARR_URL: { path: 'integrations.lidarr.url', type: 'string', enablesIntegration: 'integrations.lidarr.enabled' },
+  LIDARR_API_KEY: { path: 'integrations.lidarr.apiKey', type: 'string' },
+  LIDARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.lidarr.searchIntervalHours', type: 'int' },
+  READARR_URL: { path: 'integrations.readarr.url', type: 'string', enablesIntegration: 'integrations.readarr.enabled' },
+  READARR_API_KEY: { path: 'integrations.readarr.apiKey', type: 'string' },
+  READARR_SEARCH_INTERVAL_HOURS: { path: 'integrations.readarr.searchIntervalHours', type: 'int' },
   PROWLARR_URL: { path: 'integrations.prowlarr.url', type: 'string', enablesIntegration: 'integrations.prowlarr.enabled' },
   PROWLARR_API_KEY: { path: 'integrations.prowlarr.apiKey', type: 'string' }
 };
@@ -55,6 +61,8 @@ const SENSITIVE_PATHS = [
   'server.auth.password',
   'integrations.sonarr.apiKey',
   'integrations.radarr.apiKey',
+  'integrations.lidarr.apiKey',
+  'integrations.readarr.apiKey',
   'integrations.prowlarr.apiKey'
 ];
 
@@ -392,6 +400,18 @@ class Config extends BaseModule {
           searchIntervalHours: 6
         },
         radarr: {
+          enabled: false,
+          url: '',
+          apiKey: '',
+          searchIntervalHours: 6
+        },
+        lidarr: {
+          enabled: false,
+          url: '',
+          apiKey: '',
+          searchIntervalHours: 6
+        },
+        readarr: {
           enabled: false,
           url: '',
           apiKey: '',
@@ -769,6 +789,26 @@ class Config extends BaseModule {
       }
       if (!config.integrations.prowlarr.apiKey) {
         errors.push('Prowlarr API key is required when Prowlarr is enabled');
+      }
+    }
+
+    // Validate Lidarr if enabled
+    if (config.integrations?.lidarr?.enabled) {
+      if (!config.integrations.lidarr.url) {
+        errors.push('Lidarr URL is required when Lidarr is enabled');
+      }
+      if (!config.integrations.lidarr.apiKey) {
+        errors.push('Lidarr API key is required when Lidarr is enabled');
+      }
+    }
+
+    // Validate Readarr if enabled
+    if (config.integrations?.readarr?.enabled) {
+      if (!config.integrations.readarr.url) {
+        errors.push('Readarr URL is required when Readarr is enabled');
+      }
+      if (!config.integrations.readarr.apiKey) {
+        errors.push('Readarr API key is required when Readarr is enabled');
       }
     }
 
@@ -1278,6 +1318,42 @@ class Config extends BaseModule {
   get RADARR_SEARCH_INTERVAL_HOURS() {
     return this.runtimeConfig?.integrations?.radarr?.enabled
       ? this.runtimeConfig.integrations.radarr.searchIntervalHours
+      : 0;
+  }
+
+  get LIDARR_URL() {
+    return this.runtimeConfig?.integrations?.lidarr?.enabled
+      ? this.runtimeConfig.integrations.lidarr.url
+      : null;
+  }
+
+  get LIDARR_API_KEY() {
+    return this.runtimeConfig?.integrations?.lidarr?.enabled
+      ? this.runtimeConfig.integrations.lidarr.apiKey
+      : null;
+  }
+
+  get LIDARR_SEARCH_INTERVAL_HOURS() {
+    return this.runtimeConfig?.integrations?.lidarr?.enabled
+      ? this.runtimeConfig.integrations.lidarr.searchIntervalHours
+      : 0;
+  }
+
+  get READARR_URL() {
+    return this.runtimeConfig?.integrations?.readarr?.enabled
+      ? this.runtimeConfig.integrations.readarr.url
+      : null;
+  }
+
+  get READARR_API_KEY() {
+    return this.runtimeConfig?.integrations?.readarr?.enabled
+      ? this.runtimeConfig.integrations.readarr.apiKey
+      : null;
+  }
+
+  get READARR_SEARCH_INTERVAL_HOURS() {
+    return this.runtimeConfig?.integrations?.readarr?.enabled
+      ? this.runtimeConfig.integrations.readarr.searchIntervalHours
       : 0;
   }
 
