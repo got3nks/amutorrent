@@ -201,4 +201,33 @@ function convertToQBittorrentProperties(info) {
   };
 }
 
-module.exports = { convertToQBittorrentInfo, convertToQBittorrentProperties, STATE_MAP };
+/**
+ * Convert qBittorrent torrent info to per-file list format.
+ * ED2K downloads are single-file; index 0 represents the whole transfer.
+ *
+ * @param {object} info - Output of convertToQBittorrentInfo()
+ * @returns {Array<object>} qBittorrent torrents/files response
+ */
+function convertToQBittorrentFiles(info) {
+  const progress = info.progress ?? 0;
+  const fileName = info.name || 'Unknown';
+  const baseName = fileName.split(/[/\\]/).pop() || fileName;
+
+  return [{
+    index: 0,
+    name: baseName,
+    size: info.size || info.total_size || 0,
+    progress,
+    priority: info.priority ?? 1,
+    is_seed: progress >= 1.0,
+    piece_range: [0, 0],
+    availability: info.availability ?? 0
+  }];
+}
+
+module.exports = {
+  convertToQBittorrentInfo,
+  convertToQBittorrentProperties,
+  convertToQBittorrentFiles,
+  STATE_MAP
+};

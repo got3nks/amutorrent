@@ -11,9 +11,11 @@ const logger = require('../logger');
 const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
-const { convertToQBittorrentInfo, convertToQBittorrentProperties } = require('./stateMapping');
+const { convertToQBittorrentInfo, convertToQBittorrentProperties, convertToQBittorrentFiles } = require('./stateMapping');
 const { convertMagnetToEd2k } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
+const { resolveCategoryForAdd } = require('./addParams');
+const { matchesTorrentHash } = require('./torrentLookup');
 const preferences = require('./preferences.json');
 
 class QBittorrentHandler {
@@ -39,6 +41,7 @@ class QBittorrentHandler {
     this.getPreferences = this.getPreferences.bind(this);
     this.getTorrentsInfo = this.getTorrentsInfo.bind(this);
     this.getTorrentProperties = this.getTorrentProperties.bind(this);
+    this.getTorrentFiles = this.getTorrentFiles.bind(this);
     this.addTorrent = this.addTorrent.bind(this);
     this.deleteTorrent = this.deleteTorrent.bind(this);
     this.pauseTorrent = this.pauseTorrent.bind(this);
@@ -400,10 +403,22 @@ class QBittorrentHandler {
 
   /**
    * Fetch active aMule downloads in the normalized download shape.
+   * @param {boolean} forceRefresh - Invalidate cache and fetch a fresh snapshot
    */
-  async _getAmuleDownloads() {
+  async _getAmuleDownloads(forceRefresh = false) {
     const dataFetchService = require('../DataFetchService');
+
+    if (forceRefresh) {
+      dataFetchService.invalidateBatchCache();
+      const data = await dataFetchService.getBatchData();
+      return this._downloadsFromBatchData(data);
+    }
+
     const data = await dataFetchService.getOrFetchBatchData(10000);
+    return this._downloadsFromBatchData(data);
+  }
+
+  _downloadsFromBatchData(data) {
     const items = data?.items || [];
     const targetInstanceId = this.getAmuleInstanceId?.();
 
@@ -414,25 +429,28 @@ class QBittorrentHandler {
 
   /**
    * Resolve a torrent hash (magnet or ED2K) to qBittorrent info format.
+   * Tries the cached snapshot first, then forces a fresh fetch before 404.
    * @returns {Promise<object|null>}
    */
   async _findTorrentInfoByHash(hash) {
     const lower = String(hash).toLowerCase();
-    const ed2kHash = this.hashStore.getEd2kHash(lower);
-    const downloads = await this._getAmuleDownloads();
 
-    for (const download of downloads) {
-      const enriched = await this.enrichDownload(download);
-      const info = convertToQBittorrentInfo(enriched);
-      const infoHash = String(info.hash || '').toLowerCase();
-      const fileHash = String(download.fileHash || '').toLowerCase();
+    const search = async (forceRefresh) => {
+      const downloads = await this._getAmuleDownloads(forceRefresh);
 
-      if (infoHash === lower || fileHash === lower || (ed2kHash && fileHash === ed2kHash)) {
-        return info;
+      for (const download of downloads) {
+        const enriched = await this.enrichDownload(download);
+        const info = convertToQBittorrentInfo(enriched);
+
+        if (matchesTorrentHash(lower, info, download.fileHash, h => this.hashStore.getEd2kHash(h))) {
+          return info;
+        }
       }
-    }
 
-    return null;
+      return null;
+    };
+
+    return (await search(false)) ?? (await search(true));
   }
 
   /**
@@ -512,12 +530,37 @@ class QBittorrentHandler {
   }
 
   /**
+   * GET /api/v2/torrents/files
+   *
+   * LazyLibrarian calls getFiles() during post-download processing. ED2K
+   * transfers are single-file; we expose one synthetic file entry.
+   */
+  async getTorrentFiles(req, res) {
+    try {
+      const { hash } = req.query;
+      if (!hash) {
+        return response.badRequest(res, 'Missing hash parameter');
+      }
+
+      const info = await this._findTorrentInfoByHash(hash);
+      if (!info) {
+        return res.status(404).send('');
+      }
+
+      res.json(convertToQBittorrentFiles(info));
+    } catch (error) {
+      logger.error('[qBittorrent] Get torrent files error:', error);
+      return response.serverError(res, 'Failed to get torrent files');
+    }
+  }
+
+  /**
    * POST /api/v2/torrents/add
    */
   async addTorrent(req, res) {
     try {
       const urls = req.body.urls;
-      const category = req.body.category || req.body.label || '';
+      const savepath = req.body.savepath || req.body.save_path || '';
 
       if (!urls) {
         return response.badRequest(res, 'Missing urls parameter');
@@ -528,24 +571,28 @@ class QBittorrentHandler {
         return response.serviceUnavailable(res, 'aMule not connected');
       }
 
+      await this.waitForCategoryInit();
+
+      const { categoryId, warnings } = resolveCategoryForAdd(
+        {
+          category: req.body.category,
+          label: req.body.label,
+          savepath
+        },
+        this.categoriesCache
+      );
+      for (const message of warnings) {
+        logger.warn(`[qBittorrent] ${message}`);
+      }
+
       const magnetLinks = urls
         .split(/[\n\r]+/)
         .map(s => s.trim())
         .filter(Boolean);
 
       const results = [];
-
-      // Get category ID
-      let categoryId = 0;
-      if (category) {
-        const categoryObj = await this.getCategoryByName(category);
-        if (categoryObj) {
-          categoryId = categoryObj.id;
-          logger.log(`[qBittorrent] Category "${category}" -> ID: ${categoryId}`);
-        } else {
-          logger.log(`[qBittorrent] Category "${category}" not found, using default`);
-        }
-      }
+      const dataFetchService = require('../DataFetchService');
+      let cacheInvalidated = false;
 
       for (const magnetLink of magnetLinks) {
         try {
@@ -560,9 +607,14 @@ class QBittorrentHandler {
           if (success) {
             this.hashStore.setMapping(ed2kHash, magnetHash, {
               fileName: this.extractFileName(magnetLink),
-              category: category || '',
+              category: req.body.category || req.body.label || '',
               addedAt: Date.now()
             });
+
+            if (!cacheInvalidated) {
+              dataFetchService.invalidateBatchCache();
+              cacheInvalidated = true;
+            }
 
             // Record ownership for the authenticated API user
             if (req.apiUser?.id && this.userManager) {

@@ -220,6 +220,7 @@ class QBittorrentAPI extends BaseModule {
     // Torrents endpoints
     router.get('/torrents/info', this.handler.getTorrentsInfo);
     router.get('/torrents/properties', this.handler.getTorrentProperties);
+    router.get('/torrents/files', this.handler.getTorrentFiles);
     router.post('/torrents/add', parseTorrentAddBody, this.handler.addTorrent);
     router.post('/torrents/delete', this.handler.deleteTorrent);
     router.post('/torrents/pause', this.handler.pauseTorrent);

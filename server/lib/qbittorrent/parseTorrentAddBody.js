@@ -10,13 +10,39 @@ const Busboy = require('busboy');
 const logger = require('../logger');
 const response = require('../responseFormatter');
 
+const MULTIPART_LIMITS = {
+  fields: 20,
+  files: 1,
+  parts: 21,
+  fieldSize: 64 * 1024,
+  fileSize: 1024 * 1024
+};
+
 function parseTorrentAddBody(req, res, next) {
   const contentType = req.headers['content-type'] || '';
   if (!contentType.includes('multipart/form-data')) {
     return next();
   }
 
-  const busboy = Busboy({ headers: req.headers });
+  let busboy;
+  let settled = false;
+
+  const finish = (handler) => {
+    if (settled) return;
+    settled = true;
+    handler();
+  };
+
+  try {
+    busboy = Busboy({
+      headers: req.headers,
+      limits: MULTIPART_LIMITS
+    });
+  } catch (error) {
+    logger.error('[qBittorrent] Multipart setup error:', error);
+    return response.badRequest(res, 'Invalid multipart body');
+  }
+
   req.body = req.body || {};
 
   busboy.on('field', (name, value) => {
@@ -29,10 +55,12 @@ function parseTorrentAddBody(req, res, next) {
 
   busboy.on('error', (err) => {
     logger.error('[qBittorrent] Multipart parse error:', err);
-    response.badRequest(res, 'Invalid multipart body');
+    finish(() => response.badRequest(res, 'Invalid multipart body'));
   });
 
-  busboy.on('finish', () => next());
+  busboy.on('finish', () => {
+    finish(() => next());
+  });
 
   req.pipe(busboy);
 }
