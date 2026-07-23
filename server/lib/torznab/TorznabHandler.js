@@ -14,6 +14,17 @@ const logger = require('../logger');
 const { generateCapabilities } = require('./capabilities');
 const { convertToTorznabFeed } = require('./search');
 
+// aMule's SearchList.cpp:104 rejects a parsed expression when
+// AND + OR + NOT operators > 10. The parser inserts an implicit AND
+// between adjacent space-separated words (Parser.y and_strings rule),
+// so N words → N-1 implicit ANDs. 11 words is the largest count that
+// still passes (10 ANDs). Cap conservatively at 11 so free-text queries
+// from *arr apps (Medusa etc. often pass series + full episode title)
+// don't trip "Search expression is too complex" and return 0 results.
+// If additional filters (type/size/extension) are ever added upstream
+// they auto-append operators; reserve headroom then.
+const MAX_AMULE_QUERY_WORDS = 11;
+
 class TorznabHandler {
   constructor() {
     // Dependencies
@@ -95,30 +106,61 @@ class TorznabHandler {
   }
 
   /**
-   * Build TV search queries with format variations
+   * Cap a query at `MAX_AMULE_QUERY_WORDS - reserved` words to stay within
+   * aMule's boolean-operator budget (SearchList.cpp:104 rejects >10 ops; the
+   * parser inserts one AND per adjacent-word pair). Truncates from the right
+   * — series names typically come first in *arr queries, episode titles last.
+   * Logs a warning whenever it fires so users can correlate "0 results" with
+   * an over-long query.
+   *
+   * @param {string} query
+   * @param {number} reserved - words we'll append after (e.g. 1 for " S01E05")
+   * @returns {string}
+   */
+  _capQueryWords(query, reserved = 0) {
+    if (!query) return query;
+    const maxWords = MAX_AMULE_QUERY_WORDS - reserved;
+    const words = query.split(/\s+/).filter(Boolean);
+    if (words.length <= maxWords) return query;
+    const capped = words.slice(0, maxWords).join(' ');
+    logger.warn(`[Torznab] Query capped to ${maxWords} words to stay under aMule's 10-operator limit: "${query}" → "${capped}"`);
+    return capped;
+  }
+
+  /**
+   * Build TV search queries with format variations.
+   *
+   * Returns primary format variations (SxxExx, 1x01, and absolute-style "01"
+   * for ED2K releases named e.g. "Show 01 - Title") plus a `fallbackQuery`
+   * (bare series name) that handleSearch retries with when all primaries
+   * return 0. The absolute-style variation catches a common French/documentary
+   * naming convention where episodes are numbered without any prefix.
    */
   buildTVSearchQueries(query, season, ep) {
-    const queries = [];
     const normalizedQuery = this.stripYear(query);
+    // Reserve 1 word for the format token we append; without the reserve we'd
+    // ship 12+ tokens for "long series name S01E05" and trip the operator cap.
+    const cappedBase = this._capQueryWords(normalizedQuery, 1);
     const seasonNum = parseInt(season, 10);
 
+    const primaryQueries = [];
     if (ep) {
       const episodeNum = parseInt(ep, 10);
-      const formats = [
-        `${seasonNum}x${episodeNum.toString().padStart(2, '0')}`,
-        `S${seasonNum.toString().padStart(2, '0')}E${episodeNum.toString().padStart(2, '0')}`
-      ];
-      formats.forEach(format => queries.push(`${normalizedQuery} ${format}`));
+      const paddedEp = episodeNum.toString().padStart(2, '0');
+      const paddedSeason = seasonNum.toString().padStart(2, '0');
+      primaryQueries.push(`${cappedBase} ${seasonNum}x${paddedEp}`);
+      primaryQueries.push(`${cappedBase} S${paddedSeason}E${paddedEp}`);
+      // Absolute-style: "Show 01" — common on ED2K for French / documentary /
+      // some anime releases. Cheap to add; dedup by hash handles collisions.
+      primaryQueries.push(`${cappedBase} ${paddedEp}`);
     } else {
-      const formats = [
-        `${seasonNum}x`,
-        `S${seasonNum.toString().padStart(2, '0')}`
-      ];
-      formats.forEach(format => queries.push(`${normalizedQuery} ${format}`));
+      const paddedSeason = seasonNum.toString().padStart(2, '0');
+      primaryQueries.push(`${cappedBase} ${seasonNum}x`);
+      primaryQueries.push(`${cappedBase} S${paddedSeason}`);
     }
 
-    logger.log(`[Torznab] TV search: Will search for ${queries.length} format variations`);
-    return { queries, normalizedQuery };
+    logger.log(`[Torznab] TV search: ${primaryQueries.length} primary variations + fallback on the bare series name`);
+    return { primaryQueries, fallbackQuery: cappedBase, normalizedQuery: cappedBase };
   }
 
   // ============================================================================
@@ -219,15 +261,22 @@ class TorznabHandler {
     }
 
     // Build search queries
-    let searchQueries = [];
+    let primaryQueries = [];
+    let fallbackQuery = null;
     let normalizedQuery = q;
 
     if (t === 'tvsearch' && season) {
       const result = this.buildTVSearchQueries(q, season, ep);
-      searchQueries = result.queries;
+      primaryQueries = result.primaryQueries;
+      fallbackQuery = result.fallbackQuery;
       normalizedQuery = result.normalizedQuery;
     } else {
-      searchQueries.push(q);
+      // Non-tvsearch: still cap the free-text query so long *arr queries
+      // (Medusa passes series + full episode title as `q`) don't trip
+      // aMule's "too complex" rejection.
+      const capped = this._capQueryWords(q, 0);
+      primaryQueries.push(capped);
+      normalizedQuery = capped;
     }
 
     // Create cache key
@@ -243,23 +292,31 @@ class TorznabHandler {
       allResults = [];
       const seenHashes = new Set();
 
-      for (const searchQuery of searchQueries) {
-        logger.log(`[Torznab] Searching aMule for: "${searchQuery}"`);
-
+      const runQuery = async (searchQuery, label) => {
+        logger.log(`[Torznab] Searching aMule for: "${searchQuery}"${label ? ` (${label})` : ''}`);
         const result = await this.rateLimitedSearch(() =>
           amuleClient.searchAndWaitResults(searchQuery, 'global', '')
         );
-
         const resultCount = (result.results || []).length;
         logger.log(`[Torznab] Query "${searchQuery}" returned ${resultCount} results`);
-
-        // Deduplicate by hash
         (result.results || []).forEach(file => {
           if (!seenHashes.has(file.fileHash)) {
             seenHashes.add(file.fileHash);
             allResults.push(file);
           }
         });
+      };
+
+      for (const searchQuery of primaryQueries) {
+        await runQuery(searchQuery);
+      }
+
+      // Fallback: if season/episode variants returned nothing, retry with the
+      // bare series name. Catches releases that don't include SxxExx or a
+      // matching absolute-episode token in the file name at all.
+      if (allResults.length === 0 && fallbackQuery && !primaryQueries.includes(fallbackQuery)) {
+        logger.log(`[Torznab] All ${primaryQueries.length} primary variants returned 0; retrying with bare series name`);
+        await runQuery(fallbackQuery, 'fallback');
       }
 
       logger.log(`[Torznab] Total unique results after merging: ${allResults.length}`);
