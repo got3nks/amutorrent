@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.8] - LazyLibrarian Compat, qBittorrent 2.11.2 API, Torznab Query Hardening
+
+### ✨ Added
+
+- **LazyLibrarian → aMuTorrent → aMule support.** Multipart `POST /api/v2/torrents/add` handling (LazyLibrarian sends the dummy-file variant even for magnet URLs), new `GET /api/v2/torrents/properties` and `GET /api/v2/torrents/files` endpoints for LazyLibrarian's post-add verification and post-download file discovery, and `invalidateBatchCache()` on successful add so the next `torrents/info` poll sees fresh data (Sonarr/Radarr get the same small QoL win). `savepath` sent alongside `urls` is mapped to a matching aMule category by path when no category/label is set, with explicit warnings when the path doesn't match anything (#71, contributed by @Mika3578).
+- **qBittorrent WebAPI ≥2.11.2 route aliases.** `POST /torrents/stop` and `POST /torrents/start` alias `pauseTorrent` / `resumeTorrent` respectively — real qBit renamed those in 2.11.2, and clients like Medusa key off the advertised `webapiVersion` (`2.11.4`) and call the new names. New `POST /torrents/setCategory` handler; returns 409 `text/plain "Category does not exist"` when the requested name isn't in the compat categories cache, matching qBit exactly so clients trigger the `createCategory` + retry handshake (#74).
+
+### 🐛 Fixed
+
+- **rTorrent 0.16.18 stuck showing "Firewalled" regardless of actual state.** rTorrent 0.16.18 deprecated `network.port_open`; our multicall was still calling it and falling into the `false` branch. That command was never a real firewall check anyway — it was a config toggle. Replaced with `network.listen.port > 0` (rTorrent is actually bound and listening), forward-compatible with 0.16.18 and backward-compatible with older builds.
+- **`size` / `downloaded` / `completed` shipped as JSON strings, crashing Medusa** (`unsupported operand type(s) for /: 'str' and 'str'`). Real qBit returns numbers; Sonarr/Radarr's .NET deserializer coerces silently, but strict consumers (Python, typed Go/Rust) don't. Root cause: `_mapUnifiedItemToDownload` was needlessly `String()`-casting numeric fields on the way in, and the converter passed them through verbatim. Fixed at both layers: source (drop the casts) and output boundary (`Number()`-coerce every numeric field before returning). Covers `size`, `total_size`, `amount_left`, `downloaded`, `completed`, `downloaded_session`, `uploaded`, `uploaded_session`, `dlspeed`, `upspeed`, `ratio` (#72).
+- **Torznab returned 0 items for long `q` values** (Medusa passes series name + full episode title as free-text). aMule's `SearchList.cpp:104` rejects a parsed expression when boolean operators exceed 10; the grammar inserts an implicit AND per adjacent-word pair, so 12+ words trips "Search expression is too complex". Long queries are now capped at 11 words (10 for tvsearch, reserving 1 for the appended format token), with a warn-level log so users can correlate. tvsearch also emits an absolute-style variant (`Show 05`) alongside the existing `1x05` / `S01E05` — catches ED2K releases named "Show 01 - Title" (common French / documentary / anime naming). If all season/episode variants collectively return 0, falls back to a single retry with the bare (capped) series name (#73).
+
+### ♻️ Improved
+
+- **qBittorrent-compat polish.** `_findTorrentInfoByHash` enriches only the matched candidate instead of every one (O(N) → O(1) enrich calls per lookup); negative-result cache (5s TTL, cleared on successful add) so bogus-hash polls don't refetch aMule on every request; 404 responses on `properties` / `files` now `text/plain` matching qBit; `npm test` script portable across all shells (`test/**/*.test.js` glob replaced with `test/` directory recursion).
+
+---
+
 ## [3.8.7] - Setup Wizard Field Parity
 
 ### 🐛 Fixed
