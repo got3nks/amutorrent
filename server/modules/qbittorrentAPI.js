@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const express = require('express');
 const BaseModule = require('../lib/BaseModule');
 const QBittorrentHandler = require('../lib/qbittorrent/QBittorrentHandler');
+const parseTorrentAddBody = require('../lib/qbittorrent/parseTorrentAddBody');
 const config = require('./config');
 const { parseBasicAuth, verifyPassword } = require('../lib/authUtils');
 
@@ -218,7 +219,9 @@ class QBittorrentAPI extends BaseModule {
 
     // Torrents endpoints
     router.get('/torrents/info', this.handler.getTorrentsInfo);
-    router.post('/torrents/add', this.handler.addTorrent);
+    router.get('/torrents/properties', this.handler.getTorrentProperties);
+    router.get('/torrents/files', this.handler.getTorrentFiles);
+    router.post('/torrents/add', parseTorrentAddBody, this.handler.addTorrent);
     router.post('/torrents/delete', this.handler.deleteTorrent);
     router.post('/torrents/pause', this.handler.pauseTorrent);
     router.post('/torrents/resume', this.handler.resumeTorrent);
