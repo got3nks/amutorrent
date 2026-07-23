@@ -48,6 +48,7 @@ class QBittorrentHandler {
     this.resumeTorrent = this.resumeTorrent.bind(this);
     this.getCategories = this.getCategories.bind(this);
     this.createCategory = this.createCategory.bind(this);
+    this.setCategory = this.setCategory.bind(this);
   }
 
   /**
@@ -846,6 +847,68 @@ class QBittorrentHandler {
     } catch (error) {
       logger.error('[qBittorrent] Pause torrent error:', error);
       return response.serverError(res, 'Failed to pause torrent');
+    }
+  }
+
+  /**
+   * POST /api/v2/torrents/setCategory
+   *
+   * Applies a named category to one or more torrents. Matches qBittorrent's
+   * WebAPI contract:
+   *   - 200 Ok. on success
+   *   - 409 Conflict when the requested category doesn't exist (qBit's exact
+   *     status/body — clients like Medusa handle this by calling
+   *     createCategory first and retrying)
+   *   - empty category name is accepted as a no-op (qBit clears the category
+   *     here; aMule has no clean "no category" concept, since every partfile
+   *     lives in category 0 by default)
+   */
+  async setCategory(req, res) {
+    try {
+      const { hashes, category } = req.body;
+      if (!hashes) return response.badRequest(res, 'Missing hashes parameter');
+      if (category === undefined) return response.badRequest(res, 'Missing category parameter');
+
+      // Empty string ⇒ clear category (qBit semantics). aMule has no clean
+      // mapping for that, so no-op with 200 for compat.
+      if (category === '') {
+        logger.log('[qBittorrent] setCategory: empty category (no-op — aMule has no clear semantic)');
+        return res.send('Ok.');
+      }
+
+      await this.waitForCategoryInit();
+
+      // Match qBit's 409 when the category doesn't exist. Clients (Medusa,
+      // qbittorrent-api) call createCategory + retry on this status.
+      const exists = this.categoriesCache.some(c => c.title === category);
+      if (!exists) {
+        return res.status(409).type('text/plain').send('Category does not exist');
+      }
+
+      const manager = this._getAmuleManager();
+      if (!manager || !manager.isConnected()) {
+        return response.serviceUnavailable(res, 'aMule not connected');
+      }
+
+      const hashList = hashes.split('|').map(h => h.trim()).filter(Boolean);
+      for (const hash of hashList) {
+        try {
+          const ed2kHash = this.hashStore.getEd2kHash(hash);
+          const finalHash = ed2kHash || hash;
+          const result = await manager.setCategoryOrLabel(finalHash, { categoryName: category });
+          if (result?.success) {
+            logger.log(`[qBittorrent] setCategory: ${finalHash} → "${category}"`);
+          } else {
+            logger.warn(`[qBittorrent] setCategory failed for ${hash}: ${result?.error || 'unknown'}`);
+          }
+        } catch (err) {
+          logger.warn(`[qBittorrent] setCategory failed for ${hash}: ${err.message}`);
+        }
+      }
+      res.send('Ok.');
+    } catch (error) {
+      logger.error('[qBittorrent] setCategory error:', error);
+      return response.serverError(res, 'Failed to set category');
     }
   }
 

@@ -225,8 +225,13 @@ class QBittorrentAPI extends BaseModule {
     router.post('/torrents/delete', this.handler.deleteTorrent);
     router.post('/torrents/pause', this.handler.pauseTorrent);
     router.post('/torrents/resume', this.handler.resumeTorrent);
+    // qBit WebAPI >= 2.11.2 renamed pause/resume → stop/start; expose both so
+    // clients on either side of the rename work (#74).
+    router.post('/torrents/stop', this.handler.pauseTorrent);
+    router.post('/torrents/start', this.handler.resumeTorrent);
     router.get('/torrents/categories', this.handler.getCategories);
     router.post('/torrents/createCategory', this.handler.createCategory);
+    router.post('/torrents/setCategory', this.handler.setCategory);
 
     // Mount protected router under /api/v2
     app.use('/api/v2', router);
