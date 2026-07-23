@@ -430,27 +430,64 @@ class QBittorrentHandler {
   /**
    * Resolve a torrent hash (magnet or ED2K) to qBittorrent info format.
    * Tries the cached snapshot first, then forces a fresh fetch before 404.
+   * Two optimizations vs the naive approach:
+   *   - Match on raw fileHash + hashStore before enriching, so enrichDownload
+   *     runs at most once per query (the winner), not once per candidate.
+   *   - Small negative-result cache (30s TTL) so bogus-hash polls that even
+   *     force-refresh doesn't help don't hammer aMule on every request. The
+   *     add path clears this cache on success so a just-added hash never
+   *     lingers in the miss set past its own arrival.
    * @returns {Promise<object|null>}
    */
   async _findTorrentInfoByHash(hash) {
     const lower = String(hash).toLowerCase();
+    if (this._isKnownMiss(lower)) return null;
+
+    const getEd2kHash = h => this.hashStore.getEd2kHash(h);
+    // matchesTorrentHash's info.hash branch is redundant with the hashStore
+    // reverse-lookup — we can call it pre-enrichment with an empty info stub.
+    const findMatch = (downloads) =>
+      downloads.find(d => matchesTorrentHash(lower, {}, d.fileHash, getEd2kHash));
 
     const search = async (forceRefresh) => {
       const downloads = await this._getAmuleDownloads(forceRefresh);
-
-      for (const download of downloads) {
-        const enriched = await this.enrichDownload(download);
-        const info = convertToQBittorrentInfo(enriched);
-
-        if (matchesTorrentHash(lower, info, download.fileHash, h => this.hashStore.getEd2kHash(h))) {
-          return info;
-        }
-      }
-
-      return null;
+      const match = findMatch(downloads);
+      if (!match) return null;
+      const enriched = await this.enrichDownload(match);
+      return convertToQBittorrentInfo(enriched);
     };
 
-    return (await search(false)) ?? (await search(true));
+    const result = (await search(false)) ?? (await search(true));
+    if (!result) this._recordMiss(lower);
+    return result;
+  }
+
+  /**
+   * Negative-result cache: hashes we've confirmed (via cached + forced fetch)
+   * that aMule doesn't have. 5s TTL matches DataFetchService's default cache
+   * window — consistent staleness semantics with the primary read path. Add
+   * path clears the cache proactively so a just-added hash never gets shadowed;
+   * for out-of-band adds via aMule's own UI, the worst-case delay before the
+   * hash becomes visible is 5s + one autoRefresh tick.
+   */
+  _isKnownMiss(hash) {
+    if (!this._missedHashes) return false;
+    const expiresAt = this._missedHashes.get(hash);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      this._missedHashes.delete(hash);
+      return false;
+    }
+    return true;
+  }
+
+  _recordMiss(hash) {
+    if (!this._missedHashes) this._missedHashes = new Map();
+    this._missedHashes.set(hash, Date.now() + 5_000);
+  }
+
+  _clearMissedHashes() {
+    if (this._missedHashes) this._missedHashes.clear();
   }
 
   /**
@@ -519,7 +556,7 @@ class QBittorrentHandler {
 
       const info = await this._findTorrentInfoByHash(hash);
       if (!info) {
-        return res.status(404).send('');
+        return res.status(404).type('text/plain').send('');
       }
 
       res.json(convertToQBittorrentProperties(info));
@@ -544,7 +581,7 @@ class QBittorrentHandler {
 
       const info = await this._findTorrentInfoByHash(hash);
       if (!info) {
-        return res.status(404).send('');
+        return res.status(404).type('text/plain').send('');
       }
 
       res.json(convertToQBittorrentFiles(info));
@@ -613,6 +650,7 @@ class QBittorrentHandler {
 
             if (!cacheInvalidated) {
               dataFetchService.invalidateBatchCache();
+              this._clearMissedHashes();
               cacheInvalidated = true;
             }
 
