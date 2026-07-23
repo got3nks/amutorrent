@@ -381,14 +381,22 @@ class QBittorrentHandler {
 
   /**
    * Map a unified DataFetchService item to the download shape used by converters.
+   *
+   * Numeric fields are passed as numbers, not strings. Earlier code String()-cast
+   * size/sizeDownloaded/progress; that was a needless intermediate representation
+   * that made the qBit-compat JSON output non-numeric for those fields
+   * (item.size arrives as a number here, the String cast turned it back to a
+   * string, and convertToQBittorrentInfo then emitted it verbatim). Real
+   * qBittorrent returns numbers; strict consumers like Medusa (#72) crash on
+   * strings.
    */
   _mapUnifiedItemToDownload(item) {
     return {
       fileName: item.name,
       fileHash: item.hash,
-      fileSize: String(item.size || 0),
-      fileSizeDownloaded: String(item.sizeDownloaded || 0),
-      progress: String(item.progress || 0),
+      fileSize: item.size || 0,
+      fileSizeDownloaded: item.sizeDownloaded || 0,
+      progress: item.progress || 0,
       sourceCount: item.sources?.connected || 0,
       speed: item.downloadSpeed || 0,
       priority: item.downloadPriority ?? 0,

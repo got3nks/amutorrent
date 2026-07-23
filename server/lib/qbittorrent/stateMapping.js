@@ -72,10 +72,18 @@ function determineState(progress, speed, sourceCount) {
  * @returns {object} qBittorrent-compatible torrent object
  */
 function convertToQBittorrentInfo(download) {
-  // Extract fields (support both EC_TAG_* and normalized names)
-  const sizeTotal = download.EC_TAG_PARTFILE_SIZE_FULL || download.fileSize || 0;
-  const sizeCompleted = download.EC_TAG_PARTFILE_SIZE_DONE || download.fileSizeDownloaded || 0;
-  const speed = download.EC_TAG_PARTFILE_SPEED || download.speed || 0;
+  // Extract fields (support both EC_TAG_* and normalized names).
+  // Number()-coerce numeric fields at the boundary: EC_TAG_* values from
+  // amule-ec-node may arrive as BigInt-safe strings, and any client-side
+  // stringification upstream would leak into the JSON output otherwise.
+  // Real qBittorrent returns numbers here; strict consumers (Medusa, #72)
+  // crash on strings.
+  const sizeTotal = Number(download.EC_TAG_PARTFILE_SIZE_FULL || download.fileSize || 0) || 0;
+  const sizeCompleted = Number(download.EC_TAG_PARTFILE_SIZE_DONE || download.fileSizeDownloaded || 0) || 0;
+  const speed = Number(download.EC_TAG_PARTFILE_SPEED || download.speed || 0) || 0;
+  const uploadTotal = Number(download.uploadTotal || 0) || 0;
+  const uploadSpeed = Number(download.uploadSpeed || 0) || 0;
+  const ratio = Number(download.ratio || 0) || 0;
   const fileName = download.EC_TAG_PARTFILE_NAME || download.fileName || 'Unknown';
   const priority = download.EC_TAG_PARTFILE_PRIO || download.priority || 1;
   const sourceCount = download.EC_TAG_PARTFILE_SOURCE_COUNT || download.sourceCount || 0;
@@ -129,7 +137,7 @@ function convertToQBittorrentInfo(download) {
     priority,
     private: false,
     progress,
-    ratio: download.ratio || 0,
+    ratio,
     // ratio_limit: 0 ⇒ Radarr's HasReachedSeedLimit always passes, unblocking *arr cleanup at pausedUP. aMule has no per-file seed goal anyway.
     ratio_limit: 0,
     reannounce: 0,
@@ -148,9 +156,9 @@ function convertToQBittorrentInfo(download) {
     tracker: '',
     trackers_count: 0,
     up_limit: 0,
-    uploaded: download.uploadTotal || 0,
-    uploaded_session: download.uploadTotal || 0,
-    upspeed: download.uploadSpeed || 0
+    uploaded: uploadTotal,
+    uploaded_session: uploadTotal,
+    upspeed: uploadSpeed
   };
 }
 
