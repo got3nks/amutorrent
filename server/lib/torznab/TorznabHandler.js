@@ -54,7 +54,15 @@ class TorznabHandler {
   // ============================================================================
 
   getCacheKey(t, q, season, ep) {
-    const parts = [t, q || ''];
+    // Lowercase + whitespace-normalize the query — aMule's search is
+    // case-insensitive and substring-based (Entry.cpp:231-248: everything
+    // gets Find()'d against GetCommonFileNameLowerCase). Case variants
+    // of the same title all match the same file set on aMule's side, so
+    // they should collapse to the same cache entry on ours instead of
+    // triggering separate 30s round-trips. Season/ep are numeric strings
+    // from URL params, no normalization needed; `t` is one of a fixed set.
+    const normQ = (q || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const parts = [t, normQ];
     if (season) parts.push(season);
     if (ep) parts.push(ep);
     return parts.join(':');
@@ -128,39 +136,88 @@ class TorznabHandler {
   }
 
   /**
-   * Build TV search queries with format variations.
+   * Build an anchored boolean query: `<series> AND (alt₁ OR alt₂ OR …)`.
    *
-   * Returns primary format variations (SxxExx, 1x01, and absolute-style "01"
-   * for ED2K releases named e.g. "Show 01 - Title") plus a `fallbackQuery`
-   * (bare series name) that handleSearch retries with when all primaries
-   * return 0. The absolute-style variation catches a common French/documentary
-   * naming convention where episodes are numbered without any prefix.
+   * Kad requires this shape. Kad hashes ONE keyword and contacts only the
+   * node responsible for it; the rest of the expression is evaluated on that
+   * node against files indexed under that keyword. A top-level OR of
+   * independent keywords silently under-returns (only one keyword's node is
+   * contacted). Anchoring on the rare series name pulls records from Kad,
+   * then the OR-group filters those results — Kad-safe.
+   *
+   * Also collapses the fan-out we used to run as multiple sequential queries
+   * into one call per network. aMule's parser handles the OR inline.
+   *
+   * Smart-quoting: quote the series ONLY when the operator budget would
+   * overflow (base + K − 1 > 10 → B > 11 − K). Quoted content still
+   * substring-AND-matches server-side (Entry.cpp:231-248) — same match set,
+   * just 1 token instead of B. Punctuation is free per aMule's client
+   * scanner (Scanner.l:45, keywordchar = `[^ "()]`), so we count whitespace
+   * tokens only.
+   *
+   * @param {string} seriesName - bare title (already year-stripped for tvsearch)
+   * @param {Array<string>} alternatives - format tokens to OR-group
+   * @returns {string} single query string ready to send to aMule
+   */
+  _buildAnchoredQuery(seriesName, alternatives) {
+    const trimmed = String(seriesName || '').trim();
+    const K = alternatives.length;
+    const tokenCount = trimmed ? trimmed.split(/\s+/).length : 0;
+    // Operator budget: (B − 1 implicit ANDs) + 1 explicit AND + (K − 1 ORs) ≤ 10
+    // → B + K ≤ 11. Reserve for K alternatives: B ≤ 11 − K.
+    const maxBaseTokens = MAX_AMULE_QUERY_WORDS - K;
+
+    let base;
+    if (tokenCount > maxBaseTokens) {
+      // Would overflow — collapse the multi-word base into a single token
+      // via quoting. Strip any embedded quotes to keep the syntax valid.
+      const safeInner = trimmed.replace(/"/g, '');
+      base = `"${safeInner}"`;
+      logger.warn(`[Torznab] Anchor quoted to reclaim operator budget (${tokenCount} > ${maxBaseTokens} tokens): "${trimmed}"`);
+    } else {
+      base = trimmed;
+    }
+
+    if (K === 0) return base;
+    if (K === 1) return `${base} AND ${alternatives[0]}`;
+    return `${base} AND (${alternatives.join(' OR ')})`;
+  }
+
+  /**
+   * Build a single TV search query using the anchored OR-group shape.
+   *
+   * Returns one `primaryQuery` (title + all format variants in one OR group)
+   * and one `fallbackQuery` (bare title) that handleSearch retries with when
+   * the primary returns 0 across both networks. Replaces the older approach
+   * of running the format variants as separate sequential queries — a single
+   * call per network now covers all formats, and the shape is Kad-safe.
+   *
+   * Format variants (all inside one OR):
+   *   with ep: S01E05, 1x05, 05 (absolute-style for "Show 01" naming)
+   *   without ep: S01, 1x
    */
   buildTVSearchQueries(query, season, ep) {
     const normalizedQuery = this.stripYear(query);
-    // Reserve 1 word for the format token we append; without the reserve we'd
-    // ship 12+ tokens for "long series name S01E05" and trip the operator cap.
-    const cappedBase = this._capQueryWords(normalizedQuery, 1);
     const seasonNum = parseInt(season, 10);
 
-    const primaryQueries = [];
+    const alternatives = [];
     if (ep) {
       const episodeNum = parseInt(ep, 10);
       const paddedEp = episodeNum.toString().padStart(2, '0');
       const paddedSeason = seasonNum.toString().padStart(2, '0');
-      primaryQueries.push(`${cappedBase} ${seasonNum}x${paddedEp}`);
-      primaryQueries.push(`${cappedBase} S${paddedSeason}E${paddedEp}`);
-      // Absolute-style: "Show 01" — common on ED2K for French / documentary /
-      // some anime releases. Cheap to add; dedup by hash handles collisions.
-      primaryQueries.push(`${cappedBase} ${paddedEp}`);
+      alternatives.push(`S${paddedSeason}E${paddedEp}`);
+      alternatives.push(`${seasonNum}x${paddedEp}`);
+      alternatives.push(paddedEp);   // absolute-style: "Show 05"
     } else {
       const paddedSeason = seasonNum.toString().padStart(2, '0');
-      primaryQueries.push(`${cappedBase} ${seasonNum}x`);
-      primaryQueries.push(`${cappedBase} S${paddedSeason}`);
+      alternatives.push(`S${paddedSeason}`);
+      alternatives.push(`${seasonNum}x`);
     }
 
-    logger.log(`[Torznab] TV search: ${primaryQueries.length} primary variations + fallback on the bare series name`);
-    return { primaryQueries, fallbackQuery: cappedBase, normalizedQuery: cappedBase };
+    const primaryQuery = this._buildAnchoredQuery(normalizedQuery, alternatives);
+    const fallbackQuery = this._buildAnchoredQuery(normalizedQuery, []);
+
+    return { primaryQuery, fallbackQuery, normalizedQuery };
   }
 
   // ============================================================================
@@ -260,23 +317,24 @@ class TorznabHandler {
       return res.send(emptyFeed);
     }
 
-    // Build search queries
-    let primaryQueries = [];
+    // Build search queries. New shape: one anchored OR-group per network
+    // (was N separate queries for tvsearch). See buildTVSearchQueries /
+    // _buildAnchoredQuery for the operator-budget reasoning.
+    let primaryQuery;
     let fallbackQuery = null;
     let normalizedQuery = q;
 
     if (t === 'tvsearch' && season) {
       const result = this.buildTVSearchQueries(q, season, ep);
-      primaryQueries = result.primaryQueries;
+      primaryQuery = result.primaryQuery;
       fallbackQuery = result.fallbackQuery;
       normalizedQuery = result.normalizedQuery;
     } else {
-      // Non-tvsearch: still cap the free-text query so long *arr queries
+      // Non-tvsearch: cap the free-text query so long *arr queries
       // (Medusa passes series + full episode title as `q`) don't trip
       // aMule's "too complex" rejection.
-      const capped = this._capQueryWords(q, 0);
-      primaryQueries.push(capped);
-      normalizedQuery = capped;
+      primaryQuery = this._capQueryWords(q, 0);
+      normalizedQuery = primaryQuery;
     }
 
     // Create cache key
@@ -285,20 +343,25 @@ class TorznabHandler {
     // Check cache
     let allResults = this.getCachedResults(cacheKey);
 
-    // Cache miss - perform search
+    // Cache miss - perform search across BOTH aMule networks (ED2K + Kad).
+    // ED2K = server-indexed; Kad = DHT-indexed. They cover disjoint file sets
+    // in practice, so querying both broadens hits meaningfully. Sequential
+    // through the existing rate limiter — the 10s spacing exists to avoid
+    // ED2K server flood protection; Kad doesn't need it but sequential keeps
+    // total time bounded and code simple.
     if (!allResults) {
-      logger.log(`[Torznab] Cache miss, performing ED2K search for key: ${cacheKey}`);
+      logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
 
       allResults = [];
       const seenHashes = new Set();
 
-      const runQuery = async (searchQuery, label) => {
-        logger.log(`[Torznab] Searching aMule for: "${searchQuery}"${label ? ` (${label})` : ''}`);
+      const runQueryOnNetwork = async (searchQuery, network, label) => {
+        logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
         const result = await this.rateLimitedSearch(() =>
-          amuleClient.searchAndWaitResults(searchQuery, 'global', '')
+          amuleClient.searchAndWaitResults(searchQuery, network, '')
         );
         const resultCount = (result.results || []).length;
-        logger.log(`[Torznab] Query "${searchQuery}" returned ${resultCount} results`);
+        logger.log(`[Torznab] ${network} query returned ${resultCount} results`);
         (result.results || []).forEach(file => {
           if (!seenHashes.has(file.fileHash)) {
             seenHashes.add(file.fileHash);
@@ -307,19 +370,23 @@ class TorznabHandler {
         });
       };
 
-      for (const searchQuery of primaryQueries) {
-        await runQuery(searchQuery);
+      const NETWORKS = ['global', 'kad'];
+
+      // Primary pass across both networks
+      for (const network of NETWORKS) {
+        await runQueryOnNetwork(primaryQuery, network);
       }
 
-      // Fallback: if season/episode variants returned nothing, retry with the
-      // bare series name. Catches releases that don't include SxxExx or a
-      // matching absolute-episode token in the file name at all.
-      if (allResults.length === 0 && fallbackQuery && !primaryQueries.includes(fallbackQuery)) {
-        logger.log(`[Torznab] All ${primaryQueries.length} primary variants returned 0; retrying with bare series name`);
-        await runQuery(fallbackQuery, 'fallback');
-      }
+      // Fallback disabled — primary filters are permissive enough. Kept in
+      // return shape for easy re-enable if a class of releases surfaces that
+      // needs it.
+      //
+      // if (allResults.length === 0 && fallbackQuery && fallbackQuery !== primaryQuery) {
+      //   for (const network of NETWORKS) await runQueryOnNetwork(fallbackQuery, network, 'fallback');
+      // }
+      void fallbackQuery;
 
-      logger.log(`[Torznab] Total unique results after merging: ${allResults.length}`);
+      logger.log(`[Torznab] Total unique results after merging (ED2K + Kad): ${allResults.length}`);
       this.setCachedResults(cacheKey, allResults);
     }
 
