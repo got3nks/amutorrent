@@ -408,37 +408,46 @@ async function testArrAPI(serviceName, url, apiKey) {
   try {
     // Remove trailing slash from URL
     const baseUrl = url.replace(/\/$/, '');
-    const endpoint = `${baseUrl}/api/v3/system/status`;
+    const endpoints = [
+      `${baseUrl}/api/v3/system/status`,
+      `${baseUrl}/api/v1/system/status`
+    ];
 
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'X-Api-Key': apiKey
-      },
-      signal: AbortSignal.timeout(10000) // 10 second timeout
-    });
+    let lastHttpError = null;
+    for (const endpoint of endpoints) {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'X-Api-Key': apiKey
+        },
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
 
-    result.reachable = true;
+      result.reachable = true;
 
-    if (response.status === 401 || response.status === 403) {
-      result.error = 'Authentication failed - invalid API key';
+      if (response.status === 401 || response.status === 403) {
+        result.error = 'Authentication failed - invalid API key';
+        return result;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        lastHttpError = `HTTP ${response.status}: ${text}`;
+        continue;
+      }
+
+      const data = await response.json();
+      result.authenticated = true;
+
+      if (data.version) {
+        result.version = data.version;
+      }
+
+      result.success = true;
       return result;
     }
 
-    if (!response.ok) {
-      const text = await response.text();
-      result.error = `HTTP ${response.status}: ${text}`;
-      return result;
-    }
-
-    const data = await response.json();
-    result.authenticated = true;
-
-    if (data.version) {
-      result.version = data.version;
-    }
-
-    result.success = true;
+    result.error = lastHttpError || `${serviceName} API did not return a supported /system/status response`;
     return result;
   } catch (err) {
     result.error = classifyNetworkError(err);
@@ -464,6 +473,26 @@ async function testSonarrAPI(url, apiKey) {
  */
 async function testRadarrAPI(url, apiKey) {
     return testArrAPI('Radarr', url, apiKey);
+}
+
+/**
+ * Test Lidarr API connection
+ * @param {string} url - Lidarr URL
+ * @param {string} apiKey - Lidarr API key
+ * @returns {Promise<{success: boolean, reachable: boolean, authenticated: boolean, version: string|null, error: string|null}>}
+ */
+async function testLidarrAPI(url, apiKey) {
+  return testArrAPI('Lidarr', url, apiKey);
+}
+
+/**
+ * Test Readarr API connection
+ * @param {string} url - Readarr URL
+ * @param {string} apiKey - Readarr API key
+ * @returns {Promise<{success: boolean, reachable: boolean, authenticated: boolean, version: string|null, error: string|null}>}
+ */
+async function testReadarrAPI(url, apiKey) {
+  return testArrAPI('Readarr', url, apiKey);
 }
 
 /**
@@ -681,5 +710,7 @@ module.exports = {
   testTransmissionConnection,
   testSonarrAPI,
   testRadarrAPI,
+  testLidarrAPI,
+  testReadarrAPI,
   testProwlarrAPI
 };

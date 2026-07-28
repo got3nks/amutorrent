@@ -30,7 +30,9 @@ class ArrManager extends BaseModule {
       // File doesn't exist or is invalid, return default state
       return {
         lastSonarrSearchCompleted: null,
-        lastRadarrSearchCompleted: null
+        lastRadarrSearchCompleted: null,
+        lastLidarrSearchCompleted: null,
+        lastReadarrSearchCompleted: null
       };
     }
   }
@@ -51,8 +53,20 @@ class ArrManager extends BaseModule {
       state.lastSonarrSearchCompleted = new Date().toISOString();
     } else if (service === 'radarr') {
       state.lastRadarrSearchCompleted = new Date().toISOString();
+    } else if (service === 'lidarr') {
+      state.lastLidarrSearchCompleted = new Date().toISOString();
+    } else if (service === 'readarr') {
+      state.lastReadarrSearchCompleted = new Date().toISOString();
     }
     await this.writeState(state);
+  }
+
+  getApiBase(service, url) {
+    const clean = (url || '').replace(/\/$/, '');
+    if (service === 'sonarr' || service === 'radarr') {
+      return `${clean}/api/v3`;
+    }
+    return `${clean}/api/v1`;
   }
 
   /**
@@ -64,7 +78,9 @@ class ArrManager extends BaseModule {
   async searchContent(service, contentId, contentType) {
     const config_map = {
       sonarr: { url: config.SONARR_URL, apiKey: config.SONARR_API_KEY, command: 'EpisodeSearch', idKey: 'episodeIds' },
-      radarr: { url: config.RADARR_URL, apiKey: config.RADARR_API_KEY, command: 'MoviesSearch', idKey: 'movieIds' }
+      radarr: { url: config.RADARR_URL, apiKey: config.RADARR_API_KEY, command: 'MoviesSearch', idKey: 'movieIds' },
+      lidarr: { url: config.LIDARR_URL, apiKey: config.LIDARR_API_KEY, command: 'AlbumSearch', idKey: 'albumIds' },
+      readarr: { url: config.READARR_URL, apiKey: config.READARR_API_KEY, command: 'BookSearch', idKey: 'bookIds' }
     };
 
     const cfg = config_map[service];
@@ -73,8 +89,10 @@ class ArrManager extends BaseModule {
       return;
     }
 
+    const apiBase = this.getApiBase(service, cfg.url);
+
     try {
-      const result = await this.fetchJson(`${cfg.url}/api/v3/command`, {
+      const result = await this.fetchJson(`${apiBase}/command`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,6 +122,16 @@ class ArrManager extends BaseModule {
     return this.searchContent('radarr', movieId, 'Movie');
   }
 
+  // Search for a specific album in Lidarr
+  async searchAlbum(albumId) {
+    return this.searchContent('lidarr', albumId, 'Album');
+  }
+
+  // Search for a specific book in Readarr
+  async searchBook(bookId) {
+    return this.searchContent('readarr', bookId, 'Book');
+  }
+
   // Helper: fetch JSON with error handling
   async fetchJson(url, options = {}) {
         const resp = await fetch(url, options);
@@ -128,6 +156,16 @@ class ArrManager extends BaseModule {
         url: config.RADARR_URL,
         apiKey: config.RADARR_API_KEY,
         searchInterval: config.RADARR_SEARCH_INTERVAL_HOURS
+      },
+      lidarr: {
+        url: config.LIDARR_URL,
+        apiKey: config.LIDARR_API_KEY,
+        searchInterval: config.LIDARR_SEARCH_INTERVAL_HOURS
+      },
+      readarr: {
+        url: config.READARR_URL,
+        apiKey: config.READARR_API_KEY,
+        searchInterval: config.READARR_SEARCH_INTERVAL_HOURS
       }
     };
     return configs[service];
@@ -146,7 +184,7 @@ class ArrManager extends BaseModule {
         return;
       }
 
-      const statusResp = await fetch(`${cfg.url}/api/v3/command/${commandId}`, {
+      const statusResp = await fetch(`${this.getApiBase(service, cfg.url)}/command/${commandId}`, {
         headers: { 'X-Api-Key': cfg.apiKey }
       });
       const statusData = await statusResp.json();
@@ -326,6 +364,42 @@ class ArrManager extends BaseModule {
         getItemsForContent: async (cfg, content) => [content], // Movies don't have sub-items
         formatItemLabel: (item) => `${item.title} (${item.year})`,
         searchFunction: (id) => this.searchMovie(id)
+      },
+      lidarr: {
+        refreshCommand: 'RefreshArtist',
+        contentEndpoint: 'artist',
+        episodeEndpoint: 'album',
+        queueParam: 'includeUnknownArtistItems=false',
+        queueIdKey: 'albumId',
+        contentType: 'album',
+        contentLabel: 'artists',
+        itemLabel: 'albums',
+        getContentId: (item) => item.id,
+        getItemsForContent: async (cfg, content) => {
+          return this.fetchJson(`${this.getApiBase(service, cfg.url)}/album?artistId=${content.id}`, {
+            headers: { 'X-Api-Key': cfg.apiKey }
+          });
+        },
+        formatItemLabel: (item) => item.title || item.albumTitle || `Album ${item.id}`,
+        searchFunction: (id) => this.searchAlbum(id)
+      },
+      readarr: {
+        refreshCommand: 'RefreshAuthor',
+        contentEndpoint: 'author',
+        episodeEndpoint: 'book',
+        queueParam: 'includeUnknownAuthorItems=false',
+        queueIdKey: 'bookId',
+        contentType: 'book',
+        contentLabel: 'authors',
+        itemLabel: 'books',
+        getContentId: (item) => item.id,
+        getItemsForContent: async (cfg, content) => {
+          return this.fetchJson(`${this.getApiBase(service, cfg.url)}/book?authorId=${content.id}`, {
+            headers: { 'X-Api-Key': cfg.apiKey }
+          });
+        },
+        formatItemLabel: (item) => item.title || `Book ${item.id}`,
+        searchFunction: (id) => this.searchBook(id)
       }
     };
 
@@ -346,7 +420,8 @@ class ArrManager extends BaseModule {
       this.log(`🔄 Triggering ${service} ${svcCfg.refreshCommand}...`);
 
       // 1️⃣ Trigger Refresh
-      const refreshResult = await this.fetchJson(`${cfg.url}/api/v3/command`, {
+      const apiBase = this.getApiBase(service, cfg.url);
+      const refreshResult = await this.fetchJson(`${apiBase}/command`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -364,15 +439,15 @@ class ArrManager extends BaseModule {
 
       const [allContent, qualityProfiles, queue] = await Promise.all([
         // Fetch all content
-        this.fetchJson(`${cfg.url}/api/v3/${svcCfg.contentEndpoint}`, {
+        this.fetchJson(`${apiBase}/${svcCfg.contentEndpoint}`, {
           headers: { 'X-Api-Key': cfg.apiKey }
         }),
         // Fetch quality profiles
-        this.fetchJson(`${cfg.url}/api/v3/qualityprofile`, {
+        this.fetchJson(`${apiBase}/qualityprofile`, {
           headers: { 'X-Api-Key': cfg.apiKey }
         }),
         // Fetch download queue
-        this.fetchJson(`${cfg.url}/api/v3/queue?${svcCfg.queueParam}`, {
+        this.fetchJson(`${apiBase}/queue?${svcCfg.queueParam}`, {
           headers: { 'X-Api-Key': cfg.apiKey }
         })
       ]);
@@ -534,28 +609,35 @@ class ArrManager extends BaseModule {
   // Check and trigger search if interval has elapsed
   async checkAndTriggerSearch(service) {
     const state = await this.readState();
-    const intervalMs = service === 'sonarr'
-      ? hoursToMs(config.SONARR_SEARCH_INTERVAL_HOURS)
-      : hoursToMs(config.RADARR_SEARCH_INTERVAL_HOURS);
+    const intervalByService = {
+      sonarr: hoursToMs(config.SONARR_SEARCH_INTERVAL_HOURS),
+      radarr: hoursToMs(config.RADARR_SEARCH_INTERVAL_HOURS),
+      lidarr: hoursToMs(config.LIDARR_SEARCH_INTERVAL_HOURS),
+      readarr: hoursToMs(config.READARR_SEARCH_INTERVAL_HOURS)
+    };
+    const intervalMs = intervalByService[service] || 0;
 
     if(intervalMs === 0) {
         return;
     }
 
-    const lastCompleted = service === 'sonarr'
-      ? state.lastSonarrSearchCompleted
-      : state.lastRadarrSearchCompleted;
+    const lastMap = {
+      sonarr: state.lastSonarrSearchCompleted,
+      radarr: state.lastRadarrSearchCompleted,
+      lidarr: state.lastLidarrSearchCompleted,
+      readarr: state.lastReadarrSearchCompleted
+    };
+    const lastCompleted = lastMap[service] || null;
 
     const now = Date.now();
 
     // If never run before, run immediately
     if (!lastCompleted) {
       this.log(`🚀 ${service.charAt(0).toUpperCase() + service.slice(1)} search has never run, triggering now...`);
-      if (service === 'sonarr') {
-        await this.triggerSonarrMissingSearch();
-      } else {
-        await this.triggerRadarrMissingSearch();
-      }
+      if (service === 'sonarr') await this.triggerSonarrMissingSearch();
+      else if (service === 'radarr') await this.triggerRadarrMissingSearch();
+      else if (service === 'lidarr') await this.triggerLidarrMissingSearch();
+      else if (service === 'readarr') await this.triggerReadarrMissingSearch();
       return;
     }
 
@@ -566,12 +648,21 @@ class ArrManager extends BaseModule {
     if (timeSinceLastRun >= intervalMs) {
       const hoursOverdue = Math.floor((timeSinceLastRun - intervalMs) / MS_PER_HOUR);
       this.log(`⏰ ${service.charAt(0).toUpperCase() + service.slice(1)} search interval elapsed (${hoursOverdue}h overdue), triggering now...`);
-      if (service === 'sonarr') {
-        await this.triggerSonarrMissingSearch();
-      } else {
-        await this.triggerRadarrMissingSearch();
-      }
+      if (service === 'sonarr') await this.triggerSonarrMissingSearch();
+      else if (service === 'radarr') await this.triggerRadarrMissingSearch();
+      else if (service === 'lidarr') await this.triggerLidarrMissingSearch();
+      else if (service === 'readarr') await this.triggerReadarrMissingSearch();
     }
+  }
+
+  // Trigger Lidarr to search for missing albums
+  async triggerLidarrMissingSearch() {
+    return this.triggerMissingSearch('lidarr');
+  }
+
+  // Trigger Readarr to search for missing books
+  async triggerReadarrMissingSearch() {
+    return this.triggerMissingSearch('readarr');
   }
 
   // Schedule automatic searches
@@ -601,6 +692,22 @@ class ArrManager extends BaseModule {
 
     // Setup automatic searches (user may have enabled it from the settings panel after initialization)
     setInterval(() => this.checkAndTriggerSearch('radarr'), minutesToMs(10));
+
+    if (config.LIDARR_SEARCH_INTERVAL_HOURS > 0) {
+      this.log(`⏰ Scheduling Lidarr automatic searches every ${config.LIDARR_SEARCH_INTERVAL_HOURS} hour(s)`);
+      this.checkAndTriggerSearch('lidarr');
+    } else {
+      this.log('ℹ️  Lidarr automatic search scheduling disabled (set LIDARR_SEARCH_INTERVAL_HOURS > 0 to enable)');
+    }
+    setInterval(() => this.checkAndTriggerSearch('lidarr'), minutesToMs(10));
+
+    if (config.READARR_SEARCH_INTERVAL_HOURS > 0) {
+      this.log(`⏰ Scheduling Readarr automatic searches every ${config.READARR_SEARCH_INTERVAL_HOURS} hour(s)`);
+      this.checkAndTriggerSearch('readarr');
+    } else {
+      this.log('ℹ️  Readarr automatic search scheduling disabled (set READARR_SEARCH_INTERVAL_HOURS > 0 to enable)');
+    }
+    setInterval(() => this.checkAndTriggerSearch('readarr'), minutesToMs(10));
   }
 }
 

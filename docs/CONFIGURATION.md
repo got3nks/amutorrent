@@ -14,7 +14,7 @@ This guide covers all configuration options for aMuTorrent.
 >
 > **Prowlarr:** Search torrents directly from the web UI. See [Prowlarr Setup](./PROWLARR.md).
 >
-> ***arr Apps:** Use aMuTorrent as a Torznab indexer and qBittorrent-compatible download client for Sonarr, Radarr, and other *arr applications. See [*arr Integration](./INTEGRATIONS.md).
+> ***arr Apps:** Use aMuTorrent as a Torznab indexer and qBittorrent-compatible download client for Sonarr, Radarr, Lidarr, Readarr, and other *arr applications. See [*arr Integration](./INTEGRATIONS.md).
 >
 > **Notifications:** Get notified when downloads complete or other events occur. See [Notifications](./NOTIFICATIONS.md).
 >
@@ -34,7 +34,7 @@ When you first access the web interface (or if no configuration exists), an inte
 2. **Security** - Configure web interface authentication (password protection)
 3. **Download Clients** - Configure aMule, rTorrent, qBittorrent, Deluge, and/or Transmission connections (with testing)
 4. **Directories** - Set data, logs, and GeoIP directories
-5. **Integrations** - Optionally enable Prowlarr, Sonarr, and Radarr
+5. **Integrations** - Optionally enable Prowlarr, Sonarr, Radarr, Lidarr, and Readarr
 6. **Review & Save** - Test all settings and save configuration
 
 The wizard will:
@@ -60,7 +60,7 @@ When authentication is enabled, the password must meet these requirements:
 After initial setup, access the Settings page anytime via the sidebar (desktop) or bottom navigation bar (mobile). The Settings page allows you to:
 
 - View and edit all configuration options
-- Test individual configuration sections (aMule, rTorrent, qBittorrent, Deluge, Transmission, Directories, Prowlarr, Sonarr, Radarr)
+- Test individual configuration sections (aMule, rTorrent, qBittorrent, Deluge, Transmission, slskd, Directories, Prowlarr, Sonarr, Radarr, Lidarr, Readarr)
 - Test all configuration at once before saving
 - Enable/disable integrations with toggle switches
 
@@ -94,6 +94,8 @@ Sensitive fields include:
 - `PROWLARR_API_KEY` - Prowlarr API key
 - `SONARR_API_KEY` - Sonarr API key
 - `RADARR_API_KEY` - Radarr API key
+ - `LIDARR_API_KEY` - Lidarr API key
+ - `READARR_API_KEY` - Readarr API key
 
 When these are set via environment variables:
 - The environment variable **always takes precedence**
@@ -211,6 +213,16 @@ services:
       - RADARR_API_KEY=your_api_key  # Locks UI editing
       - RADARR_SEARCH_INTERVAL_HOURS=6
 
+      # Lidarr Integration (optional)
+      - LIDARR_URL=http://lidarr:8686
+      - LIDARR_API_KEY=your_api_key  # Locks UI editing
+      - LIDARR_SEARCH_INTERVAL_HOURS=6
+
+      # Readarr Integration (optional)
+      - READARR_URL=http://readarr:8787
+      - READARR_API_KEY=your_api_key  # Locks UI editing
+      - READARR_SEARCH_INTERVAL_HOURS=6
+
       # Skip wizard (optional - only if all settings provided)
       - SKIP_SETUP_WIZARD=false
 ```
@@ -325,6 +337,22 @@ services:
 | `RADARR_URL` | - | Radarr base URL (auto-enables integration) |
 | `RADARR_API_KEY` | - | Radarr API key (locks UI editing) |
 | `RADARR_SEARCH_INTERVAL_HOURS` | `6` | Hours between automatic searches |
+
+#### Lidarr Integration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LIDARR_URL` | - | Lidarr base URL (auto-enables integration) |
+| `LIDARR_API_KEY` | - | Lidarr API key (locks UI editing) |
+| `LIDARR_SEARCH_INTERVAL_HOURS` | `6` | Hours between automatic searches |
+
+#### Readarr Integration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `READARR_URL` | - | Readarr base URL (auto-enables integration) |
+| `READARR_API_KEY` | - | Readarr API key (locks UI editing) |
+| `READARR_SEARCH_INTERVAL_HOURS` | `6` | Hours between automatic searches |
 
 #### Download History
 

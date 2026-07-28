@@ -29,7 +29,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 
 ### Integrations
 - **Prowlarr Search** - Search torrents across multiple indexers (results go to any connected BitTorrent client)
-- **Sonarr/Radarr** - Torznab indexer and qBittorrent-compatible API for aMule
+- **Sonarr/Radarr/Lidarr/Readarr** - Torznab indexer and qBittorrent-compatible API for aMule
 - **Push Notifications** - Apprise integration for 80+ notification services
 - **Custom Event Scripts** - Run your own scripts on download events
 
@@ -132,7 +132,7 @@ Open `http://localhost:4000` and complete the setup wizard.
 | [Notifications](./docs/NOTIFICATIONS.md) | Push notifications via Apprise (80+ services) |
 | [Custom Scripting](./scripts/README.md) | Run custom scripts on download events |
 | [GeoIP Setup](./docs/GEOIP.md) | Display peer locations with MaxMind databases |
-| [Sonarr/Radarr Integration](./docs/INTEGRATIONS.md) | Complete guide for *arr applications setup |
+| [*arr Integration](./docs/INTEGRATIONS.md) | Complete guide for Sonarr, Radarr, Lidarr, Readarr, and other *arr apps |
 | [User Management](./docs/USERS.md) | Authentication, capabilities, SSO, and API keys |
 | [API Reference](./docs/API.md) | REST API and WebSocket protocol |
 | [Development Guide](./docs/DEVELOPMENT.md) | Building, project structure, contributing |
@@ -199,7 +199,7 @@ Open `http://localhost:4000` and complete the setup wizard.
 - Test your service configuration via the Notifications page
 - See [Notifications Guide](./docs/NOTIFICATIONS.md) for setup details
 
-**Sonarr/Radarr can't find downloaded files?**
+**Sonarr/Radarr/Lidarr/Readarr can't find downloaded files?**
 - Configure categories with correct download paths
 - Set up Remote Path Mappings if using Docker
 - See [Integration Guide](./docs/INTEGRATIONS.md) for details

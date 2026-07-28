@@ -18,6 +18,8 @@ const buildFormData = (cfg) => ({
     amuleInstanceId: cfg.integrations?.amuleInstanceId || null,
     sonarr: { ...cfg.integrations.sonarr },
     radarr: { ...cfg.integrations.radarr },
+    lidarr: { ...cfg.integrations?.lidarr || { enabled: false, url: '', apiKey: '', searchIntervalHours: 6 } },
+    readarr: { ...cfg.integrations?.readarr || { enabled: false, url: '', apiKey: '', searchIntervalHours: 6 } },
     prowlarr: { ...cfg.integrations?.prowlarr || { enabled: false, url: '', apiKey: '' } }
   },
   history: { ...cfg.history },
@@ -50,6 +52,12 @@ const getUnmaskedConfig = (config) => {
   }
   if (unmasked.integrations?.radarr?.apiKey === '********') {
     delete unmasked.integrations.radarr.apiKey;
+  }
+  if (unmasked.integrations?.lidarr?.apiKey === '********') {
+    delete unmasked.integrations.lidarr.apiKey;
+  }
+  if (unmasked.integrations?.readarr?.apiKey === '********') {
+    delete unmasked.integrations.readarr.apiKey;
   }
   if (unmasked.integrations?.prowlarr?.apiKey === '********') {
     delete unmasked.integrations.prowlarr.apiKey;
@@ -93,6 +101,8 @@ export const useSettingsFormData = ({ currentConfig, clearTestResults }) => {
         auth: currentConfig.server?.auth?.password || '',
         sonarr: currentConfig.integrations.sonarr.apiKey,
         radarr: currentConfig.integrations.radarr.apiKey,
+        lidarr: currentConfig.integrations?.lidarr?.apiKey || '',
+        readarr: currentConfig.integrations?.readarr?.apiKey || '',
         prowlarr: currentConfig.integrations?.prowlarr?.apiKey || ''
       });
     }

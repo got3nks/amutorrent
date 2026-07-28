@@ -90,6 +90,12 @@ class ConfigAPI extends BaseModule {
       radarrUrl: config.isFromEnv('integrations.radarr.url'),
       radarrApiKey: config.isFromEnv('integrations.radarr.apiKey'),
       radarrSearchInterval: config.isFromEnv('integrations.radarr.searchIntervalHours'),
+      lidarrUrl: config.isFromEnv('integrations.lidarr.url'),
+      lidarrApiKey: config.isFromEnv('integrations.lidarr.apiKey'),
+      lidarrSearchInterval: config.isFromEnv('integrations.lidarr.searchIntervalHours'),
+      readarrUrl: config.isFromEnv('integrations.readarr.url'),
+      readarrApiKey: config.isFromEnv('integrations.readarr.apiKey'),
+      readarrSearchInterval: config.isFromEnv('integrations.readarr.searchIntervalHours'),
       prowlarrUrl: config.isFromEnv('integrations.prowlarr.url'),
       prowlarrApiKey: config.isFromEnv('integrations.prowlarr.apiKey')
     };
@@ -105,6 +111,8 @@ class ConfigAPI extends BaseModule {
     const passwordPaths = [
       { new: 'integrations.sonarr.apiKey', current: 'integrations.sonarr.apiKey' },
       { new: 'integrations.radarr.apiKey', current: 'integrations.radarr.apiKey' },
+      { new: 'integrations.lidarr.apiKey', current: 'integrations.lidarr.apiKey' },
+      { new: 'integrations.readarr.apiKey', current: 'integrations.readarr.apiKey' },
       { new: 'integrations.prowlarr.apiKey', current: 'integrations.prowlarr.apiKey' }
     ];
 
@@ -278,12 +286,12 @@ class ConfigAPI extends BaseModule {
   /**
    * POST /api/config/test
    * Test configuration components
-   * Body: { amule?, rtorrent?, directories?, sonarr?, radarr?, prowlarr? }
+  * Body: { amule?, rtorrent?, directories?, sonarr?, radarr?, lidarr?, readarr?, prowlarr? }
    * Note: If passwords are missing, use current config values
    */
   async testConfig(req, res) {
     try {
-      const { amule, rtorrent, directories, sonarr, radarr, prowlarr } = req.body;
+      const { amule, rtorrent, directories, sonarr, radarr, lidarr, readarr, prowlarr } = req.body;
       const results = {};
       const currentConfig = config.getConfig();
 
@@ -390,6 +398,22 @@ class ConfigAPI extends BaseModule {
         this.log(`🧪 Testing Radarr API at ${radarr.url}...`);
         results.radarr = await configTester.testRadarrAPI(radarr.url, apiKey);
         this.logTestResult('Radarr API', results.radarr);
+      }
+
+      // Test Lidarr if provided and enabled
+      if (lidarr && lidarr.enabled) {
+        const apiKey = lidarr.apiKey || currentConfig.integrations?.lidarr?.apiKey;
+        this.log(`🧪 Testing Lidarr API at ${lidarr.url}...`);
+        results.lidarr = await configTester.testLidarrAPI(lidarr.url, apiKey);
+        this.logTestResult('Lidarr API', results.lidarr);
+      }
+
+      // Test Readarr if provided and enabled
+      if (readarr && readarr.enabled) {
+        const apiKey = readarr.apiKey || currentConfig.integrations?.readarr?.apiKey;
+        this.log(`🧪 Testing Readarr API at ${readarr.url}...`);
+        results.readarr = await configTester.testReadarrAPI(readarr.url, apiKey);
+        this.logTestResult('Readarr API', results.readarr);
       }
 
       // Test Prowlarr if provided and enabled
@@ -507,7 +531,11 @@ class ConfigAPI extends BaseModule {
       for (const mgr of registry.getAll()) {
         this.log(`🔄 Closing existing ${mgr.displayName} connection (${mgr.instanceId})...`);
         try {
-          await mgr.shutdown();
+          if (typeof mgr.shutdown === 'function') {
+            await mgr.shutdown();
+          } else if (typeof mgr.cleanup === 'function') {
+            await mgr.cleanup();
+          }
         } catch (err) {
           this.warn(`⚠️  Error shutting down ${mgr.instanceId}:`, err.message);
         }

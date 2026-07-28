@@ -20,23 +20,23 @@ aMuTorrent integrates with any *arr application (Sonarr, Radarr, Lidarr, Readarr
 
 aMuTorrent provides two APIs for *arr integration:
 
-1. **Torznab Indexer API** - Allows Sonarr/Radarr to search the ED2K network
-2. **qBittorrent-Compatible Download Client API** - Allows Sonarr/Radarr to manage downloads and import completed files
+1. **Torznab Indexer API** - Allows Sonarr/Radarr/Lidarr/Readarr to search the ED2K network
+2. **qBittorrent-Compatible Download Client API** - Allows Sonarr/Radarr/Lidarr/Readarr to manage downloads and import completed files
 
 ---
 
 ## How It Works
 
-1. **Searching:** When Sonarr/Radarr searches for content, they query our Torznab API, which performs an ED2K search and returns results
-2. **Downloading:** When a release is selected, Sonarr/Radarr sends the ED2K link to our qBittorrent-compatible API
-3. **Monitoring:** Sonarr/Radarr monitors download progress via the Queue page
-4. **Importing:** Once complete, Sonarr/Radarr imports the file from the download directory
+1. **Searching:** When Sonarr/Radarr/Lidarr/Readarr searches for content, they query our Torznab API, which performs an ED2K search and returns results
+2. **Downloading:** When a release is selected, Sonarr/Radarr/Lidarr/Readarr sends the ED2K link to our qBittorrent-compatible API
+3. **Monitoring:** Sonarr/Radarr/Lidarr/Readarr monitors download progress via the Queue page
+4. **Importing:** Once complete, Sonarr/Radarr/Lidarr/Readarr imports the file from the download directory
 
 ---
 
 ## Step 1: Configure Categories
 
-**This step is critical!** Categories determine where files are downloaded, and Sonarr/Radarr need to know these paths.
+**This step is critical!** Categories determine where files are downloaded, and Sonarr/Radarr/Lidarr/Readarr need to know these paths.
 
 ### In aMuTorrent:
 
@@ -52,6 +52,14 @@ aMuTorrent provides two APIs for *arr integration:
 - **Title:** `radarr`
 - **Path:** `/downloads/radarr` (or your preferred path)
 
+**For Lidarr (Music):**
+- **Title:** `lidarr`
+- **Path:** `/downloads/lidarr` (or your preferred path)
+
+**For Readarr (Books):**
+- **Title:** `readarr`
+- **Path:** `/downloads/readarr` (or your preferred path)
+
 > **Important:** Remember these exact category names and paths - you'll need them when configuring the download client.
 
 ---
@@ -60,7 +68,7 @@ aMuTorrent provides two APIs for *arr integration:
 
 The Torznab indexer allows *arr applications to search the ED2K network.
 
-### For Sonarr:
+### For Sonarr / Radarr / Lidarr / Readarr:
 
 1. Go to **Settings** → **Indexers**
 2. Click **+** (Add Indexer)
@@ -79,28 +87,28 @@ The Torznab indexer allows *arr applications to search the ED2K network.
 5. Click **Test** to verify connection
 6. Click **Save**
 
-### For Radarr:
-
-1. Go to **Settings** → **Indexers**
-2. Click **+** (Add Indexer)
-3. Select **Torznab** → **Custom**
-4. Configure:
+Use the same Torznab endpoint in all *arr apps:
 
 | Field | Value |
 |-------|-------|
 | **Name** | `aMule` (or any name) |
 | **URL** | `http://YOUR-SERVER:4000/indexer/amule/api` |
 | **API Key** | Your web UI password (see note below) |
-| **Categories** | 2000 (Movies) or leave default |
 | **Enable Automatic Search** | Your preference |
 | **Enable Interactive Search** | Yes |
 
-5. Click **Test** to verify connection
-6. Click **Save**
+Suggested category presets by app:
+
+| App | Suggested Torznab Category |
+|-----|----------------------------|
+| Sonarr | 5000 (TV) |
+| Radarr | 2000 (Movies) |
+| Lidarr | 3000 (Audio) |
+| Readarr | 7000 (Books) |
 
 > **Note:** Replace `YOUR-SERVER` with your actual server IP/hostname. If running in Docker, use the container name or `host.docker.internal`.
 
-> **Authentication:** If web UI authentication is enabled, the **API Key** field is required. Use your personal API key (found in Settings → Sonarr/Radarr integration info). If authentication is disabled, leave the API Key field empty.
+> **Authentication:** If web UI authentication is enabled, the **API Key** field is required. Use your personal API key (found in Settings → *arr integration info). If authentication is disabled, leave the API Key field empty.
 
 ---
 
@@ -108,7 +116,7 @@ The Torznab indexer allows *arr applications to search the ED2K network.
 
 The qBittorrent-compatible API allows *arr applications to manage downloads.
 
-### For Sonarr:
+### For Sonarr / Radarr / Lidarr / Readarr:
 
 1. Go to **Settings** → **Download Clients**
 2. Click **+** (Add Download Client)
@@ -128,12 +136,7 @@ The qBittorrent-compatible API allows *arr applications to manage downloads.
 5. Click **Test** to verify connection
 6. Click **Save**
 
-### For Radarr:
-
-1. Go to **Settings** → **Download Clients**
-2. Click **+** (Add Download Client)
-3. Select **qBittorrent**
-4. Configure:
+Use the same download client endpoint in all *arr apps:
 
 | Field | Value |
 |-------|-------|
@@ -142,11 +145,16 @@ The qBittorrent-compatible API allows *arr applications to manage downloads.
 | **Port** | `4000` |
 | **Username** | Any value, e.g. `admin` (see note below) |
 | **Password** | Your web UI password (see note below) |
-| **Category** | `radarr` (must match category created in Step 1) |
 | **Remove Completed** | Your preference |
 
-5. Click **Test** to verify connection
-6. Click **Save**
+Set category by app (must match Step 1):
+
+| App | Category |
+|-----|----------|
+| Sonarr | `sonarr` |
+| Radarr | `radarr` |
+| Lidarr | `lidarr` |
+| Readarr | `readarr` |
 
 > **Authentication:** If web UI authentication is enabled, fill **either** the API Key field (preferred, newer Sonarr/Radarr) **or** the Username + Password fields — see the next section.
 
@@ -197,13 +205,13 @@ services:
 
 With this setup, aMule and *arr containers all see `/downloads` as the same directory on the host (`./data/aMule/incoming`).
 
-> **Note:** The web controller doesn't need access to the downloads directory - only aMule (which does the actual downloading) and Sonarr/Radarr (which import the files) need it.
+> **Note:** The web controller doesn't need access to the downloads directory - only aMule (which does the actual downloading) and Sonarr/Radarr/Lidarr/Readarr (which import the files) need it.
 
 ### Solution 2: Remote Path Mappings
 
-If containers use different internal paths for the same host directory, configure **Remote Path Mappings** in Sonarr/Radarr.
+If containers use different internal paths for the same host directory, configure **Remote Path Mappings** in Sonarr/Radarr/Lidarr/Readarr.
 
-**When do you need this?** When aMule and Sonarr/Radarr mount the same host folder to *different* container paths.
+**When do you need this?** When aMule and Sonarr/Radarr/Lidarr/Readarr mount the same host folder to *different* container paths.
 
 **Example Setup:**
 
@@ -216,7 +224,7 @@ Sonarr container:     mounted as /data/downloads
 
 When aMule finishes downloading, it reports the file path as `/downloads/sonarr/show.mkv`. But Sonarr sees that same file as `/data/downloads/sonarr/show.mkv`. Remote Path Mapping tells Sonarr how to translate the path.
 
-**Configure in Sonarr/Radarr:**
+**Configure in Sonarr/Radarr/Lidarr/Readarr:**
 
 1. Go to **Settings** → **Download Clients**
 2. Scroll to **Remote Path Mappings**
@@ -247,9 +255,9 @@ You can configure automatic searches to periodically check for missing content.
 ### In aMuTorrent:
 
 1. Go to **Settings**
-2. Enable **Sonarr Integration** and/or **Radarr Integration**
+2. Enable **Sonarr Integration**, **Radarr Integration**, **Lidarr Integration**, and/or **Readarr Integration**
 3. Configure:
-   - **URL:** `http://YOUR-SERVER:8989` (Sonarr) or `http://YOUR-SERVER:7878` (Radarr)
+  - **URL:** `http://YOUR-SERVER:8989` (Sonarr), `http://YOUR-SERVER:7878` (Radarr), `http://YOUR-SERVER:8686` (Lidarr), or `http://YOUR-SERVER:8787` (Readarr)
    - **API Key:** Found in *arr Settings → General → Security
    - **Search Interval:** Hours between automatic searches (e.g., `6`)
 
@@ -258,13 +266,13 @@ You can configure automatic searches to periodically check for missing content.
 ### What This Does:
 
 At the configured interval, the Web Controller will:
-1. Connect to Sonarr/Radarr API
-2. Trigger a search for missing episodes/movies
-3. Sonarr/Radarr will then query the Torznab indexer for results
+1. Connect to Sonarr/Radarr/Lidarr/Readarr API
+2. Trigger a search for missing episodes/movies/albums/books
+3. Sonarr/Radarr/Lidarr/Readarr will then query the Torznab indexer for results
 
 ### Required: Enable Automatic Search on the Indexer
 
-For this feature to work, you **must** enable **Automatic Search** on the aMule indexer in Sonarr/Radarr:
+For this feature to work, you **must** enable **Automatic Search** on the aMule indexer in Sonarr/Radarr/Lidarr/Readarr:
 
 1. Go to **Settings** → **Indexers**
 2. Edit the aMule indexer
@@ -306,6 +314,6 @@ ED2K servers have flood protection that can temporarily ban clients making too m
 ### Automatic search not triggering
 
 1. Verify API key is correct in Settings
-2. Check Sonarr/Radarr URL is accessible from Web Controller
+2. Check Sonarr/Radarr/Lidarr/Readarr URL is accessible from Web Controller
 3. Verify search interval is set (not 0)
 4. Check server logs for errors
