@@ -8,6 +8,7 @@
 import React from 'https://esm.sh/react@18.2.0';
 import { Table, Icon, MobileCardHeader, Tooltip, StarRating } from './index.js';
 import { formatBytes, formatDateTime, getMobileCardRowClass } from '../../utils/index.js';
+import { getSearchStatusBadge } from '../../utils/searchDownloadStatus.js';
 
 const { createElement: h, useCallback, useMemo, useState } = React;
 
@@ -70,6 +71,29 @@ const AlternateNamesList = ({ item, expanded }) => {
       style: { wordBreak: 'break-all', overflowWrap: 'anywhere' }
     }, name))
   );
+};
+
+// Same geometry as the pill used elsewhere (InfoModalTables); only tone varies.
+const BADGE_TONES = {
+  green: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+  blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  red: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+};
+
+/**
+ * "Queued" / "Downloaded" / "Cancelled" marker for a search result aMule
+ * already knows about (#77). Renders nothing for a new file, which is the
+ * overwhelming majority — marking those would be noise.
+ * @param {Object} opts - { status } from item.downloadStatus
+ * @returns {Object|null}
+ */
+const SearchStatusBadge = ({ status }) => {
+  const badge = getSearchStatusBadge(status);
+  if (!badge) return null;
+  return h('span', {
+    className: `flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${BADGE_TONES[badge.tone] || BADGE_TONES.blue}`,
+    title: badge.title
+  }, badge.label);
 };
 
 /**
@@ -265,7 +289,8 @@ const SearchResultsList = ({
                   className: `font-medium text-xs break-words whitespace-normal ${onAllInstances ? '' : 'cursor-pointer hover:font-bold'}`,
                   style: { wordBreak: 'break-all', overflowWrap: 'anywhere' },
                   onClick: onAllInstances ? undefined : () => onToggleSelection(item.fileHash)
-                }, item.fileName)
+                }, item.fileName),
+                h(SearchStatusBadge, { status: item.downloadStatus })
               ),
               h(AlternateNamesList, { item, expanded })
             );
@@ -314,7 +339,7 @@ const SearchResultsList = ({
       },
         // Alternate filenames for this hash, collapsed by default (#82)
         h(AlternateNamesList, { item, expanded: expandedNames.has(item.fileHash) }),
-        // Detail row: Size and Sources/Seeders
+        // Detail row: Size, Sources/Seeders, then the status badge last
         h('div', { className: 'flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 flex-wrap' },
           h(Icon, { name: 'harddrive', size: 12, className: 'text-gray-500 dark:text-gray-400' }),
           h('span', { className: 'text-gray-900 dark:text-gray-100' }, formatBytes(item.fileSize)),
@@ -339,7 +364,8 @@ const SearchResultsList = ({
           isProwlarr && item.categories?.length > 0 && [
             h('span', { key: 'sep3', className: 'text-gray-400' }, '·'),
             h('span', { key: 'cat', className: 'text-gray-500 dark:text-gray-400' }, item.categories[0].name)
-          ]
+          ],
+          h(SearchStatusBadge, { key: 'status', status: item.downloadStatus })
         )
       )
     );
