@@ -4,6 +4,7 @@
  */
 
 const QueuedAmuleClient = require('./queuedAmuleClient');
+const { CATEGORY_REASON } = require('amule-ec-node');
 const config = require('./config');
 const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
@@ -1029,16 +1030,26 @@ class AmuleManager extends BaseClientManager {
     const effectivePath = path || defaultPath || '';
 
     try {
-      // amule-ec-node collapses both EC_OP_FAILED shapes to `false`:
-      //   + EC_TAG_CATEGORY_PATH → path refused, rest applied (#1213)
-      //   + EC_TAG_STRING        → no such category, nothing applied (#1228)
-      // Only the read-back tells them apart, so it decides success, not this.
       this._invalidateCategorySlotCache();
-      const accepted = await this.client.updateCategory(targetId, name, effectivePath, comment, color, priority);
-      if (accepted) {
-        this.log(`📤 Updated category "${name}" in aMule (ID: ${targetId}, path: "${effectivePath}")`);
+      const result = await this.client.updateCategory(targetId, name, effectivePath, comment, color, priority);
+      const daemonMsg = result.message ? ` — aMule said: "${result.message}"` : '';
+
+      if (result.reason === CATEGORY_REASON.NO_SUCH_CATEGORY) {
+        // Nothing was applied; our cached IDs are stale.
+        this.warn(`⚠️ aMule rejected the update of category "${name}" (ID: ${targetId})${daemonMsg}`);
+        await this.refreshCategoryIds();
+        return { success: false, verified: false, mismatches: [result.message || 'aMule: no such category'] };
+      }
+      if (!result.success) {
+        this.warn(`⚠️ aMule refused the update of category "${name}" (ID: ${targetId})${daemonMsg}`);
+        return { success: false, verified: false, mismatches: [result.message || 'aMule refused the category update'] };
+      }
+      if (result.reason === CATEGORY_REASON.PATH_REJECTED) {
+        // Title/comment/colour/priority were applied; aMule could not create the
+        // directory and kept its own (#1213).
+        this.warn(`⚠️ aMule refused path "${effectivePath}" for category "${name}", kept "${result.keptPath || '(unknown)'}"${daemonMsg}`);
       } else {
-        this.log(`ℹ️  aMule answered EC_OP_FAILED for category "${name}" (ID: ${targetId}) — verifying what landed`);
+        this.log(`📤 Updated category "${name}" in aMule (ID: ${targetId}, path: "${effectivePath}")`);
       }
 
       // Verify by reading back
@@ -1058,12 +1069,13 @@ class AmuleManager extends BaseClientManager {
       if ((savedCat.priority ?? 0) !== priority) mismatches.push(`priority: expected ${priority}, got ${savedCat.priority ?? 0}`);
 
       if (mismatches.length > 0) {
-        // Wrong title = the write missed. Path-only = aMule kept a path it
-        // could not create (#1213); the rest applied, which counts as success.
-        const landed = savedCat.title === name;
-        this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
-        if (!landed) await this.refreshCategoryIds();
-        return { success: landed, verified: false, mismatches };
+        // A path mismatch after PATH_REJECTED is expected, not a discrepancy.
+        const onlyExpectedPath = result.reason === CATEGORY_REASON.PATH_REJECTED
+          && mismatches.every(m => m.startsWith('path:'));
+        if (!onlyExpectedPath) {
+          this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
+        }
+        return { success: true, verified: false, mismatches, pathRejected: result.reason === CATEGORY_REASON.PATH_REJECTED };
       }
 
       this.log(`✅ Verify: Category "${name}" saved correctly in aMule`);
@@ -1087,7 +1099,8 @@ class AmuleManager extends BaseClientManager {
       this.log(`ℹ️  Nothing to delete in aMule for category "${name}": ${resolved.reason}`);
       return;
     }
-    await this.client.deleteCategory(resolved.id);
+    const ok = await this.client.deleteCategory(resolved.id);
+    if (!ok) this.warn(`⚠️ aMule refused to delete category "${name}" (ID: ${resolved.id})`);
     // CategoryManager.delete() re-resolves across clients afterwards.
     this._invalidateCategorySlotCache();
   }
