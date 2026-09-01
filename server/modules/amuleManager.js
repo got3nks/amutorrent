@@ -1099,8 +1099,13 @@ class AmuleManager extends BaseClientManager {
       this.log(`ℹ️  Nothing to delete in aMule for category "${name}": ${resolved.reason}`);
       return;
     }
-    const ok = await this.client.deleteCategory(resolved.id);
-    if (!ok) this.warn(`⚠️ aMule refused to delete category "${name}" (ID: ${resolved.id})`);
+    const result = await this.client.deleteCategory(resolved.id);
+    if (!result.success) {
+      // Unreachable until amule-org/amule#1231 lands — the handler answers
+      // EC_OP_NOOP for every delete, including ones it discards.
+      const why = result.message || result.reason || 'unknown reason';
+      this.warn(`⚠️ aMule refused to delete category "${name}" (ID: ${resolved.id}): ${why}`);
+    }
     // CategoryManager.delete() re-resolves across clients afterwards.
     this._invalidateCategorySlotCache();
   }
