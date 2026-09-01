@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.0] - Shared Folders Without File Access, Better Search Results
+
+### ✨ Added
+
+- **Manage aMule's shared folders from aMuTorrent, with no shared volume.** The Shared Folders panel now talks to aMule directly instead of editing its files, so there is nothing to mount, no permissions to line up, and no matching user IDs between containers. Add a folder, tick **Subfolders** to share everything beneath it, and aMule handles the rest. Anything it refuses (a path that does not exist, or one it cannot read) is listed on its own, and the folders that were fine still get saved (#75).
+- **Search results now show every name a file is shared under.** The same file is often shared under several names, and the one aMule shows is the most common rather than the most useful. A caret next to a result expands the alternatives, and the filter searches them too, so you can find a release by the name that actually describes it. Sonarr and Radarr are offered every name as well, so they can pick whichever their parser understands (#82).
+- **Search results tell you what you already have.** Results the connected aMule already knows are badged **Downloaded**, **Queued** or **Cancelled**, so you are not re-adding something twice. This comes from aMule itself, so it stays right after a page reload and covers downloads added by Sonarr, Radarr or another user (#77).
+- **Sonarr and Radarr searches now cover Kad as well as the ED2K servers.** Each search runs against both networks and merges the results, which in testing surfaced around 10% more files that the servers alone would have missed. Queries are also sent in a single request per network instead of several, so searches finish faster.
+- **Telegram notifications can target a topic.** Groups with Topics enabled no longer get everything in General. There is a new optional **Topic ID** field next to the Chat ID; find the number at the end of the topic's URL in Telegram Web (#83).
+- **Rescan shared files on demand.** A **Rescan now** button in the Shared Folders panel asks aMule to re-read its shared files immediately, rather than waiting for the periodic refresh. Previously this was only reachable if you had configured the old shared-folder file (#84).
+
+### 🐛 Fixed
+
+- **Deleting a category could rename or wipe out a different one, and could crash aMule.** aMule identifies categories by position, so removing one shifts the rest, and aMuTorrent was still using the old positions. Editing a category afterwards could land on its neighbour, and on some aMule versions could take the daemon down and undo the deletion on restart. Categories are now matched by name, so deleting one leaves the others alone (#85, #86).
+- **Categories reappearing after you disabled the client they came from.** Categories imported from a download client stayed forever, even with that client turned off. aMuTorrent now remembers where each category came from and stops copying it around once every client that had it is disabled. Nothing is deleted, so re-enabling a client brings it back (#85).
+- **A category whose folder aMule could not create was reported as failed.** It had actually been saved, only with a different folder. The distinction is now reported correctly, and the message says which folder aMule kept.
+
+### 🗑️ Removed
+
+- **The experimental `shareddir.dat` configuration**, replaced by the panel described above. The `AMULE_SHARED_DIR_DAT` setting, and the file mounts it needed, can be removed from your configuration. Editing that file never reliably worked: aMule keeps its shared-folder settings in more than one place and would undo the changes on its next reload (#75).
+
+### ⚠️ Requirements
+
+- Shared folder management needs a recent aMule. It is not in any aMule release yet, including 3.0.1, so updating to the newest release will not be enough on its own. It is expected in aMule **3.1.0**; until then you can build aMule from source, or use a development build such as `ngosang/amule:develop`. aMuTorrent says so plainly on cores that do not have it, and **Rescan now** still works on every version.
+
+---
+
 ## [3.8.8] - LazyLibrarian Compat, qBittorrent 2.11.2 API, Torznab Query Hardening
 
 ### ✨ Added
