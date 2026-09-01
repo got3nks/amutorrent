@@ -353,19 +353,33 @@ class TorznabHandler {
       logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
 
       allResults = [];
-      const seenHashes = new Set();
+      const seenHashes = new Map();   // hash → the result we kept, for name merging
 
       const runQueryOnNetwork = async (searchQuery, network, label) => {
         logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
+        // groupByHash: one hash can be published under several filenames and
+        // the extra ones are often the better-parsed release names (#82).
         const result = await this.rateLimitedSearch(() =>
-          amuleClient.searchAndWaitResults(searchQuery, network, '')
+          amuleClient.searchAndWaitResults(searchQuery, network, '', { groupByHash: true })
         );
         const resultCount = (result.results || []).length;
-        logger.log(`[Torznab] ${network} query returned ${resultCount} results`);
+        logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
         (result.results || []).forEach(file => {
-          if (!seenHashes.has(file.fileHash)) {
-            seenHashes.add(file.fileHash);
+          const seen = seenHashes.get(file.fileHash);
+          if (!seen) {
+            seenHashes.set(file.fileHash, file);
             allResults.push(file);
+            return;
+          }
+          // Same hash from the other network: keep the union of the names
+          // rather than dropping the duplicate outright, since ED2K and Kad
+          // can each know names the other does not.
+          const known = new Set([seen.fileName, ...(seen.children || []).map(c => c.fileName)]);
+          for (const alt of [file, ...(file.children || [])]) {
+            if (alt.fileName && !known.has(alt.fileName)) {
+              known.add(alt.fileName);
+              (seen.children || (seen.children = [])).push(alt);
+            }
           }
         });
       };

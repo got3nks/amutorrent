@@ -16,6 +16,12 @@ const {
   normalizeAmuleDownloadSource
 } = require('../lib/downloadNormalizer');
 
+// Search options every path through this manager shares. groupByHash belongs
+// here rather than at each call site: running a search and re-reading its
+// cached results are separate handlers, and when they disagree the same search
+// renders grouped or flat depending on which one served it (#82).
+const SEARCH_DEFAULTS = Object.freeze({ groupByHash: true });
+
 class AmuleManager extends BaseClientManager {
   constructor() {
     super();
@@ -1196,20 +1202,21 @@ class AmuleManager extends BaseClientManager {
    * @param {string} query - Search query
    * @param {string} type - Search type (e.g. 'global')
    * @param {string} extension - File extension filter
+   * @param {Object} [options] - Passed to the client, e.g. { groupByHash }
    * @returns {Promise<Object>} { results, resultsLength }
    */
-  async search(query, type, extension) {
+  async search(query, type, extension, options = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.searchAndWaitResults(query, type, extension);
+    return await this.client.searchAndWaitResults(query, type, extension, { ...SEARCH_DEFAULTS, ...options });
   }
 
   /**
    * Get cached search results
    * @returns {Promise<Object>} { results }
    */
-  async getSearchResults() {
+  async getSearchResults(options = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.getSearchResults();
+    return await this.client.getSearchResults({ ...SEARCH_DEFAULTS, ...options });
   }
 
   /**

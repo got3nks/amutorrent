@@ -1,5 +1,25 @@
+const crypto = require('crypto');
 const { create } = require('xmlbuilder2');
 const { convertEd2kToMagnet } = require('../linkConverter');
+
+/**
+ * Every distinct filename a result is published under, parent first.
+ * aMule can repeat the parent's own name among its children, so dedupe.
+ * @param {Object} result - Search result, possibly carrying `children`
+ * @returns {string[]} Distinct names, at least one
+ */
+function distinctNames(result) {
+  const names = [];
+  const seen = new Set();
+  for (const candidate of [result, ...(result.children || [])]) {
+    const name = candidate?.fileName;
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names.length > 0 ? names : ['Unknown'];
+}
 
 /**
  * Convert aMule search results to Torznab RSS feed
@@ -31,21 +51,33 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
     type: 'application/rss+xml'
   }).up();
 
-  // Convert each aMule result to RSS item
+  // One item per distinct filename. A hash published under several names is
+  // usually the same release with differently-parseable titles (#82), so each
+  // is offered separately and the *arr picks whichever its parser prefers —
+  // every one of them grabs the same file.
+  const expanded = [];
   amuleResults.forEach((result, index) => {
+    const fileHash = result.fileHash || `result-${index}`;
+    distinctNames(result).forEach((fileName, nameIndex) => {
+      expanded.push({ result, index, fileHash, fileName, nameIndex });
+    });
+  });
+
+  expanded.forEach(({ result, fileHash, fileName, nameIndex }) => {
     const item = channel.ele('item');
 
-    // Basic item info
-    const fileName = result.fileName || 'Unknown';
-    const fileHash = result.fileHash || `result-${index}`;
     const fileSize = result.fileSize || 0;
     const sourceCount = result.sourceCount || 0;
 
-    // Log each result for debugging
-    // console.log(`[Torznab] Result ${index + 1}: ${fileName} (${fileSize} bytes, ${sourceCount} sources)`);
+    // The first name keeps the bare hash as its guid so releases already in an
+    // *arr's history keep matching; alternates get a stable suffix derived
+    // from the name, so the same search always yields the same guid.
+    const guid = nameIndex === 0
+      ? fileHash
+      : `${fileHash}-${crypto.createHash('md5').update(fileName).digest('hex').slice(0, 8)}`;
 
     item.ele('title').txt(fileName).up();
-    item.ele('guid').txt(fileHash).up();
+    item.ele('guid').txt(guid).up();
     item.ele('pubDate').txt(new Date().toUTCString()).up();
 
     // Size

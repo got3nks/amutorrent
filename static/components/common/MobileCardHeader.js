@@ -27,6 +27,8 @@ const { createElement: h, useRef } = React;
  * @param {boolean} isSelected - Whether the item is selected (for checkbox)
  * @param {function} onSelectionToggle - Handler for selection toggle
  * @param {function} onNameClick - Handler for tapping the filename (opens context menu on mobile)
+ * @param {ReactNode} namePrefix - Optional element rendered immediately left of
+ *   the filename (e.g. an expand caret). Omitted by default.
  * @param {ReactNode} actions - Action buttons to render on the right side
  * @param {ReactNode} children - Additional content rows below the filename
  */
@@ -42,6 +44,7 @@ const MobileCardHeader = ({
   isSelected = false,
   onSelectionToggle,
   onNameClick,
+  namePrefix = null,
   actions,
   children
 }) => {
@@ -83,6 +86,8 @@ const MobileCardHeader = ({
         className: `flex items-start gap-1.5 mb-1${!selectionMode && onNameClick ? ' cursor-pointer' : ''}`,
         onClick: !selectionMode && onNameClick ? (e) => onNameClick(e, actionsRef.current) : undefined
       },
+        // Optional caret/marker immediately left of the name
+        namePrefix,
         // Filename with line-clamp (takes available space)
         (() => {
           const nameEl = h('span', {

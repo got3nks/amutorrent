@@ -21,7 +21,8 @@ const normalizeText = (text) => {
 /**
  * Filter items by text field
  * @param {Array} items - Array of items to filter
- * @param {string} field - Field name to filter by (e.g., 'fileName')
+ * @param {string|function} field - Field name to filter by (e.g., 'fileName'),
+ *   or a function (item) => string returning the text to match against
  * @param {Object} options - Optional configuration
  * @param {function} options.onFilterChange - Callback when filter text changes (useful for resetting page)
  * @returns {Object} { filteredItems, filterText, setFilterText, clearFilter }
@@ -58,7 +59,9 @@ export const useTextFilter = (items = [], field = 'fileName', options = {}) => {
       return items;
     }
     return items.filter(item => {
-      const value = item[field];
+      // `field` may be a function so a row can be matched on more than one
+      // string — e.g. a search result plus the alternate filenames it carries.
+      const value = typeof field === 'function' ? field(item) : item[field];
       if (typeof value === 'string') {
         const normalizedValue = normalizeText(value);
         // All terms must match (AND logic)

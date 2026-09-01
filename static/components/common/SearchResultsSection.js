@@ -161,7 +161,14 @@ const SearchResultsSection = ({
   const resetLoaded = useCallback(() => setAppPage(0), [setAppPage]);
 
   // Text filter for results (uses indexer-filtered results for Prowlarr)
-  const { filteredItems: filteredResults, filterText, setFilterText, clearFilter } = useTextFilter(indexerFilteredResults, 'fileName', { onFilterChange: resetLoaded });
+  // Match the alternate filenames a result carries too (#82) — finding a
+  // release by its better-parsed name is the point of showing them.
+  const filterField = useCallback((item) => (
+    item.children?.length
+      ? [item.fileName, ...item.children.map(c => c.fileName)].filter(Boolean).join(' ')
+      : item.fileName
+  ), []);
+  const { filteredItems: filteredResults, filterText, setFilterText, clearFilter } = useTextFilter(indexerFilteredResults, filterField, { onFilterChange: resetLoaded });
 
   // Sort change handler
   const handleSortChange = useCallback((newSortBy, newSortDirection) => {
