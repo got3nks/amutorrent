@@ -582,9 +582,18 @@ class CategoryManager extends BaseModule {
    */
   importCategory({ name, color = '#CCCCCC', path = null, comment = '', priority = 0, amuleIds = {}, source = null } = {}) {
     if (!name) throw new Error('Category name is required for import');
+    // Required, not defaulted: guessing here fails silently in both directions.
+    // A missing source on a new category would mark it app-owned and propagate
+    // it forever (the #85 bug); on an existing one it would drop this client
+    // from the contributor list and let the category go dormant while the
+    // client still holds it. Pass the instanceId, or 'app' when the category
+    // genuinely originates in aMuTorrent.
+    if (!source) {
+      throw new Error(`importCategory("${name}") requires a source: pass the contributing instanceId, or '${APP_SOURCE}'`);
+    }
     if (this.categories.has(name)) {
       // Already known — this client is an additional source, not a duplicate.
-      if (source) this.addSource(name, source);
+      this.addSource(name, source);
       return this.categories.get(name);
     }
 
@@ -598,7 +607,7 @@ class CategoryManager extends BaseModule {
       comment: comment || '',
       priority: priority ?? 0,
       amuleIds: amuleIds || {},
-      sources: source ? [source] : [APP_SOURCE],
+      sources: [source],
       createdAt: now,
       updatedAt: now
     };
@@ -632,8 +641,11 @@ class CategoryManager extends BaseModule {
    * @returns {boolean} True if the source was newly added
    */
   addSource(name, source) {
+    if (!source) {
+      throw new Error(`addSource("${name}") requires a source: pass the contributing instanceId, or '${APP_SOURCE}'`);
+    }
     const category = this.categories.get(name);
-    if (!category || !source) return false;
+    if (!category) return false;
     if (!Array.isArray(category.sources)) category.sources = [APP_SOURCE];
     if (category.sources.includes(source)) return false;
     category.sources.push(source);
