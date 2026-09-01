@@ -426,6 +426,15 @@ class BaseClientManager extends BaseModule {
   }
 
   /**
+   * Re-resolve cached client-side category IDs. Only clients with positional
+   * IDs (aMule) need this; name-keyed clients have nothing to refresh.
+   * @returns {Promise<void>}
+   */
+  async refreshCategoryIds() {
+    // no-op for clients with stable (name-keyed) category identities
+  }
+
+  /**
    * Rename a category in this client. Override in managers with category support.
    * @param {Object} _opts - { oldName, newName, path, defaultPath, id, comment, color, priority }
    * @returns {Promise<Object|null>} { success, verified, mismatches } or null if not supported

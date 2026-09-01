@@ -22,6 +22,7 @@ class AmuleManager extends BaseClientManager {
     this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
+    this._categorySlotCache = null;  // { at, categories } — see _getCategoriesForResolve()
     this._tcpPort = null;   // ED2K TCP listen port (from connection preferences)
     this._udpPort = null;   // KAD UDP listen port (from connection preferences)
     this.setupGlobalErrorHandlers();
@@ -824,13 +825,24 @@ class AmuleManager extends BaseClientManager {
       throw new Error(`Category "${categoryName}" not found`);
     }
 
-    // Already has amuleId for this instance
+    if (!this.client) return null;
+
+    // Re-check before setFileCategory: #1228 bounds-checks the update path only.
+    // CPartFile::SetCategory guards with a bare wxASSERT, and a bad value is
+    // persisted to the .met and later indexed on the file-completion path.
     const existingId = category.amuleIds?.[this.instanceId];
     if (existingId != null) {
-      return existingId;
+      const resolved = await this._resolveCategorySlot({ id: existingId, lookupName: category.name });
+      if (resolved.ok) {
+        if (resolved.id !== existingId) {
+          categoryManager.linkAmuleId(category.name, this.instanceId, resolved.id);
+          await categoryManager.save();
+        }
+        return resolved.id;
+      }
+      // Stale beyond repair — fall through and re-create/re-link below.
+      this.warn(`⚠️ Cached aMule ID ${existingId} for category "${category.name}" is stale: ${resolved.reason}`);
     }
-
-    if (!this.client) return null;
 
     try {
       const result = await this.ensureCategoryExists({
@@ -847,6 +859,123 @@ class AmuleManager extends BaseClientManager {
       this.warn(`⚠️ Failed to ensure aMule category "${categoryName}": ${err.message}`);
     }
     return null;
+  }
+
+  // ============================================================================
+  // CATEGORY ID RESOLUTION
+  //
+  // An aMule category ID is its index in `m_CatList`: deleting one shifts every
+  // higher ID down, so a cached ID can point at the wrong category or past the
+  // end. Names are unique on both sides — name is the identity, ID only a hint.
+  // ============================================================================
+
+  /**
+   * Drop the memoized category list. Called by every mutation on this manager.
+   * @private
+   */
+  _invalidateCategorySlotCache() {
+    this._categorySlotCache = null;
+  }
+
+  /**
+   * Category list for slot resolution, briefly memoized so a batch change
+   * costs one EC round trip rather than one per item. Mutations drop it.
+   * @returns {Promise<Array|null>}
+   * @private
+   */
+  async _getCategoriesForResolve(maxAgeMs = 2000) {
+    const cached = this._categorySlotCache;
+    if (cached && Date.now() - cached.at < maxAgeMs) return cached.categories;
+    const categories = await this.getCategories();
+    if (categories) this._categorySlotCache = { at: Date.now(), categories };
+    return categories;
+  }
+
+  /**
+   * Resolve which aMule slot a write should target: name is the identity,
+   * the cached ID only a fallback hint.
+   * @param {Object} opts - { id, lookupName }
+   * @returns {Promise<Object>} { ok: true, id } or { ok: false, reason }
+   * @private
+   */
+  async _resolveCategorySlot({ id, lookupName }) {
+    let amuleCategories;
+    try {
+      amuleCategories = await this._getCategoriesForResolve();
+    } catch (err) {
+      return { ok: false, reason: `could not read aMule categories: ${err.message}` };
+    }
+    if (!amuleCategories) return { ok: false, reason: 'aMule returned no category list' };
+
+    // Name is authoritative.
+    if (lookupName) {
+      const byName = amuleCategories.find(c => c.title === lookupName);
+      if (byName && byName.id != null) {
+        if (id != null && byName.id !== id) {
+          this.log(`🔗 Category "${lookupName}" moved in aMule: cached ID ${id} → ${byName.id}`);
+        }
+        return { ok: true, id: byName.id };
+      }
+    }
+
+    // No name match: the cached ID is usable only if it exists and isn't now
+    // owned by another category we manage — writing would rename a bystander.
+    if (id == null) return { ok: false, reason: `no category named "${lookupName}" in aMule and no cached ID` };
+    const bySlot = amuleCategories.find(c => c.id === id);
+    if (!bySlot) {
+      return { ok: false, reason: `stale aMule category ID ${id} (aMule has ${amuleCategories.length} categories)` };
+    }
+
+    const categoryManager = require('../lib/CategoryManager');
+    if (bySlot.title !== lookupName && categoryManager.getByName(bySlot.title)) {
+      return { ok: false, reason: `cached ID ${id} now belongs to category "${bySlot.title}"` };
+    }
+    return { ok: true, id };
+  }
+
+  /**
+   * Re-resolve this instance's cached category IDs by name; drop dead ones.
+   * Call after anything that shifts aMule's indices (notably a delete).
+   * @returns {Promise<void>}
+   */
+  async refreshCategoryIds() {
+    if (!this.client) return;
+    const categoryManager = require('../lib/CategoryManager');
+
+    let amuleCategories;
+    try {
+      this._invalidateCategorySlotCache();
+      amuleCategories = await this.getCategories();
+    } catch (err) {
+      this.warn(`⚠️ Could not refresh aMule category IDs: ${err.message}`);
+      return;
+    }
+    if (!amuleCategories) return;
+
+    const idByTitle = new Map(amuleCategories.filter(c => c.id != null).map(c => [c.title, c.id]));
+    let relinked = 0, dropped = 0;
+
+    for (const [name, cat] of categoryManager.getCategoriesSnapshot().entries()) {
+      const cached = cat.amuleIds?.[this.instanceId];
+      if (cached == null) continue;
+      // "Default" is pinned to aMule's built-in slot 0 regardless of its title.
+      const fresh = name === 'Default' ? 0 : idByTitle.get(name);
+
+      if (fresh == null) {
+        delete cat.amuleIds[this.instanceId];
+        dropped++;
+        this.log(`🔗 Dropped stale aMule ID ${cached} for category "${name}" (no longer in aMule)`);
+      } else if (fresh !== cached) {
+        cat.amuleIds[this.instanceId] = fresh;
+        relinked++;
+        this.log(`🔗 Re-linked category "${name}": aMule ID ${cached} → ${fresh}`);
+      }
+    }
+
+    if (relinked > 0 || dropped > 0) {
+      await categoryManager.save();
+      this.log(`📊 Refreshed aMule category IDs: ${relinked} re-linked, ${dropped} dropped`);
+    }
   }
 
   // ============================================================================
@@ -869,6 +998,7 @@ class AmuleManager extends BaseClientManager {
    */
   async createCategory({ name, path = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
+    this._invalidateCategorySlotCache();
     const result = await this.client.createCategory(name, path, comment, color, priority);
     // aMule EC protocol returns EC_OP_NOOP with no ID — discover it via re-fetch
     if (result.success && result.categoryId == null) {
@@ -884,26 +1014,42 @@ class AmuleManager extends BaseClientManager {
    * @param {Object} opts - { id, name, path, defaultPath, comment, color, priority }
    * @returns {Promise<Object>} { success, verified, mismatches }
    */
-  async editCategory({ id, name, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
+  async editCategory({ id, name, lookupName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    if (id == null) return { success: false, verified: false, mismatches: ['No aMule category ID'] };
+
+    // Never write to a cached ID — re-resolve the slot first.
+    const resolved = await this._resolveCategorySlot({ id, lookupName: lookupName || name });
+    if (!resolved.ok) {
+      this.warn(`⚠️ Refusing to update category "${name}" in aMule: ${resolved.reason}`);
+      return { success: false, verified: false, mismatches: [resolved.reason] };
+    }
+    const targetId = resolved.id;
 
     // aMule doesn't accept empty path — use default directory
     const effectivePath = path || defaultPath || '';
 
     try {
-      await this.client.updateCategory(id, name, effectivePath, comment, color, priority);
-      this.log(`📤 Updated category "${name}" in aMule (ID: ${id}, path: "${effectivePath}")`);
+      // amule-ec-node collapses both EC_OP_FAILED shapes to `false`:
+      //   + EC_TAG_CATEGORY_PATH → path refused, rest applied (#1213)
+      //   + EC_TAG_STRING        → no such category, nothing applied (#1228)
+      // Only the read-back tells them apart, so it decides success, not this.
+      this._invalidateCategorySlotCache();
+      const accepted = await this.client.updateCategory(targetId, name, effectivePath, comment, color, priority);
+      if (accepted) {
+        this.log(`📤 Updated category "${name}" in aMule (ID: ${targetId}, path: "${effectivePath}")`);
+      } else {
+        this.log(`ℹ️  aMule answered EC_OP_FAILED for category "${name}" (ID: ${targetId}) — verifying what landed`);
+      }
 
       // Verify by reading back
       const amuleCategories = await this.getCategories();
-      const savedCat = amuleCategories?.find(c => c.id === id);
+      const savedCat = amuleCategories?.find(c => c.id === targetId);
 
       if (!savedCat) {
-        this.warn(`⚠️ Verify: Category with ID ${id} not found after update`);
-        return { success: true, verified: false, mismatches: ['Category not found after update'] };
+        this.warn(`⚠️ Verify: Category with ID ${targetId} not found after update`);
+        await this.refreshCategoryIds();
+        return { success: false, verified: false, mismatches: ['Category not found after update'] };
       }
-
       const mismatches = [];
       if (savedCat.title !== name) mismatches.push(`title: expected "${name}", got "${savedCat.title}"`);
       if ((savedCat.path || '') !== effectivePath) mismatches.push(`path: expected "${effectivePath}", got "${savedCat.path || ''}"`);
@@ -912,8 +1058,12 @@ class AmuleManager extends BaseClientManager {
       if ((savedCat.priority ?? 0) !== priority) mismatches.push(`priority: expected ${priority}, got ${savedCat.priority ?? 0}`);
 
       if (mismatches.length > 0) {
+        // Wrong title = the write missed. Path-only = aMule kept a path it
+        // could not create (#1213); the rest applied, which counts as success.
+        const landed = savedCat.title === name;
         this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
-        return { success: true, verified: false, mismatches };
+        if (!landed) await this.refreshCategoryIds();
+        return { success: landed, verified: false, mismatches };
       }
 
       this.log(`✅ Verify: Category "${name}" saved correctly in aMule`);
@@ -928,10 +1078,18 @@ class AmuleManager extends BaseClientManager {
    * Delete a category from aMule
    * @param {Object} opts - { id }
    */
-  async deleteCategory({ id } = {}) {
+  async deleteCategory({ id, name } = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    if (id == null) return;
-    await this.client.deleteCategory(id);
+
+    // Resolve by name — a stale ID would delete a different category outright.
+    const resolved = await this._resolveCategorySlot({ id, lookupName: name });
+    if (!resolved.ok) {
+      this.log(`ℹ️  Nothing to delete in aMule for category "${name}": ${resolved.reason}`);
+      return;
+    }
+    await this.client.deleteCategory(resolved.id);
+    // CategoryManager.delete() re-resolves across clients afterwards.
+    this._invalidateCategorySlotCache();
   }
 
   /**
@@ -939,8 +1097,9 @@ class AmuleManager extends BaseClientManager {
    * @param {Object} opts - { id, newName, path, defaultPath, comment, color, priority }
    * @returns {Promise<Object>} { success, verified, mismatches }
    */
-  async renameCategory({ id, newName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
-    return await this.editCategory({ id, name: newName, path, defaultPath, comment, color, priority });
+  async renameCategory({ id, oldName, newName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
+    // lookupName is the *current* title in aMule — newName isn't there yet.
+    return await this.editCategory({ id, name: newName, lookupName: oldName, path, defaultPath, comment, color, priority });
   }
 
   /**
@@ -1176,7 +1335,15 @@ class AmuleManager extends BaseClientManager {
         continue;
       }
 
-      let appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
+      // Name first — trusting the shifted ID is what made drift survive a reconnect.
+      let appCat = snapshot.getByName(amuleTitle);
+      // "Default" is pinned to slot 0 above — never re-link it by title.
+      if (appCat && appCat.name !== 'Default' && appCat.amuleIds?.[this.instanceId] !== amuleId) {
+        categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
+        linked++;
+      }
+      if (!appCat) appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
+
       if (appCat) {
         // Category exists — check if params differ (app wins)
         const appColor = hexColorToAmule(appCat.color);
@@ -1194,22 +1361,15 @@ class AmuleManager extends BaseClientManager {
 
         if (diffs.length > 0) {
           toUpdateInAmule.push({
-            id: amuleId, name: appCat.name, path: appEffectivePath,
+            // lookupName differs from name when the app renamed while offline.
+            id: amuleId, name: appCat.name, lookupName: amuleTitle, path: appEffectivePath,
             comment: appCat.comment || '', color: appColor, priority: appCat.priority ?? 0
           });
           updated++;
           this.log(`🔄 Category "${appCat.name}" differs from aMule: ${diffs.join(', ')}`);
         }
       } else {
-        appCat = snapshot.getByName(amuleTitle);
-        if (appCat) {
-          // Only link if this instance doesn't already have a link for this category
-          // (e.g., "Default" is already linked to ID 0 — don't overwrite with a duplicate)
-          if (appCat.amuleIds?.[this.instanceId] == null) {
-            categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
-            linked++;
-          }
-        } else if (this.isCategorySyncOut()) {
+        if (this.isCategorySyncOut()) {
           // Only IMPORT this instance's local categories into the central
           // registry when sync-out is enabled. Linking (above) is always
           // allowed since it doesn't share data outward.

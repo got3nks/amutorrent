@@ -904,6 +904,18 @@ class CategoryManager extends BaseModule {
     this.categories.delete(name);
     await this.save();
 
+    // Positional-ID clients (aMule) just renumbered — re-resolve before any
+    // later write uses an ID that now points elsewhere.
+    for (const mgr of registry.getConnected()) {
+      if (!clientMeta.hasCapability(mgr.clientType, 'categories')) continue;
+      if (!mgr.isCategorySyncIn()) continue;
+      try {
+        await mgr.refreshCategoryIds();
+      } catch (err) {
+        this.warn(`⚠️ Failed to refresh category IDs on ${mgr.instanceId}: ${err.message}`);
+      }
+    }
+
     this.log(`🗑️  Deleted category: ${name}`);
     return true;
   }
