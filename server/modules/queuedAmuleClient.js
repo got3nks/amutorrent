@@ -37,6 +37,20 @@ class QueuedAmuleClient {
   }
 
   /**
+   * Capabilities the daemon advertised on its AUTH_OK reply.
+   *
+   * Defined here rather than left to the proxy: the proxy queues every client
+   * function as a request, which would turn this synchronous lookup into a
+   * promise and make `hasCapability(x) === true` silently false. The proxy
+   * checks this class first, so this wins.
+   * @param {string} tagName - e.g. "EC_TAG_CAN_SHAREDDIRS_CONFIG"
+   * @returns {boolean}
+   */
+  hasCapability(tagName) {
+    return this.client?.hasCapability?.(tagName) === true;
+  }
+
+  /**
    * Setup error handlers to prevent unhandled errors from crashing the server
    */
   setupErrorHandlers() {

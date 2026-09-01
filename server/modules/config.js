@@ -92,7 +92,6 @@ const CLIENT_ENV_FIELDS = {
     PORT: { field: 'port', type: 'int' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
     SHARED_FILES_RELOAD_INTERVAL_HOURS: { field: 'sharedFilesReloadIntervalHours', type: 'int' },
-    SHARED_DIR_DAT: { field: 'sharedDirDatPath', type: 'string' },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }
   },

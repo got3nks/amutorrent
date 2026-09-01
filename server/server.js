@@ -398,21 +398,6 @@ async function reinitializeClients() {
     });
   });
 
-  // Register onConnect callback for shared directory sync (aMule instances only)
-  registry.forEach((manager, instanceId) => {
-    if (manager.clientType !== 'amule' || !manager.onConnect) return;
-    manager.onConnect(async () => {
-      const clientConfig = config.getClientConfig(instanceId);
-      if (!clientConfig?.sharedDirDatPath || !clientConfig?.sharedDirRoots?.length) return;
-      try {
-        log(`📂 Syncing shared directories to shareddir.dat for ${instanceId}...`);
-        await sharedDirAPI.rescanAndWrite(instanceId);
-      } catch (err) {
-        log(`⚠️  Failed to sync shared dirs on connect (${instanceId}): ${err.message}`);
-      }
-    });
-  });
-
   // Adopt legacy entries now that registry has real instance IDs
   const instances = [];
   registry.forEach((manager, instanceId) => {

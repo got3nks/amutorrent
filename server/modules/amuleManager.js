@@ -259,19 +259,10 @@ class AmuleManager extends BaseClientManager {
     }
 
     try {
-      // If shared dir roots are configured, rescan subdirectories and let
-      // rescanAndWrite handle the reload — it calls refreshSharedFiles()
-      // internally so we don't need to (and mustn't) double-refresh here.
-      const hasRoots = this._clientConfig?.sharedDirDatPath
-        && this._clientConfig?.sharedDirRoots?.length > 0;
-      if (hasRoots) {
-        this.log('📂 Auto-rescanning shared directories...');
-        const sharedDirAPI = require('./sharedDirAPI');
-        await sharedDirAPI.rescanAndWrite(this.instanceId);
-      } else {
-        this.log('📂 Auto-reloading shared files...');
-        await this.client.refreshSharedFiles();
-      }
+      // aMule owns the folder list now, so there is nothing to rewrite first -
+      // a reload is just a rescan.
+      this.log('📂 Auto-reloading shared files...');
+      await this.client.refreshSharedFiles();
       this.log('✅ Shared files auto-reload completed');
     } catch (err) {
       this.error('❌ Shared files auto-reload failed:', logger.errorDetail(err));
@@ -1208,6 +1199,41 @@ class AmuleManager extends BaseClientManager {
   async search(query, type, extension, options = {}) {
     if (!this.client) throw new Error('aMule not connected');
     return await this.client.searchAndWaitResults(query, type, extension, { ...SEARCH_DEFAULTS, ...options });
+  }
+
+  // ============================================================================
+  // SHARED FOLDERS (amule-org/amule#530)
+  // ============================================================================
+
+  /**
+   * Whether this daemon can have its shared folders configured over EC.
+   * Cores predating #530 do not advertise it, and must never be sent the
+   * opcode: it reaches the tail of ProcessRequest2, which hits wxFAIL and
+   * aborts a debug build.
+   * @returns {boolean}
+   */
+  supportsSharedDirsConfig() {
+    return this.client?.hasCapability?.('EC_TAG_CAN_SHAREDDIRS_CONFIG') === true;
+  }
+
+  /**
+   * Shared folders as aMule holds them.
+   * @returns {Promise<Array<{path: string, recursive: boolean}>>}
+   */
+  async getSharedDirs() {
+    if (!this.client) throw new Error('aMule not connected');
+    return await this.client.getSharedDirs();
+  }
+
+  /**
+   * Replace the shared-folder configuration. aMule has no add or remove, so
+   * this is always the complete list, and an empty one shares nothing.
+   * @param {Array<{path: string, recursive: boolean}>} dirs
+   * @returns {Promise<Object>} { success, rejected: [{ path, error }] }
+   */
+  async setSharedDirs(dirs) {
+    if (!this.client) throw new Error('aMule not connected');
+    return await this.client.setSharedDirs(dirs);
   }
 
   /**

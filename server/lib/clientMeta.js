@@ -26,7 +26,7 @@ const CLIENT_TYPES = {
       // all other codes → 'active'
     },
     connectionDefaults: {
-      host: '', port: 4712, password: '', sharedDirDatPath: ''
+      host: '', port: 4712, password: ''
     },
     defaults: {
       downloadPriority: null,
