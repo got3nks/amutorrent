@@ -797,9 +797,14 @@ class QbittorrentManager extends BaseClientManager {
     if (this.isCategorySyncOut()) {
       for (const name of categoryNames) {
         if (!name) continue;
-        if (categoryManager.getByName(name)) continue;
+        if (categoryManager.getByName(name)) {
+          // Already known — record this instance as another source.
+          categoryManager.addSource(name, this.instanceId);
+          continue;
+        }
         const savePath = qbCategories[name]?.savePath || null;
         categoryManager.importCategory({
+          source: this.instanceId,
           name, path: savePath,
           comment: 'Auto-created from qBittorrent category'
         });

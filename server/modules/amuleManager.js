@@ -1351,9 +1351,12 @@ class AmuleManager extends BaseClientManager {
       // Name first — trusting the shifted ID is what made drift survive a reconnect.
       let appCat = snapshot.getByName(amuleTitle);
       // "Default" is pinned to slot 0 above — never re-link it by title.
-      if (appCat && appCat.name !== 'Default' && appCat.amuleIds?.[this.instanceId] !== amuleId) {
-        categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
-        linked++;
+      if (appCat && appCat.name !== 'Default') {
+        if (this.isCategorySyncOut()) categoryManager.addSource(amuleTitle, this.instanceId);
+        if (appCat.amuleIds?.[this.instanceId] !== amuleId) {
+          categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
+          linked++;
+        }
       }
       if (!appCat) appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
 
@@ -1387,6 +1390,7 @@ class AmuleManager extends BaseClientManager {
           // registry when sync-out is enabled. Linking (above) is always
           // allowed since it doesn't share data outward.
           categoryManager.importCategory({
+            source: this.instanceId,
             name: amuleTitle, color: amuleColorToHex(amuleCat.color),
             path: amuleCat.path || null, comment: amuleCat.comment || 'Imported from aMule',
             priority: amuleCat.priority ?? 0, amuleIds: { [this.instanceId]: amuleId }

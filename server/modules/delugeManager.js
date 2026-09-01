@@ -775,8 +775,13 @@ class DelugeManager extends BaseClientManager {
     if (this.isCategorySyncOut()) {
       for (const label of delugeLabels) {
         if (!label) continue;
-        if (categoryManager.getByName(label)) continue;
+        if (categoryManager.getByName(label)) {
+          // Already known — record this instance as another source.
+          categoryManager.addSource(label, this.instanceId);
+          continue;
+        }
         categoryManager.importCategory({
+          source: this.instanceId,
           name: label,
           comment: 'Auto-created from Deluge label'
         });

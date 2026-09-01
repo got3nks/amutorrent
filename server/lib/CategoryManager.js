@@ -19,6 +19,10 @@ const clientMeta = require('./clientMeta');
 const registry = require('./ClientRegistry');
 const config = require('../modules/config');
 
+// Synthetic provenance entry for categories created in aMuTorrent itself
+// rather than imported from a client. Always counts as an active source.
+const APP_SOURCE = 'app';
+
 // ============================================================================
 // COLOR UTILITIES
 // ============================================================================
@@ -390,6 +394,12 @@ class CategoryManager extends BaseModule {
             amuleIds = {};
           }
 
+          // Categories written before provenance tracking are treated as
+          // app-owned, so existing installs keep propagating exactly as before.
+          const sources = Array.isArray(cat.sources) && cat.sources.length > 0
+            ? [...new Set(cat.sources)]
+            : [APP_SOURCE];
+
           this.categories.set(name, {
             name,
             color: cat.color || '#CCCCCC',
@@ -398,6 +408,7 @@ class CategoryManager extends BaseModule {
             comment: cat.comment || '',
             priority: cat.priority ?? 0,
             amuleIds,
+            sources,
             createdAt: cat.createdAt || new Date().toISOString(),
             updatedAt: cat.updatedAt || new Date().toISOString()
           });
@@ -447,6 +458,7 @@ class CategoryManager extends BaseModule {
           comment: cat.comment,
           priority: cat.priority,
           amuleIds: cat.amuleIds || {},
+          sources: cat.sources || [APP_SOURCE],
           createdAt: cat.createdAt,
           updatedAt: cat.updatedAt
         };
@@ -568,9 +580,13 @@ class CategoryManager extends BaseModule {
    * @param {Object} data - { name, color, path, comment, priority, amuleIds }
    * @returns {Object} Created category object
    */
-  importCategory({ name, color = '#CCCCCC', path = null, comment = '', priority = 0, amuleIds = {} } = {}) {
+  importCategory({ name, color = '#CCCCCC', path = null, comment = '', priority = 0, amuleIds = {}, source = null } = {}) {
     if (!name) throw new Error('Category name is required for import');
-    if (this.categories.has(name)) return this.categories.get(name);
+    if (this.categories.has(name)) {
+      // Already known — this client is an additional source, not a duplicate.
+      if (source) this.addSource(name, source);
+      return this.categories.get(name);
+    }
 
     const now = new Date().toISOString();
     const usedColors = new Set(Array.from(this.categories.values()).map(c => c.color));
@@ -582,6 +598,7 @@ class CategoryManager extends BaseModule {
       comment: comment || '',
       priority: priority ?? 0,
       amuleIds: amuleIds || {},
+      sources: source ? [source] : [APP_SOURCE],
       createdAt: now,
       updatedAt: now
     };
@@ -609,6 +626,46 @@ class CategoryManager extends BaseModule {
   }
 
   /**
+   * Record that a client instance also holds this category.
+   * @param {string} name - Category name
+   * @param {string} source - instanceId, or 'app' for aMuTorrent itself
+   * @returns {boolean} True if the source was newly added
+   */
+  addSource(name, source) {
+    const category = this.categories.get(name);
+    if (!category || !source) return false;
+    if (!Array.isArray(category.sources)) category.sources = [APP_SOURCE];
+    if (category.sources.includes(source)) return false;
+    category.sources.push(source);
+    category.updatedAt = new Date().toISOString();
+    this.log(`🔗 Category "${name}" also provided by ${source}`);
+    return true;
+  }
+
+  /**
+   * Whether a category still has a source that can publish it.
+   *
+   * A category propagates while at least one contributor is live: 'app' always
+   * counts, and a client instance counts while it is enabled and sync-out is
+   * on. When every source is disabled, sync-off or gone from config the
+   * category stops propagating — it is never deleted from any client, so a
+   * source coming back simply resumes it.
+   * @param {Object} category - Category object
+   * @returns {boolean}
+   */
+  hasActiveSource(category) {
+    const sources = Array.isArray(category?.sources) && category.sources.length > 0
+      ? category.sources
+      : [APP_SOURCE];
+    return sources.some(src => {
+      if (src === APP_SOURCE) return true;
+      const mgr = registry.get(src);
+      if (!mgr) return false;
+      return mgr.isEnabled() && mgr.isCategorySyncOut();
+    });
+  }
+
+  /**
    * Get a read-only snapshot of categories for sync comparison.
    * @returns {Object} { getByAmuleId, getByName, entries, getUnlinkedFor }
    */
@@ -620,6 +677,7 @@ class CategoryManager extends BaseModule {
       entries: () => Array.from(self.categories.entries()),
       getUnlinkedFor: (instanceId) => Array.from(self.categories.entries())
         .filter(([name, cat]) => cat.amuleIds?.[instanceId] == null && name !== 'Default')
+        .filter(([, cat]) => self.hasActiveSource(cat))
         .map(([, cat]) => cat)
     };
   }
@@ -637,6 +695,7 @@ class CategoryManager extends BaseModule {
   async propagateToOtherClients(excludeInstanceId) {
     const allCategories = Array.from(this.categories.entries())
       .filter(([name]) => name !== 'Default')
+      .filter(([, cat]) => this.hasActiveSource(cat))
       .map(([, cat]) => cat);
 
     if (allCategories.length === 0) return;
@@ -719,6 +778,7 @@ class CategoryManager extends BaseModule {
       comment: comment || '',
       priority: priority ?? 0,
       amuleIds: {},
+      sources: [APP_SOURCE],
       createdAt: now,
       updatedAt: now
     };
@@ -779,6 +839,11 @@ class CategoryManager extends BaseModule {
     if (comment !== undefined) category.comment = comment;
     if (priority !== undefined) category.priority = priority;
     category.updatedAt = new Date().toISOString();
+
+    // Editing a category in aMuTorrent extends ownership to the app, so it
+    // keeps propagating even if every client that contributed it goes away.
+    // skipClients marks a sync-driven update, which is not a user edit.
+    if (!skipClients) this.addSource(name, APP_SOURCE);
 
     // Update in all connected clients with category support
     // Skip for Default category — it's managed by the clients themselves
@@ -858,6 +923,9 @@ class CategoryManager extends BaseModule {
         this.warn(`⚠️ Failed to rename category on ${mgr.instanceId}: ${err.message}`);
       }
     }
+
+    // A rename is a user edit too — take app ownership before the key moves.
+    this.addSource(oldName, APP_SOURCE);
 
     // Update the category
     category.name = newName;
