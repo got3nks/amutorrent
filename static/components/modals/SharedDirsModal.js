@@ -44,6 +44,7 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
     connectedInstances: amuleInstances,
     showSelector: showAmuleSelector,
     selectedId: instanceId,
+    selectedInstance,
     selectInstance: selectAmuleInstance
   } = useAmuleInstanceSelector(selectorOptions);
 
@@ -292,16 +293,22 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
           h('div', { className: 'flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700' },
             h('div', { className: 'flex items-center gap-3' },
               h(Icon, { name: 'folder', size: 20, className: 'text-purple-600 dark:text-purple-400' }),
-              h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100' }, 'Shared Folders')
+              h('div', null,
+                h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100' }, 'Shared Folders'),
+                selectedInstance && h('p', { className: 'text-xs text-gray-500 dark:text-gray-400' },
+                  selectedInstance.name)
+              )
             ),
             h(IconButton, { variant: 'secondary', icon: 'x', iconSize: 16, onClick: onClose, title: 'Close' })
           ),
 
           showAmuleSelector && h('div', { className: 'px-6 pt-4' },
             h(AmuleInstanceSelector, {
-              instances: amuleInstances,
+              connectedInstances: amuleInstances,
               selectedId: instanceId,
-              onSelect: selectInstance
+              onSelect: selectInstance,
+              showSelector: showAmuleSelector,
+              label: 'aMule Instance'
             })
           ),
 
