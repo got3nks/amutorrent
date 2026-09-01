@@ -227,9 +227,22 @@ class NotificationManager extends BaseModule {
         if (!cfg.webhook_id || !cfg.webhook_token) return null;
         return `discord://${e(cfg.webhook_id)}/${e(cfg.webhook_token)}`;
 
-      case 'telegram':
+      case 'telegram': {
         if (!cfg.bot_token || !cfg.chat_id) return null;
-        return `tgram://${e(cfg.bot_token)}/${e(cfg.chat_id)}`;
+        // Forum topics: Apprise maps ?topic= to Telegram's message_thread_id.
+        // Query form rather than the `chat_id:topic` suffix — an Apprise too
+        // old to know the option ignores it and posts to General, where the
+        // suffix would fail its chat-ID regex and drop the notification.
+        const topic = String(cfg.topic ?? '').trim();
+        if (topic && !/^\d+$/.test(topic)) {
+          // The schema catches this in the UI, but the API is reachable
+          // directly. Apprise would reject the URL and the service would be
+          // silently dropped from the send list, so say why.
+          this.warn(`[NotificationManager] Telegram topic "${topic}" is not a number — ignoring it`);
+        }
+        const topicParam = /^\d+$/.test(topic) ? `?topic=${e(topic)}` : '';
+        return `tgram://${e(cfg.bot_token)}/${e(cfg.chat_id)}${topicParam}`;
+      }
 
       case 'slack':
         if (!cfg.token_a || !cfg.token_b || !cfg.token_c) return null;
