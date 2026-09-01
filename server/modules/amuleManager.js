@@ -29,7 +29,8 @@ class AmuleManager extends BaseClientManager {
     this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
-    this._categorySlotCache = null;  // { at, categories } — see _getCategoriesForResolve()
+    this._categorySlotCache = null;  // { at, categories } - see _getCategoriesForResolve()
+    this._serverCapabilities = new Set();  // EC_TAG_CAN_* advertised on AUTH_OK
     this._tcpPort = null;   // ED2K TCP listen port (from connection preferences)
     this._udpPort = null;   // KAD UDP listen port (from connection preferences)
     this.setupGlobalErrorHandlers();
@@ -142,6 +143,12 @@ class AmuleManager extends BaseClientManager {
 
       // Only set as active client if connection succeeded
       this.client = newClient;
+      // Capabilities are advertised once, on the AUTH_OK reply, and hold for
+      // the life of the connection - so snapshot them here rather than reaching
+      // into the session on every check. Re-taken on each (re)connect, since a
+      // daemon restarted onto a different build advertises a different set.
+      this._serverCapabilities = new Set(newClient.session?.serverCapabilities || []);
+      this.log(`🔌 aMule capabilities: ${[...this._serverCapabilities].join(', ') || '(none)'}`);
       this._clearConnectionError();
 
       this.log('✅ Connected to aMule successfully');
@@ -1213,7 +1220,18 @@ class AmuleManager extends BaseClientManager {
    * @returns {boolean}
    */
   supportsSharedDirsConfig() {
-    return this.client?.hasCapability?.('EC_TAG_CAN_SHAREDDIRS_CONFIG') === true;
+    return this.hasServerCapability('EC_TAG_CAN_SHAREDDIRS_CONFIG');
+  }
+
+  /**
+   * Whether the connected daemon advertised a capability at authentication.
+   * Reads the connect-time snapshot: stable for the connection, and cheap
+   * enough to call from a render path. Returns false when disconnected.
+   * @param {string} tagName - e.g. "EC_TAG_CAN_SHAREDDIRS_CONFIG"
+   * @returns {boolean}
+   */
+  hasServerCapability(tagName) {
+    return !!this.client && this._serverCapabilities.has(tagName);
   }
 
   /**
@@ -1222,7 +1240,17 @@ class AmuleManager extends BaseClientManager {
    */
   async getSharedDirs() {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.getSharedDirs();
+    // Guard here, outside the request queue: QueuedAmuleClient catches every
+    // error and resolves null, so the library's own refusal would be swallowed
+    // and read as an empty folder list.
+    if (!this.supportsSharedDirsConfig()) {
+      throw new Error('This aMule build cannot report its shared folders over EC');
+    }
+    const dirs = await this.client.getSharedDirs();
+    if (!Array.isArray(dirs)) {
+      throw new Error('aMule did not return a shared folder list');
+    }
+    return dirs;
   }
 
   /**
@@ -1233,7 +1261,17 @@ class AmuleManager extends BaseClientManager {
    */
   async setSharedDirs(dirs) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.setSharedDirs(dirs);
+    if (!this.supportsSharedDirsConfig()) {
+      throw new Error('This aMule build cannot be sent a shared folder list over EC');
+    }
+    const result = await this.client.setSharedDirs(dirs);
+    // A null here means the queue caught something - a dropped connection, or
+    // the library refusing because the daemon changed under a reconnect. It
+    // must not be read as "applied with nothing rejected".
+    if (!result || typeof result !== 'object') {
+      throw new Error('aMule did not confirm the shared folder update');
+    }
+    return result;
   }
 
   /**
