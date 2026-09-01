@@ -106,11 +106,11 @@ class NotificationManager extends BaseModule {
     if (found) {
       this.apprisePath = found.path;
       this.appriseAvailable = { available: true, version: found.version };
-      this.log(`[NotificationManager] Apprise available: ${found.version} (${found.path})`);
+      this.log(`Apprise available: ${found.version} (${found.path})`);
     } else {
       this.apprisePath = null;
       this.appriseAvailable = { available: false, error: 'Apprise CLI not installed' };
-      this.log('[NotificationManager] Apprise CLI not available (checked: ~/.local/bin, /usr/local/bin, /usr/bin)');
+      this.log('Apprise CLI not available (checked: ~/.local/bin, /usr/local/bin, /usr/bin)');
     }
   }
 
@@ -130,7 +130,7 @@ class NotificationManager extends BaseModule {
       if (fs.existsSync(this.configPath)) {
         const data = fs.readFileSync(this.configPath, 'utf8');
         this.notificationConfig = JSON.parse(data);
-        this.log('[NotificationManager] Configuration loaded');
+        this.log('Configuration loaded');
       } else {
         // Create default config
         this.notificationConfig = {
@@ -147,10 +147,10 @@ class NotificationManager extends BaseModule {
           services: []
         };
         this._saveConfig();
-        this.log('[NotificationManager] Created default configuration');
+        this.log('Created default configuration');
       }
     } catch (err) {
-      this.error(`[NotificationManager] Error loading config: ${err.message}`);
+      this.error(`Error loading config: ${err.message}`);
       this.notificationConfig = {
         enabled: false,
         events: {},
@@ -170,7 +170,7 @@ class NotificationManager extends BaseModule {
       }
       fs.writeFileSync(this.configPath, JSON.stringify(this.notificationConfig, null, 2));
     } catch (err) {
-      this.error(`[NotificationManager] Error saving config: ${err.message}`);
+      this.error(`Error saving config: ${err.message}`);
       throw err;
     }
   }
@@ -215,7 +215,7 @@ class NotificationManager extends BaseModule {
     const cfgValues = Object.values(cfg || {});
     for (const val of cfgValues) {
       if (typeof val === 'string' && !this._isSafeUrlComponent(val)) {
-        this.warn('[NotificationManager] Rejected service config with control characters');
+        this.warn('Rejected service config with control characters');
         return null;
       }
     }
@@ -238,7 +238,7 @@ class NotificationManager extends BaseModule {
           // The schema catches this in the UI, but the API is reachable
           // directly. Apprise would reject the URL and the service would be
           // silently dropped from the send list, so say why.
-          this.warn(`[NotificationManager] Telegram topic "${topic}" is not a number — ignoring it`);
+          this.warn(`Telegram topic "${topic}" is not a number — ignoring it`);
         }
         const topicParam = /^\d+$/.test(topic) ? `?topic=${e(topic)}` : '';
         return `tgram://${e(cfg.bot_token)}/${e(cfg.chat_id)}${topicParam}`;
@@ -272,7 +272,7 @@ class NotificationManager extends BaseModule {
       case 'webhook':
         if (!cfg.url) return null;
         if (!this._isValidUrl(cfg.url)) {
-          this.warn('[NotificationManager] Rejected invalid webhook URL');
+          this.warn('Rejected invalid webhook URL');
           return null;
         }
         // JSON webhook
@@ -281,7 +281,7 @@ class NotificationManager extends BaseModule {
       case 'custom':
         if (!cfg.url) return null;
         if (!this._isValidUrl(cfg.url)) {
-          this.warn('[NotificationManager] Rejected invalid custom URL');
+          this.warn('Rejected invalid custom URL');
           return null;
         }
         return cfg.url;
@@ -343,7 +343,7 @@ class NotificationManager extends BaseModule {
       this.notificationConfig.events = { ...cfg.events };
     }
     this._saveConfig();
-    this.log('[NotificationManager] Configuration updated');
+    this.log('Configuration updated');
   }
 
   /**
@@ -404,7 +404,7 @@ class NotificationManager extends BaseModule {
 
     this.notificationConfig.services.push(service);
     this._saveConfig();
-    this.log(`[NotificationManager] Added service: ${service.name} (${service.type})`);
+    this.log(`Added service: ${service.name} (${service.type})`);
 
     return {
       ...service,
@@ -444,7 +444,7 @@ class NotificationManager extends BaseModule {
 
     this.notificationConfig.services[index] = updated;
     this._saveConfig();
-    this.log(`[NotificationManager] Updated service: ${updated.name}`);
+    this.log(`Updated service: ${updated.name}`);
 
     return {
       ...updated,
@@ -464,7 +464,7 @@ class NotificationManager extends BaseModule {
     const service = this.notificationConfig.services[index];
     this.notificationConfig.services.splice(index, 1);
     this._saveConfig();
-    this.log(`[NotificationManager] Deleted service: ${service.name}`);
+    this.log(`Deleted service: ${service.name}`);
     return true;
   }
 
@@ -528,9 +528,9 @@ class NotificationManager extends BaseModule {
 
     try {
       await this._sendApprise(title, body, urls);
-      this.log(`[NotificationManager] Notification sent for ${eventType}`);
+      this.log(`Notification sent for ${eventType}`);
     } catch (err) {
-      this.error(`[NotificationManager] Failed to send notification: ${err.message}`);
+      this.error(`Failed to send notification: ${err.message}`);
     }
   }
 
@@ -559,9 +559,9 @@ class NotificationManager extends BaseModule {
 
     try {
       await this._sendApprise(title, body, urls);
-      this.log(`[NotificationManager] Notification sent for ${eventType}: ${eventData.instanceName || eventData.instanceId}`);
+      this.log(`Notification sent for ${eventType}: ${eventData.instanceName || eventData.instanceId}`);
     } catch (err) {
-      this.error(`[NotificationManager] Failed to send ${eventType} notification: ${err.message}`);
+      this.error(`Failed to send ${eventType} notification: ${err.message}`);
     }
   }
 
