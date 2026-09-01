@@ -37,5 +37,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1"
   }
 }
