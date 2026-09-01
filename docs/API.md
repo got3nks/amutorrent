@@ -591,61 +591,68 @@ Trigger a shared files rescan.
 }
 ```
 
-### Shared Directory Management (Experimental)
+### Shared Folder Management
 
-Admin-only endpoints for managing aMule's `shareddir.dat` file.
+Admin-only endpoints for aMule's shared folders, read and written over the EC
+protocol. Requires a core supporting amule-org/amule#530; others answer
+`supported: false`.
 
 #### GET `/api/amule/shared-dirs?instanceId=...`
 
-Read current shared directories. Returns config roots as authoritative, merges any dat-only roots.
+Current shared folders for an instance.
 
-**Response (configured):**
 ```json
 {
-  "configured": true,
-  "path": "/home/amule/.aMule/shareddir.dat",
-  "exists": true,
-  "canWrite": true,
-  "roots": ["/downloads/movies", "/downloads/tv"],
-  "inaccessibleRoots": [],
-  "isDocker": false
+  "supported": true,
+  "capability": "EC_TAG_CAN_SHAREDDIRS_CONFIG",
+  "dirs": [
+    { "path": "/data/share", "recursive": true },
+    { "path": "/data/one", "recursive": false }
+  ]
 }
 ```
 
-**Response (unconfigured):**
+A core without the capability answers `200` with `supported: false`, an empty
+`dirs`, and a `reason` to display. It is not an error - the feature is absent,
+nothing failed.
+
+#### PUT `/api/amule/shared-dirs`
+
+Replaces the whole list; aMule has no add or remove. `recursive` shares the
+entire subtree, expanded by aMule.
+
 ```json
 {
-  "configured": false,
-  "path": null,
-  "isDocker": false
+  "instanceId": "amule-host-4712",
+  "dirs": [{ "path": "/data/share", "recursive": true }],
+  "confirmUnshareAll": false
 }
 ```
 
-#### PUT `/api/amule/shared-dirs?instanceId=...`
-
-Save shared directories. Persists roots to config.json, auto-expands each root to include all subdirectories via `find -type d`, writes to `shareddir.dat`, and reloads aMule shared files.
-
-**Request Body:**
 ```json
 {
-  "directories": ["/downloads/movies", "/downloads/tv"]
+  "supported": true,
+  "applied": 1,
+  "total": 2,
+  "rejected": [{ "path": "/data/gone", "error": 1 }],
+  "rescanPending": true
 }
 ```
 
-#### POST `/api/amule/shared-dirs/reload?instanceId=...`
+Partial application is normal: every path that validated is applied and the
+others are listed in `rejected`, so a non-empty `rejected` does not mean the
+edit was discarded. `error` is numeric so the daemon's locale never reaches the
+client - `1` is missing or not a directory, `2` is unreadable.
 
-Rescan subdirectories using roots from config and reload. Picks up new subdirectories without changing root dirs.
+An empty `dirs` unshares everything and is refused unless `confirmUnshareAll`
+is `true`.
 
-#### PUT `/api/amule/shared-dirs/config?instanceId=...`
+`rescanPending` reflects that aMule persists immediately but rescans on its
+next tick, so the shared file list will not update instantly.
 
-Save the `sharedDirDatPath` for an aMule instance. Send an empty string to clear the configuration (removes both `sharedDirDatPath` and `sharedDirRoots`).
+#### POST `/api/amule/shared-dirs/reload`
 
-**Request Body:**
-```json
-{
-  "sharedDirDatPath": "/home/amule/.aMule/shareddir.dat"
-}
-```
+Ask aMule to rescan now. Body: `{ "instanceId": "..." }`. Works on any core.
 
 ### Logs
 

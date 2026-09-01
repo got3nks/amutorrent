@@ -159,7 +159,6 @@ services:
       - AMULE_HOST=host.docker.internal
       - AMULE_PORT=4712
       - AMULE_PASSWORD=your_ec_password  # Locks UI editing
-      # - AMULE_SHARED_DIR_DAT=/home/amule/.aMule/shareddir.dat  # Optional: shared directory management
 
       # rTorrent Connection (optional)
       - RTORRENT_ENABLED=true
@@ -251,7 +250,6 @@ services:
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
 | `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders |
-| `AMULE_SHARED_DIR_DAT` | - | Path to aMule's `shareddir.dat` file (enables shared directory management) |
 
 #### rTorrent Connection
 
