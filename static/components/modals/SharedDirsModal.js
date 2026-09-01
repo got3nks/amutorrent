@@ -320,14 +320,18 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
               : (supported ? editorView : unsupportedView)
           ),
 
-          supported && h('div', { className: 'px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-between' },
+          h('div', { className: 'px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-between' },
+            // Rescan is the long-standing shared-files reload, not part of
+            // amule#530, so it works on every core - including one too old to
+            // have its folder list edited here, where it is the only thing on
+            // offer and often the reason the modal was opened.
             h('div', null,
               h(Button, { variant: 'secondary', onClick: reload, disabled: isWorking },
                 reloading ? 'Rescanning...' : 'Rescan now')
             ),
             h('div', { className: 'flex gap-3' },
               h(Button, { variant: 'secondary', onClick: onClose }, dirty ? 'Discard' : 'Close'),
-              h(Button, { variant: 'primary', onClick: save, disabled: !dirty || isWorking },
+              supported && h(Button, { variant: 'primary', onClick: save, disabled: !dirty || isWorking },
                 saving ? 'Saving...' : 'Save')
             )
           )
