@@ -12,6 +12,7 @@ const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
 const { convertToQBittorrentInfo, convertToQBittorrentProperties, convertToQBittorrentFiles } = require('./stateMapping');
+const path = require('path');
 const { convertMagnetToEd2k } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
 const { resolveCategoryForAdd } = require('./addParams');
@@ -755,7 +756,15 @@ class QBittorrentHandler {
           // Look up cached state to decide active-download vs shared-file path.
           const item = this._findCachedItem(finalHash);
           const isShared = !!(item?.shared && !item?.downloading);
-          const filePath = item?.filePath || null;
+          // `filePath` on a unified item is the DIRECTORY, not the file: aMule
+          // sends the containing directory in EC_TAG_KNOWNFILE_FILENAME for a
+          // completed file, despite the tag's name. Passing it straight to
+          // deleteItem made the unlink fail with EISDIR, so the file survived
+          // while the delete still reported success (#81). Join it with the
+          // filename, the same way handleBatchDelete already does.
+          const dir = item?.raw?.path || item?.filePath || null;
+          const name = item?.rawName || item?.name || null;
+          const filePath = isShared && dir && name ? path.join(dir, name) : null;
 
           logger.log(`[qBittorrent] Deleting hash: ${finalHash} (shared=${isShared}, deleteFiles=${deleteFiles})`);
 
@@ -764,6 +773,7 @@ class QBittorrentHandler {
           // For shared files, deleteItem returns the path(s) but the caller
           // (us) is expected to actually unlink them. Mirrors the contract
           // used by webSocketHandlers.handleBatchDelete.
+          let unlinkFailed = false;
           if (deleteFiles && Array.isArray(result?.pathsToDelete)) {
             for (const p of result.pathsToDelete) {
               try {
@@ -772,6 +782,7 @@ class QBittorrentHandler {
                 needsSharedRefresh = true;
               } catch (unlinkErr) {
                 if (unlinkErr.code !== 'ENOENT') {
+                  unlinkFailed = true;
                   logger.warn(`[qBittorrent] Failed to unlink ${p}: ${unlinkErr.message}`);
                 }
               }
@@ -782,7 +793,14 @@ class QBittorrentHandler {
             this.hashStore.removeMapping(ed2kHash);
           }
 
-          logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
+          // Say what actually happened: the *arr treats this as "the file is
+          // gone" and stops tracking it, so a silent failure here strands the
+          // download in its queue with nothing in the log to explain it.
+          if (unlinkFailed) {
+            logger.warn(`[qBittorrent] Removed ${finalHash} from aMule, but its file could not be deleted`);
+          } else {
+            logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
+          }
         } catch (error) {
           logger.error('[qBittorrent] Exception deleting hash:', hash, error);
         }
