@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.1] - Lidarr Support, Deletion Fix
+
+### ✨ Added
+
+- **Lidarr support.** aMuTorrent now advertises music categories and accepts Lidarr's searches, so it can be added as an indexer exactly like you would for Sonarr or Radarr (#80). Note that ED2K searches cannot be filtered by file type yet, so results will include unrelated files and a mix of tracks, albums and archives.
+
+### 🐛 Fixed
+
+- **Sonarr and Radarr could not delete finished downloads.** aMuTorrent tried to delete the containing folder instead of the file, so the file stayed on disk, aMule kept sharing it, and the download stuck in the queue - while aMuTorrent reported success. Deleting from aMuTorrent's own interface was unaffected, and nothing was ever at risk of being deleted by mistake (#81).
+
+### 🔒 Security
+
+- **Dependency updates clearing five advisories.** One would let anyone able to reach aMuTorrent exhaust its memory and take it offline without logging in - worth updating if your instance is reachable from the internet.
+
+---
+
 ## [3.9.0] - Shared Folders Without File Access, Better Search Results
 
 ### ✨ Added
