@@ -211,6 +211,49 @@ class AmuleManager extends BaseClientManager {
     this.searchInProgress = false;
   }
 
+  /**
+   * Acquire the search lock, waiting for it rather than failing immediately.
+   *
+   * aMule keeps ONE ed2k search slot: every EC_OP_SEARCH_START clears the
+   * previous result set, so a second search started before the first is read
+   * back destroys those results. Until now the client library's monolithic
+   * searchAndWaitResults() prevented that as a side effect of blocking the
+   * whole EC queue for the duration of a search. Callers that drive the poll
+   * loop themselves - which is the point, so the connection stays usable -
+   * must take this lock instead.
+   *
+   * @param {Object} [opts]
+   * @param {number} [opts.timeoutMs] - Give up after this long
+   * @param {number} [opts.pollMs] - How often to retry
+   * @returns {Promise<boolean>} False if the lock could not be taken in time
+   */
+  async acquireSearchLockWaiting({ timeoutMs = 120000, pollMs = 250 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.acquireSearchLock()) {
+      if (Date.now() >= deadline) return false;
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+    return true;
+  }
+
+  /**
+   * Run `fn` holding the search lock, releasing it however `fn` ends.
+   * @param {Function} fn
+   * @param {Object} [opts] - Passed to acquireSearchLockWaiting
+   * @returns {Promise<*>} Whatever `fn` returns
+   * @throws {Error} If the lock could not be acquired
+   */
+  async withSearchLock(fn, opts = {}) {
+    if (!(await this.acquireSearchLockWaiting(opts))) {
+      throw new Error('Timed out waiting for the aMule search lock');
+    }
+    try {
+      return await fn();
+    } finally {
+      this.releaseSearchLock();
+    }
+  }
+
   isSearchInProgress() {
     return this.searchInProgress;
   }

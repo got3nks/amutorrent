@@ -29,9 +29,19 @@ class TorznabHandler {
   constructor() {
     // Dependencies
     this.getAmuleClient = null;
+    this.getAmuleManager = null;
 
     // Rate limiting state
     this.searchDelayMs = parseInt(process.env.ED2K_SEARCH_DELAY_MS || '10000', 10);
+    // Poll-loop timings, matching what searchAndWaitResults() used so search
+    // behaviour is unchanged; only the connection-holding differs.
+    this.searchSettleMs = parseInt(process.env.ED2K_SEARCH_SETTLE_MS || '5000', 10);
+    this.searchPollMs = parseInt(process.env.ED2K_SEARCH_POLL_MS || '1000', 10);
+    this.searchTimeoutMs = parseInt(process.env.ED2K_SEARCH_TIMEOUT_MS || '120000', 10);
+    // How long a request waits for the ed2k search slot before giving up. Two
+    // searches run per request (global + kad), so a queue of *arr searches can
+    // legitimately wait a while before its turn.
+    this.searchLockWaitMs = parseInt(process.env.ED2K_SEARCH_LOCK_WAIT_MS || '180000', 10);
     this.lastSearchTime = 0;
 
     // Cache state
@@ -45,8 +55,9 @@ class TorznabHandler {
   /**
    * Set dependencies
    */
-  setDependencies({ getAmuleClient }) {
+  setDependencies({ getAmuleClient, getAmuleManager }) {
     this.getAmuleClient = getAmuleClient;
+    this.getAmuleManager = getAmuleManager;
   }
 
   // ============================================================================
@@ -224,6 +235,62 @@ class TorznabHandler {
   // RATE LIMITING
   // ============================================================================
 
+  /**
+   * Run one aMule search without monopolising the EC connection.
+   *
+   * searchAndWaitResults() is a single call that sleeps 5s and then polls every
+   * second for up to two minutes. aMuTorrent serialises every EC operation onto
+   * one connection, so that call held the connection for its whole duration -
+   * mostly doing nothing - and starved the periodic data sync and the
+   * download-add path behind it. Adds exceeded Medusa's fixed 60s timeout and
+   * the sync's own warnings climbed past nine minutes (#88, #89).
+   *
+   * Driving the loop here means each EC round-trip is queued individually and
+   * the connection is free between polls. The cost is that the accidental
+   * serialisation the blocking call provided is gone, so this takes the search
+   * lock explicitly: aMule keeps one ed2k search slot, and a second
+   * EC_OP_SEARCH_START would discard the first search's results.
+   *
+   * @param {Object} amuleClient
+   * @param {string} query
+   * @param {string} network - 'global' or 'kad'
+   * @returns {Promise<Object>} Same shape as searchAndWaitResults()
+   * @private
+   */
+  async _searchWithoutBlockingEC(amuleClient, query, network) {
+    const manager = this.getAmuleManager?.();
+
+    // Unreachable in normal operation: the client is derived from this same
+    // manager, and handleSearch has already returned an empty feed if there is
+    // no client. Fail loudly rather than quietly reverting to the blocking
+    // search, which would restore the starvation this exists to prevent.
+    if (!manager?.withSearchLock) {
+      throw new Error('Torznab search needs the aMule manager for the search lock, but none was injected');
+    }
+
+    return manager.withSearchLock(async () => {
+      const started = await amuleClient.startSearch(query, network, '');
+      if (started && started.started === false) {
+        logger.warn(`[Torznab] aMule refused the ${network} search: ${started.message || 'no reason given'}`);
+        return { resultsLength: 0, totalLength: 0, results: [] };
+      }
+
+      // aMule needs a moment before its progress figure means anything.
+      await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
+
+      const deadline = Date.now() + this.searchTimeoutMs;
+      while (Date.now() < deadline) {
+        const status = await amuleClient.getSearchProgress();
+        if (status?.complete) break;
+        await new Promise(resolve => setTimeout(resolve, this.searchPollMs));
+      }
+
+      // Read results even on timeout: a slow search still has partial results,
+      // and returning them beats returning nothing.
+      return amuleClient.getSearchResults({ groupByHash: true });
+    }, { timeoutMs: this.searchLockWaitMs });
+  }
+
   async rateLimitedSearch(searchFn) {
     const now = Date.now();
     const timeSinceLastSearch = now - this.lastSearchTime;
@@ -369,7 +436,7 @@ class TorznabHandler {
         // groupByHash: one hash can be published under several filenames and
         // the extra ones are often the better-parsed release names (#82).
         const result = await this.rateLimitedSearch(() =>
-          amuleClient.searchAndWaitResults(searchQuery, network, '', { groupByHash: true })
+          this._searchWithoutBlockingEC(amuleClient, searchQuery, network)
         );
         const resultCount = (result.results || []).length;
         logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);

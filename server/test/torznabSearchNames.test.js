@@ -9,12 +9,12 @@ const { convertMagnetToEd2k } = require('../lib/linkConverter');
 const HASH = 'e3403c41b5140d71c61f3b4109233b2e';
 
 const grouped = () => [{
-  fileHash: HASH, fileName: 'Oppenheimer (2023) (Dual).mkv', fileSize: 100, sourceCount: 9,
+  fileHash: HASH, fileName: 'Example.Film.2024.Dual.mkv', fileSize: 100, sourceCount: 9,
   children: [
     // aMule can repeat the parent's own name among its children.
-    { fileHash: HASH, fileName: 'Oppenheimer (2023) (Dual).mkv', fileSize: 100, sourceCount: 3 },
-    { fileHash: HASH, fileName: 'Oppenheimer.2023.iTA.BDRip.AC3.x264-WRM.mkv', fileSize: 100, sourceCount: 5 },
-    { fileHash: HASH, fileName: 'Oppenheimer.mkv', fileSize: 100, sourceCount: 1 }
+    { fileHash: HASH, fileName: 'Example.Film.2024.Dual.mkv', fileSize: 100, sourceCount: 3 },
+    { fileHash: HASH, fileName: 'Example.Film.2024.BDRip.AC3.x264-GRP.mkv', fileSize: 100, sourceCount: 5 },
+    { fileHash: HASH, fileName: 'Example.Film.mkv', fileSize: 100, sourceCount: 1 }
   ]
 }];
 
@@ -29,10 +29,10 @@ const parse = (xml) => {
 
 describe('Torznab feed: alternate filenames', () => {
   it('emits one item per distinct name, deduping the repeated parent', () => {
-    const items = parse(convertToTorznabFeed(grouped(), 'oppenheimer', '2000'));
+    const items = parse(convertToTorznabFeed(grouped(), 'example film', '2000'));
     assert.equal(items.length, 3);
-    assert.equal(items.filter(i => i.title === 'Oppenheimer (2023) (Dual).mkv').length, 1);
-    assert.ok(items.some(i => i.title === 'Oppenheimer.2023.iTA.BDRip.AC3.x264-WRM.mkv'));
+    assert.equal(items.filter(i => i.title === 'Example.Film.2024.Dual.mkv').length, 1);
+    assert.ok(items.some(i => i.title === 'Example.Film.2024.BDRip.AC3.x264-GRP.mkv'));
   });
 
   it('leaves a result without alternates as a single item', () => {

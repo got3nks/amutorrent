@@ -48,7 +48,7 @@ describe('Torznab capabilities: audio', () => {
 describe('Torznab t=music', () => {
   it('is accepted rather than rejected as an invalid mode', async () => {
     const res = makeRes();
-    await makeHandler().handleRequest({ query: { t: 'music', q: 'nirvana nevermind' } }, res);
+    await makeHandler().handleRequest({ query: { t: 'music', q: 'example artist example album' } }, res);
     assert.notEqual(res._state.status, 400);
   });
 
@@ -64,7 +64,7 @@ describe('Torznab t=music', () => {
     // used for indexer validation.
     const res = makeRes();
     await makeHandler().handleRequest(
-      { query: { t: 'music', artist: 'Nirvana', album: 'Nevermind' } }, res);
+      { query: { t: 'music', artist: 'Example Artist', album: 'Example Album' } }, res);
     assert.ok(!String(res._state.body).includes('Sample.Test.File.mkv'),
       'artist/album were not recognised as a real search');
   });
@@ -75,15 +75,22 @@ describe('Torznab t=music', () => {
     // aMule, since the handler returns early when no client is attached.
     const handler = new TorznabHandler();
     const searched = [];
-    handler.getAmuleClient = () => ({
-      searchAndWaitResults: async (query) => { searched.push(query); return { results: [] }; }
-    });
+    // Mirror production wiring: the search runs under the manager's lock and
+    // drives the poll loop itself, so both have to be injected.
+    const client = {
+      startSearch: async (query) => { searched.push(query); return { started: true }; },
+      getSearchProgress: async () => ({ complete: true }),
+      getSearchResults: async () => ({ resultsLength: 0, totalLength: 0, results: [] })
+    };
+    handler.getAmuleClient = () => client;
+    handler.getAmuleManager = () => ({ withSearchLock: async (fn) => fn() });
+    handler.searchSettleMs = 0;
 
     await handler.handleRequest(
-      { query: { t: 'music', artist: 'Nirvana', album: 'Nevermind' } }, makeRes());
+      { query: { t: 'music', artist: 'Example Artist', album: 'Example Album' } }, makeRes());
 
     assert.ok(searched.length > 0, 'no search was issued');
-    assert.ok(searched.some(q => /nirvana/i.test(q) && /nevermind/i.test(q)),
+    assert.ok(searched.some(q => /example artist/i.test(q) && /example album/i.test(q)),
       `query did not combine both: ${JSON.stringify(searched)}`);
   });
 });
@@ -91,7 +98,7 @@ describe('Torznab t=music', () => {
 describe('Torznab feed: audio categories', () => {
   const result = [{
     fileHash: 'A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4',
-    fileName: 'Nirvana - Nevermind.mp3', fileSize: 1024, sourceCount: 3
+    fileName: 'Example.Artist - Example.Album.mp3', fileSize: 1024, sourceCount: 3
   }];
   const cats = (xml) => [...xml.matchAll(/name="category" value="([0-9]+)"/g)].map(m => m[1]);
 
