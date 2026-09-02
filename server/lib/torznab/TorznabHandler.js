@@ -204,12 +204,20 @@ class TorznabHandler {
    * call per network now covers all formats, and the shape is Kad-safe.
    *
    * Format variants (all inside one OR):
-   *   with ep: S01E05, 1x05, 05 (absolute-style for "Show 01" naming)
+   *   with ep: S01E05, 1x05, 01x05, and 05 for multi-word titles only
    *   without ep: S01, 1x
+   *
+   * The bare episode number ("Show 05", catching "Show 01 - Title" naming) is
+   * withheld from single-word titles. Anchored on a single common word it
+   * matches almost anything containing that word and a two-digit number, and
+   * the noise buries the real results - a one-word title that is also an
+   * ordinary English word is the worst case (#91). A multi-word title is
+   * selective enough for the anchor to carry it.
    */
   buildTVSearchQueries(query, season, ep) {
     const normalizedQuery = this.stripYear(query);
     const seasonNum = parseInt(season, 10);
+    const titleWords = normalizedQuery.trim() ? normalizedQuery.trim().split(/\s+/).length : 0;
 
     const alternatives = [];
     if (ep) {
@@ -218,7 +226,16 @@ class TorznabHandler {
       const paddedSeason = seasonNum.toString().padStart(2, '0');
       alternatives.push(`S${paddedSeason}E${paddedEp}`);
       alternatives.push(`${seasonNum}x${paddedEp}`);
-      alternatives.push(paddedEp);   // absolute-style: "Show 05"
+      // Padded-season form: "01x05" as well as "1x05". Uncommon but cheap, and
+      // it is a real naming style (#91).
+      if (paddedSeason !== String(seasonNum)) {
+        alternatives.push(`${paddedSeason}x${paddedEp}`);
+      }
+      if (titleWords >= 2) {
+        alternatives.push(paddedEp);   // absolute-style: "Show 05"
+      } else {
+        logger.log(`[Torznab] Skipping absolute-style episode for the single-word title "${normalizedQuery}" - too broad`);
+      }
     } else {
       const paddedSeason = seasonNum.toString().padStart(2, '0');
       alternatives.push(`S${paddedSeason}`);
