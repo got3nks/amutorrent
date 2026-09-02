@@ -260,12 +260,12 @@ class TorznabHandler {
       }
 
       // Search endpoints
-      if (t === 'search' || t === 'tvsearch' || t === 'movie') {
+      if (t === 'search' || t === 'tvsearch' || t === 'movie' || t === 'music') {
         return await this.handleSearch(req, res);
       }
 
       // Unknown function type
-      res.status(400).send('Invalid t parameter (expected: caps, search, tvsearch, or movie)');
+      res.status(400).send('Invalid t parameter (expected: caps, search, tvsearch, movie, or music)');
     } catch (error) {
       logger.error('[Torznab] Error:', error);
       const emptyFeed = convertToTorznabFeed([], q || '', cat || '');
@@ -279,12 +279,12 @@ class TorznabHandler {
    */
   async handleSearch(req, res) {
     const { t, q, limit = 100, offset = 0, cat = '' } = req.query;
-    const { season, ep, tvdbid, rid, imdbid } = req.query;
+    const { season, ep, tvdbid, rid, imdbid, artist, album } = req.query;
 
     logger.log(`[Torznab] Search request: t=${t}, q=${q || '(empty)'}, season=${season || 'none'}, ep=${ep || 'none'}, offset=${offset}, limit=${limit}, cat=${cat || 'none'}`);
 
     // Check if this is a real search or just validation
-    const hasSearchParams = q || season || ep || tvdbid || rid || imdbid;
+    const hasSearchParams = q || season || ep || tvdbid || rid || imdbid || artist || album;
 
     // No search params - return sample result for indexer validation
     if (!hasSearchParams) {
@@ -301,8 +301,17 @@ class TorznabHandler {
       return res.send(testFeed);
     }
 
+    // Lidarr searches by artist and album rather than free text, so build the
+    // query from them. Combined, because either alone is too broad on ED2K:
+    // an artist name returns their whole discography plus unrelated files.
+    let effectiveQuery = q;
+    if (!effectiveQuery && (artist || album)) {
+      effectiveQuery = [artist, album].filter(Boolean).join(' ').trim();
+      logger.log(`[Torznab] Built music query from artist/album: "${effectiveQuery}"`);
+    }
+
     // Has params but no text query - can't search ED2K
-    if (!q) {
+    if (!effectiveQuery) {
       logger.warn('[Torznab] Search has metadata params but no text query - cannot search ED2K without query text');
       const emptyFeed = convertToTorznabFeed([], 'no-query', cat);
       res.set('Content-Type', 'application/xml');
@@ -312,7 +321,7 @@ class TorznabHandler {
     const amuleClient = this.getAmuleClient?.();
     if (!amuleClient) {
       logger.log('[Torznab] aMule not connected, returning empty feed');
-      const emptyFeed = convertToTorznabFeed([], q, cat);
+      const emptyFeed = convertToTorznabFeed([], effectiveQuery, cat);
       res.set('Content-Type', 'application/xml');
       return res.send(emptyFeed);
     }
@@ -322,10 +331,10 @@ class TorznabHandler {
     // _buildAnchoredQuery for the operator-budget reasoning.
     let primaryQuery;
     let fallbackQuery = null;
-    let normalizedQuery = q;
+    let normalizedQuery = effectiveQuery;
 
     if (t === 'tvsearch' && season) {
-      const result = this.buildTVSearchQueries(q, season, ep);
+      const result = this.buildTVSearchQueries(effectiveQuery, season, ep);
       primaryQuery = result.primaryQuery;
       fallbackQuery = result.fallbackQuery;
       normalizedQuery = result.normalizedQuery;
@@ -333,7 +342,7 @@ class TorznabHandler {
       // Non-tvsearch: cap the free-text query so long *arr queries
       // (Medusa passes series + full episode title as `q`) don't trip
       // aMule's "too complex" rejection.
-      primaryQuery = this._capQueryWords(q, 0);
+      primaryQuery = this._capQueryWords(effectiveQuery, 0);
       normalizedQuery = primaryQuery;
     }
 

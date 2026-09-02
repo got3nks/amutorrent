@@ -106,11 +106,15 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
     // All available categories
     const allMovieCategories = ['2000', '2010', '2020', '2030', '2040', '2045', '2050', '2060', '2070', '2080', '2090'];
     const allTVCategories = ['5000', '5010', '5020', '5030', '5040', '5045', '5050', '5060', '5070', '5080', '5090'];
+    // Audio, for Lidarr (#80). ED2K results carry no genre or type metadata, so
+    // as with movies and TV we claim the whole tree rather than guess a subcat.
+    const allAudioCategories = ['3000', '3010', '3020', '3030', '3040', '3050', '3060'];
 
     if (requestedCats.length === 0) {
-      // No categories requested - return both TV and Movies with all subcategories
+      // No categories requested - return every tree we advertise
       allMovieCategories.forEach(cat => categoriesToAdd.add(cat));
       allTVCategories.forEach(cat => categoriesToAdd.add(cat));
+      allAudioCategories.forEach(cat => categoriesToAdd.add(cat));
     } else {
       // Add requested categories AND their parent categories
       requestedCats.forEach(cat => {
@@ -119,6 +123,8 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
         // Add parent category if this is a child category
         if (cat.startsWith('2') && cat !== '2000') {
           categoriesToAdd.add('2000'); // Movies parent
+        } else if (cat.startsWith('3') && cat !== '3000') {
+          categoriesToAdd.add('3000'); // Audio parent
         } else if (cat.startsWith('5') && cat !== '5000') {
           categoriesToAdd.add('5000'); // TV parent
         }
