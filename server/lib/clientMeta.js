@@ -49,14 +49,14 @@ const CLIENT_TYPES = {
       sharedMeansComplete: true,   // shared file = 100% complete
       removeSharedMustDeleteFiles: true, // removing a shared file requires deleting it from disk (can't just "unshare")
       moveSharedForCategoryChange: true, // shared files must be physically moved for category change (no API to recategorize in-place)
-      refreshSharedAfterMove: true,  // needs refreshSharedFiles() after move
+      refreshSharedAfterMove: true,  // needs a shared-files rescan after move
       moveActiveDownloads: false,  // active downloads use temp files managed by aMule — can't be relocated
       pauseBeforeMove: false,      // no file handle release needed
       trackers: false,             // ed2k has no tracker concept
       search: true,                // ed2k search supported
       cancelDeletesFiles: true,    // cancelDownload() cleans up .part temp file
       apiDeletesFiles: false,      // no API-level delete-with-files flag
-      refreshSharedAfterDelete: true, // needs refreshSharedFiles() after shared file deletion
+      refreshSharedAfterDelete: true, // needs a shared-files rescan after shared file deletion
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
       renameFile: true,            // can rename downloads and shared files

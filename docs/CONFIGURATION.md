@@ -249,7 +249,7 @@ services:
 | `AMULE_HOST` | `127.0.0.1` | aMule daemon hostname or IP |
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
-| `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders |
+| `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders (skipped while aMule's own folder watcher is on) |
 
 #### rTorrent Connection
 

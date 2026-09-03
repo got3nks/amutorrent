@@ -311,9 +311,11 @@ class AmuleManager extends BaseClientManager {
     try {
       // aMule owns the folder list now, so there is nothing to rewrite first -
       // a reload is just a rescan.
-      this.log('📂 Auto-reloading shared files...');
-      await this.client.refreshSharedFiles();
-      this.log('✅ Shared files auto-reload completed');
+      if (await this.refreshSharedFilesIfUnwatched()) {
+        this.log('✅ Shared files auto-reload completed');
+      } else {
+        this.log('ℹ️  Shared files auto-reload skipped: aMule watches its own folders');
+      }
     } catch (err) {
       this.error('❌ Shared files auto-reload failed:', logger.errorDetail(err));
     }
@@ -337,6 +339,47 @@ class AmuleManager extends BaseClientManager {
       throw new Error('aMule not connected');
     }
     await this.client.refreshSharedFiles();
+  }
+
+  /**
+   * Does the core watch its own shared folders?
+   *
+   * aMule emits EC_TAG_DIRECTORIES_AUTO_RESCAN only while its directory
+   * watcher is enabled, so absence covers both a user who turned it off and
+   * a core too old to have one. Read on every call: aMule applies the
+   * preference live, so a startup snapshot goes stale.
+   * @returns {Promise<boolean>}
+   */
+  async isWatchingSharedDirs() {
+    if (!this.client) return false;
+    // Anything but a clear "yes" reads as "not watching": a redundant reload is
+    // the cheaper error than a shared entry that never goes away. The queue
+    // turns a failed call into null rather than throwing, but do not lean on
+    // that - a throw has to land on the same side.
+    let prefs = null;
+    try {
+      prefs = await this.client.getDirectoryPreferences();
+    } catch (err) {
+      this.warn('⚠️  Directory preferences read failed:', err.message);
+    }
+    if (!prefs) {
+      this.warn('⚠️  Could not read directory preferences, assuming no watcher');
+      return false;
+    }
+    return prefs.autoRescan === true;
+  }
+
+  /**
+   * Rescan, unless aMule's own watcher already covers it.
+   *
+   * For automated callers only (after a delete or a move, and the scheduler).
+   * The manual reload buttons call refreshSharedFiles() and always run.
+   * @returns {Promise<boolean>} whether a reload was issued
+   */
+  async refreshSharedFilesIfUnwatched() {
+    if (await this.isWatchingSharedDirs()) return false;
+    await this.refreshSharedFiles();
+    return true;
   }
 
   // ============================================================================

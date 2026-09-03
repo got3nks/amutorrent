@@ -104,7 +104,7 @@ export const CLIENT_FIELDS = {
     // Inlined — three properties (description, placeholder, required) all
     // differ from the F.password template, not worth the override overhead.
     { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
-    { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
+    { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). Skipped while aMule watches its own shared folders, which it does by default from 3.0.0.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
     F.categorySync('Useful when foreign categories from BitTorrent clients would create stray directories in aMule.'),
     F.notifications()
   ],

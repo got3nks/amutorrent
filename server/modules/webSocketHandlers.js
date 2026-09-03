@@ -1410,6 +1410,12 @@ class WebSocketHandlers extends BaseModule {
       }
       return { success: true };
     } catch (err) {
+      if (err.code === 'ENOENT') {
+        // Already gone (moved out by an importer, removed by hand). Nothing
+        // left to delete, so reporting a failure would only be noise.
+        context.log(`Already gone: ${filePath}`);
+        return { success: true };
+      }
       context.error(`Failed to delete ${filePath}: ${err.message}`);
       return { success: false, error: err.message };
     }
@@ -1496,12 +1502,14 @@ class WebSocketHandlers extends BaseModule {
         }
       }
 
-      // Post-delete: refresh shared files for applicable instances
+      // Post-delete: refresh shared files for applicable instances, unless the
+      // client watches its own shared folders and will notice the deletion.
       for (const instId of instanceIdsToRefresh) {
         try {
           const mgr = registry.get(instId);
-          mgr?.refreshSharedFiles?.();
-          context.log(`Triggered shared files refresh for ${mgr?.displayName || instId}`);
+          if (await mgr?.refreshSharedFilesIfUnwatched?.()) {
+            context.log(`Triggered shared files refresh for ${mgr?.displayName || instId}`);
+          }
         } catch (refreshErr) {
           context.error(`Failed to refresh shared files for ${instId}:`, refreshErr.message);
         }

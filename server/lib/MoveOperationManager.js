@@ -343,12 +343,14 @@ class MoveOperationManager extends BaseModule {
     // Step 6: Resume download
     await this.resumeDownload(operation);
 
-    // Step 7: Refresh shared files if the client requires it after move (e.g. aMule)
+    // Step 7: Refresh shared files if the client requires it after move (e.g. aMule).
+    // Skipped when the core watches its own shared folders and will see the move.
     if (clientMeta.hasCapability(clientType, 'refreshSharedAfterMove')) {
       try {
         const manager = this._getManagerForOp(operation);
-        await manager.refreshSharedFiles();
-        await this.sleep(500); // Give aMule time to process
+        if (await manager.refreshSharedFilesIfUnwatched()) {
+          await this.sleep(500); // Give aMule time to process
+        }
       } catch (err) {
         this.warn(`⚠️ Failed to refresh aMule shared files: ${err.message}`);
       }

@@ -779,14 +779,26 @@ class QBittorrentHandler {
               try {
                 await fs.unlink(p);
                 logger.log(`[qBittorrent] Removed file: ${p}`);
-                needsSharedRefresh = true;
               } catch (unlinkErr) {
-                if (unlinkErr.code !== 'ENOENT') {
+                if (unlinkErr.code === 'ENOENT') {
+                  // Already gone, normally because the *arr moved it out on
+                  // import. Say so rather than passing silently, since the
+                  // silence read as a clean delete in #81.
+                  logger.log(`[qBittorrent] File already gone: ${p}`);
+                } else {
                   unlinkFailed = true;
                   logger.warn(`[qBittorrent] Failed to unlink ${p}: ${unlinkErr.message}`);
                 }
               }
             }
+          }
+
+          // Rescan whenever aMule dropped a shared entry, including when the
+          // file had already been moved away: that stale entry is exactly what
+          // a rescan clears (#81). Gated on the core's own watcher below, like
+          // every other automated rescan.
+          if (isShared && deleteFiles && result?.success) {
+            needsSharedRefresh = true;
           }
 
           if (ed2kHash) {
@@ -796,7 +808,9 @@ class QBittorrentHandler {
           // Say what actually happened: the *arr treats this as "the file is
           // gone" and stops tracking it, so a silent failure here strands the
           // download in its queue with nothing in the log to explain it.
-          if (unlinkFailed) {
+          if (!result?.success) {
+            logger.warn(`[qBittorrent] aMule did not remove ${finalHash}: ${result?.error || 'unknown error'}`);
+          } else if (unlinkFailed) {
             logger.warn(`[qBittorrent] Removed ${finalHash} from aMule, but its file could not be deleted`);
           } else {
             logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
@@ -807,11 +821,12 @@ class QBittorrentHandler {
       }
 
       // After unlinking shared files, ask aMule to rescan so the entries
-      // disappear from getSharedFiles() / the UI immediately. Best-effort —
-      // failures here shouldn't fail the delete request.
+      // disappear from getSharedFiles() / the UI immediately. Skipped when the
+      // core watches its own shared folders. Best-effort — failures here
+      // shouldn't fail the delete request.
       if (needsSharedRefresh) {
         try {
-          await manager.refreshSharedFiles();
+          await manager.refreshSharedFilesIfUnwatched();
         } catch (refreshErr) {
           logger.warn('[qBittorrent] refreshSharedFiles failed after delete:', refreshErr.message);
         }
