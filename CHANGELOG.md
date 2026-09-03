@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.2] - Responsive Searches, Fewer Shared Folder Rescans
+
+### 🐛 Fixed
+
+- **A Sonarr or Radarr search froze everything else.** A search held the aMule connection for as long as it ran, up to two minutes, so downloads stopped updating, adds timed out and the interface looked stuck. Searches now let other work through while they wait: in testing, 244 unrelated requests completed during a 49 second search without any of them waiting more than 10ms. Two searches at once still take turns, since aMule can only run one ED2K search at a time (#88, #89).
+- **Episode searches matched too loosely, and missed a naming style.** The fallback that searches for an episode number on its own could match almost anything when the show name was a single word, worst of all when that word is an everyday one, so it is now used only for titles of two words or more. The padded `01x05` form is also searched, alongside the `S01E05` and `1x05` forms already covered (#91).
+- **Deleting a finished download did not always report what happened.** The Sonarr and Radarr delete route said "Successfully deleted" whether or not aMule accepted it, and said nothing at all about a file that had already been moved away during import. Both are now reported accurately, and a file that was moved away still gets its entry cleared from aMule's shared list (#81).
+
+### 🔧 Changed
+
+- **aMuTorrent no longer asks aMule to rescan its shared folders when aMule is already watching them.** aMule watches its own shared directories and notices changes by itself, so the rescans aMuTorrent triggered after every delete, after every move and every few hours were repeating work it had already done, and on a large collection each one is slow. aMuTorrent now checks whether that watcher is switched on and stays out of the way when it is. If you have turned it off, or you are on an older aMule without it, nothing changes. **Rescan now** and the Shared view's refresh button always run, whatever the setting.
+
+---
+
 ## [3.9.1] - Lidarr Support, Deletion Fix
 
 ### ✨ Added
