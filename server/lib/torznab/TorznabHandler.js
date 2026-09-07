@@ -47,6 +47,14 @@ class TorznabHandler {
     // Cache state
     this.cacheTtlMs = parseInt(process.env.ED2K_CACHE_TTL_MS || '600000', 10);
     this.searchCache = new Map();
+    this.inFlightSearches = new Map();   // cacheKey -> Promise<results>, see _searchOrJoinInFlight
+
+    // Expired entries used to be dropped only when the same key was asked for
+    // again, so a backlog of distinct queries held every result set it ever
+    // produced. Sweep on a timer instead, unref'd so it never keeps the
+    // process alive on its own.
+    this.cacheSweepTimer = setInterval(() => this.sweepCache(), this.cacheTtlMs);
+    this.cacheSweepTimer.unref?.();
 
     // Bind handler method
     this.handleRequest = this.handleRequest.bind(this);
@@ -77,6 +85,34 @@ class TorznabHandler {
     if (season) parts.push(season);
     if (ep) parts.push(ep);
     return parts.join(':');
+  }
+
+  /**
+   * Drop every cache entry past its TTL.
+   *
+   * @returns {number} how many were removed
+   */
+  sweepCache() {
+    const now = Date.now();
+    let removed = 0;
+    for (const [key, entry] of this.searchCache) {
+      if (now - entry.timestamp > this.cacheTtlMs) {
+        this.searchCache.delete(key);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      logger.log(`[Torznab] Cache sweep dropped ${removed} expired ${removed === 1 ? 'entry' : 'entries'} (${this.searchCache.size} left)`);
+    }
+    return removed;
+  }
+
+  /** Stop the sweep timer. For tests and shutdown. */
+  stopCacheSweep() {
+    if (this.cacheSweepTimer) {
+      clearInterval(this.cacheSweepTimer);
+      this.cacheSweepTimer = null;
+    }
   }
 
   getCachedResults(cacheKey) {
@@ -370,6 +406,110 @@ class TorznabHandler {
     }
   }
 
+  /**
+   * Run one search for `cacheKey`, or attach to the one already running.
+   *
+   * The completed-search cache only helps a repeat that arrives after the
+   * first one finished. A search takes up to two minutes per network, and an
+   * *arr backlog re-asks for the same episode well inside that window: every
+   * duplicate missed the cache, queued on the search lock, and ran the whole
+   * search again once it got there. Five requests for one query meant ten
+   * aMule searches, and the ones at the back of the queue timed out waiting
+   * for a lock they did not need (#89).
+   *
+   * Keyed on the same cacheKey as the result cache: `offset`, `limit` and
+   * `cat` are applied to the returned array afterwards, so subscribers can
+   * share one search the same way repeat requests already share one cache
+   * entry.
+   *
+   * @param {Object} amuleClient
+   * @param {Object} params - { cacheKey, primaryQuery, fallbackQuery }
+   * @returns {Promise<Array>} merged results
+   * @private
+   */
+  _searchOrJoinInFlight(amuleClient, params) {
+    const running = this.inFlightSearches.get(params.cacheKey);
+    if (running) {
+      logger.log(`[Torznab] Joining the search already running for key: ${params.cacheKey}`);
+      return running;
+    }
+
+    // Cleared however it ends, so a failed search does not poison the key.
+    const search = this._runSearch(amuleClient, params)
+      .finally(() => this.inFlightSearches.delete(params.cacheKey));
+
+    this.inFlightSearches.set(params.cacheKey, search);
+    return search;
+  }
+
+  /**
+   * Search both aMule networks and merge the results.
+   *
+   * ED2K = server-indexed; Kad = DHT-indexed. They cover disjoint file sets in
+   * practice, so querying both broadens hits meaningfully. Sequential through
+   * the existing rate limiter - the 10s spacing exists to avoid ED2K server
+   * flood protection; Kad does not need it but sequential keeps total time
+   * bounded and code simple.
+   *
+   * @private
+   */
+  async _runSearch(amuleClient, { cacheKey, primaryQuery, fallbackQuery }) {
+    logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
+
+    const allResults = [];
+    const seenHashes = new Map();   // hash → the result we kept, for name merging
+
+    const runQueryOnNetwork = async (searchQuery, network, label) => {
+      logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
+      // groupByHash: one hash can be published under several filenames and
+      // the extra ones are often the better-parsed release names (#82).
+      const result = await this.rateLimitedSearch(() =>
+        this._searchWithoutBlockingEC(amuleClient, searchQuery, network)
+      );
+      const resultCount = (result.results || []).length;
+      logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
+      (result.results || []).forEach(file => {
+        const seen = seenHashes.get(file.fileHash);
+        if (!seen) {
+          seenHashes.set(file.fileHash, file);
+          allResults.push(file);
+          return;
+        }
+        // Same hash from the other network: keep the union of the names
+        // rather than dropping the duplicate outright, since ED2K and Kad
+        // can each know names the other does not.
+        const known = new Set([seen.fileName, ...(seen.children || []).map(c => c.fileName)]);
+        for (const alt of [file, ...(file.children || [])]) {
+          if (alt.fileName && !known.has(alt.fileName)) {
+            known.add(alt.fileName);
+            (seen.children || (seen.children = [])).push(alt);
+          }
+        }
+      });
+    };
+
+    const NETWORKS = ['global', 'kad'];
+
+    // Primary pass across both networks
+    for (const network of NETWORKS) {
+      await runQueryOnNetwork(primaryQuery, network);
+    }
+
+    // Fallback disabled — primary filters are permissive enough. Kept in
+    // return shape for easy re-enable if a class of releases surfaces that
+    // needs it.
+    //
+    // if (allResults.length === 0 && fallbackQuery && fallbackQuery !== primaryQuery) {
+    //   for (const network of NETWORKS) await runQueryOnNetwork(fallbackQuery, network, 'fallback');
+    // }
+    void fallbackQuery;
+
+    logger.log(`[Torznab] Total unique results after merging (ED2K + Kad): ${allResults.length}`);
+    this.setCachedResults(cacheKey, allResults);
+
+    return allResults;
+  }
+
   // ============================================================================
   // REQUEST HANDLER
   // ============================================================================
@@ -481,66 +621,8 @@ class TorznabHandler {
 
     // Check cache
     let allResults = this.getCachedResults(cacheKey);
-
-    // Cache miss - perform search across BOTH aMule networks (ED2K + Kad).
-    // ED2K = server-indexed; Kad = DHT-indexed. They cover disjoint file sets
-    // in practice, so querying both broadens hits meaningfully. Sequential
-    // through the existing rate limiter — the 10s spacing exists to avoid
-    // ED2K server flood protection; Kad doesn't need it but sequential keeps
-    // total time bounded and code simple.
     if (!allResults) {
-      logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
-
-      allResults = [];
-      const seenHashes = new Map();   // hash → the result we kept, for name merging
-
-      const runQueryOnNetwork = async (searchQuery, network, label) => {
-        logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
-        // groupByHash: one hash can be published under several filenames and
-        // the extra ones are often the better-parsed release names (#82).
-        const result = await this.rateLimitedSearch(() =>
-          this._searchWithoutBlockingEC(amuleClient, searchQuery, network)
-        );
-        const resultCount = (result.results || []).length;
-        logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
-        (result.results || []).forEach(file => {
-          const seen = seenHashes.get(file.fileHash);
-          if (!seen) {
-            seenHashes.set(file.fileHash, file);
-            allResults.push(file);
-            return;
-          }
-          // Same hash from the other network: keep the union of the names
-          // rather than dropping the duplicate outright, since ED2K and Kad
-          // can each know names the other does not.
-          const known = new Set([seen.fileName, ...(seen.children || []).map(c => c.fileName)]);
-          for (const alt of [file, ...(file.children || [])]) {
-            if (alt.fileName && !known.has(alt.fileName)) {
-              known.add(alt.fileName);
-              (seen.children || (seen.children = [])).push(alt);
-            }
-          }
-        });
-      };
-
-      const NETWORKS = ['global', 'kad'];
-
-      // Primary pass across both networks
-      for (const network of NETWORKS) {
-        await runQueryOnNetwork(primaryQuery, network);
-      }
-
-      // Fallback disabled — primary filters are permissive enough. Kept in
-      // return shape for easy re-enable if a class of releases surfaces that
-      // needs it.
-      //
-      // if (allResults.length === 0 && fallbackQuery && fallbackQuery !== primaryQuery) {
-      //   for (const network of NETWORKS) await runQueryOnNetwork(fallbackQuery, network, 'fallback');
-      // }
-      void fallbackQuery;
-
-      logger.log(`[Torznab] Total unique results after merging (ED2K + Kad): ${allResults.length}`);
-      this.setCachedResults(cacheKey, allResults);
+      allResults = await this._searchOrJoinInFlight(amuleClient, { cacheKey, primaryQuery, fallbackQuery });
     }
 
     // Apply pagination
