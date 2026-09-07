@@ -199,16 +199,32 @@ class AmuleManager extends BaseClientManager {
   }
 
   // Search lock management
+  //
+  // The lock doubles as the UI's "search busy" signal. It is a mutex, so it has
+  // exactly one holder and its two transitions are the only edges there are -
+  // no separate flag and no owner counting. Every path that starts an aMule
+  // search takes it, so the search box greys for exactly the moments a user
+  // search would be refused.
   acquireSearchLock() {
     if (this.searchInProgress) {
       return false;
     }
     this.searchInProgress = true;
+    this._broadcastSearchLock(true);
     return true;
   }
 
   releaseSearchLock() {
+    if (!this.searchInProgress) return;
     this.searchInProgress = false;
+    this._broadcastSearchLock(false);
+  }
+
+  /** Tell the clients that may search about the slot changing hands. */
+  _broadcastSearchLock(locked) {
+    this.broadcast?.({ type: 'search-lock', locked }, {
+      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
+    });
   }
 
   /**

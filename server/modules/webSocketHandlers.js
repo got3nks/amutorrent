@@ -359,8 +359,9 @@ class WebSocketHandlers extends BaseModule {
       return;
     }
 
+    // The search-lock broadcast rides on the lock itself now, so taking and
+    // releasing it is all this needs to do.
     const searchFilter = { filter: u => u?.isAdmin || u?.capabilities?.includes('search') };
-    context.broadcast({ type: 'search-lock', locked: true }, searchFilter);
 
     try {
       const result = await manager.search(data.query, data.type, data.extension);
@@ -374,7 +375,6 @@ class WebSocketHandlers extends BaseModule {
       context.send({ type: 'error', message: 'Search failed: ' + err.message });
     } finally {
       manager.releaseSearchLock();
-      context.broadcast({ type: 'search-lock', locked: false }, searchFilter);
     }
   }
 
