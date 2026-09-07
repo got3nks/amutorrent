@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.3] - Searches That Reach aMule
+
+### 🐛 Fixed
+
+- **Series with a country suffix in the name never returned anything.** aMule reads a search as a boolean expression, and it treats brackets of the round kind as part of that expression rather than as part of the name. A show like `Example Show (US)` made the whole search invalid, so aMule rejected it and Sonarr saw an empty list, every time, for every episode. Those characters are now removed before the search is sent, which also covers movie, music and plain searches. When aMule does reject a search, the log now shows the query that was sent, so the next one of these is a one-line diagnosis rather than a guess (#89).
+- **aMuTorrent's own automatic Sonarr and Radarr search blocked itself.** aMule can only run one search at a time. aMuTorrent claimed that slot for the whole automatic run, then asked Sonarr to search and waited - but Sonarr searching means Sonarr asking aMuTorrent, which then waited three minutes for a slot aMuTorrent was holding itself, gave up, and returned nothing. This ran every six hours by default, and produced the `Timed out waiting for the aMule search lock` messages (#89).
+- **The same search was run over and over during a backlog.** When Sonarr, Radarr or Medusa asked for the same episode several times in a row, each request waited for the previous one to finish and then searched again from scratch, rather than using the answer that had just arrived. Five requests for one episode meant ten searches and around eleven minutes of aMule's time; now they share one search and all get the same results (#89).
+- **Episodes numbered without padding were unreachable.** Some series are published as `1x5` rather than `1x05`, and aMuTorrent only asked for the padded form, so the first nine episodes of a season could not be found for those releases. Both forms are searched now (#91).
+- **The search box could get stuck greyed out.** Opening the page while Sonarr or Radarr had a search running left the box disabled with nothing to re-enable it. It now follows the actual state.
+- **Search results were kept in memory after they expired.** Cached results are cleared on a timer now, rather than only when the same search happened to be repeated.
+
+### 🔧 Changed
+
+- **A search from the web interface during an automatic Sonarr or Radarr run now waits its turn instead of being refused.** It used to fail immediately with "Another search is running". The search box also greys only for as long as a search actually holds aMule, rather than for the whole automatic run.
+
+---
+
 ## [3.9.2] - Responsive Searches, Fewer Shared Folder Rescans
 
 ### 🐛 Fixed
