@@ -109,6 +109,35 @@ class TorznabHandler {
   /**
    * Strip year (YYYY format) from search query
    */
+  /**
+   * Remove the characters aMule's search grammar treats as structure.
+   *
+   * Parentheses and double quotes are not keyword characters (Scanner.l:45,
+   * keywordchar = `[^ "()]`), so aMule can never have indexed them and they
+   * cannot match anything. Left in an anchor they are read as grammar: a
+   * series named "Example Show (US)" builds `Example Show (US) AND (...)`,
+   * and the grammar has no production for a parenthesised group sitting next
+   * to a string, so the daemon rejects the whole search with "syntax error"
+   * and the show is unsearchable. Verified against a live core.
+   *
+   * Stripping rather than quoting: a quoted anchor is matched as a substring,
+   * so `"Example Show (US)"` would demand a literal "(us)" in the filename,
+   * which releases never have. Dropping the parentheses leaves the words
+   * AND-ed, which is what the release name actually contains.
+   *
+   * @param {string} query
+   * @returns {string}
+   */
+  stripSearchSyntax(query) {
+    if (!query) return query;
+
+    const stripped = query.replace(/[()"]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (stripped !== query) {
+      logger.log(`[Torznab] Removed search-grammar characters: "${query}" -> "${stripped}"`);
+    }
+    return stripped;
+  }
+
   stripYear(query) {
     if (!query) return query;
 
@@ -116,6 +145,11 @@ class TorznabHandler {
       .replace(/[\[\(]?\b(19|20)\d{2}\b[\]\)]?/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+
+    // A title that is nothing but a year ("2012") would leave no anchor, and
+    // "AND (...)" with no left operand is a syntax error. Keep the year in
+    // that case: a broad anchor beats a rejected search.
+    if (!stripped) return query;
 
     if (stripped !== query) {
       logger.log(`[Torznab] Stripped year from query: "${query}" -> "${stripped}"`);
@@ -294,7 +328,12 @@ class TorznabHandler {
     return manager.withSearchLock(async () => {
       const started = await amuleClient.startSearch(query, network, '');
       if (started && started.started === false) {
-        logger.warn(`[Torznab] aMule refused the ${network} search: ${started.message || 'no reason given'}`);
+        // The query goes in the log too. A refusal is almost always about the
+        // query text - aMule's parser rejects characters it treats as grammar,
+        // and its reply names the fault without saying what it was parsing.
+        // The reason can be multi-line; keep it on one line.
+        const reason = (started.message || 'no reason given').split('\n').map(l => l.trim()).filter(Boolean).join(' | ');
+        logger.warn(`[Torznab] aMule refused the ${network} search: ${reason} - query was: "${query}"`);
         return { resultsLength: 0, totalLength: 0, results: [] };
       }
 
@@ -399,6 +438,7 @@ class TorznabHandler {
       effectiveQuery = [artist, album].filter(Boolean).join(' ').trim();
       logger.log(`[Torznab] Built music query from artist/album: "${effectiveQuery}"`);
     }
+    effectiveQuery = this.stripSearchSyntax(effectiveQuery);
 
     // Has params but no text query - can't search ED2K
     if (!effectiveQuery) {
