@@ -204,7 +204,7 @@ class TorznabHandler {
    * call per network now covers all formats, and the shape is Kad-safe.
    *
    * Format variants (all inside one OR):
-   *   with ep: S01E05, 1x05, 01x05, and 05 for multi-word titles only
+   *   with ep: S01E05, 1x05, 01x05, 1x5, and 05 for multi-word titles only
    *   without ep: S01, 1x
    *
    * The bare episode number ("Show 05", catching "Show 01 - Title" naming) is
@@ -230,6 +230,12 @@ class TorznabHandler {
       // it is a real naming style (#91).
       if (paddedSeason !== String(seasonNum)) {
         alternatives.push(`${paddedSeason}x${paddedEp}`);
+      }
+      // Unpadded episode: "1x5" as well as "1x05". aMule matches search terms
+      // as substrings (Entry.cpp), so "1x05" cannot reach a file named "1x5",
+      // and the bare "05" below does not either. Only differs under episode 10.
+      if (paddedEp !== String(episodeNum)) {
+        alternatives.push(`${seasonNum}x${episodeNum}`);
       }
       if (titleWords >= 2) {
         alternatives.push(paddedEp);   // absolute-style: "Show 05"

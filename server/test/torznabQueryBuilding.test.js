@@ -142,7 +142,7 @@ describe('buildTVSearchQueries (issue #75 refactor)', () => {
 
   it('emits a single OR-grouped primary query for season+ep', () => {
     const { primaryQuery } = handler.buildTVSearchQueries('Show Alpha', '1', '5');
-    assert.equal(primaryQuery, 'Show Alpha AND (S01E05 OR 1x05 OR 01x05 OR 05)');
+    assert.equal(primaryQuery, 'Show Alpha AND (S01E05 OR 1x05 OR 01x05 OR 1x5 OR 05)');
   });
 
   it('emits a single OR-grouped primary query for season only', () => {
@@ -157,20 +157,20 @@ describe('buildTVSearchQueries (issue #75 refactor)', () => {
 
   it('strips year before building the anchor', () => {
     const { primaryQuery, normalizedQuery } = handler.buildTVSearchQueries('Show Alpha 2002', '1', '5');
-    assert.equal(primaryQuery, 'Show Alpha AND (S01E05 OR 1x05 OR 01x05 OR 05)');
+    assert.equal(primaryQuery, 'Show Alpha AND (S01E05 OR 1x05 OR 01x05 OR 1x5 OR 05)');
     assert.equal(normalizedQuery, 'Show Alpha');
   });
 
   it('season/ep numbers are treated as integers (not string concat)', () => {
     const { primaryQuery } = handler.buildTVSearchQueries('X', '01', '05');
-    assert.equal(primaryQuery, 'X AND (S01E05 OR 1x05 OR 01x05)');
+    assert.equal(primaryQuery, 'X AND (S01E05 OR 1x05 OR 01x05 OR 1x5)');
   });
 
   it('quotes a very long series name to preserve operator budget', () => {
-    // 9 tokens + 3 alternatives → operators = 11 > 10 → quote
+    // 9 tokens + 5 alternatives → operators = 13 > 10 → quote
     const longName = 'This Is A Really Long Series Name Here Now';
     const { primaryQuery, fallbackQuery } = handler.buildTVSearchQueries(longName, '1', '5');
-    assert.equal(primaryQuery, `"${longName}" AND (S01E05 OR 1x05 OR 01x05 OR 05)`);
+    assert.equal(primaryQuery, `"${longName}" AND (S01E05 OR 1x05 OR 01x05 OR 1x5 OR 05)`);
     assert.equal(fallbackQuery, longName);   // bare fallback: 0 alternatives, no operator pressure
   });
 });
@@ -182,7 +182,7 @@ describe('buildTVSearchQueries: episode-format variants (issue #91)', () => {
     // Anchored on a common word, "05" matches almost anything containing that
     // word and a two-digit number; an ordinary English word is the worst case.
     const { primaryQuery } = handler.buildTVSearchQueries('Alpha', '1', '5');
-    assert.equal(primaryQuery, 'Alpha AND (S01E05 OR 1x05 OR 01x05)');
+    assert.equal(primaryQuery, 'Alpha AND (S01E05 OR 1x05 OR 01x05 OR 1x5)');
     assert.ok(!/ OR 05\)/.test(primaryQuery), 'absolute-style leaked into a one-word title');
   });
 
@@ -207,12 +207,37 @@ describe('buildTVSearchQueries: episode-format variants (issue #91)', () => {
     assert.equal((primaryQuery.match(/10x05/g) || []).length, 1, primaryQuery);
   });
 
-  it('still fits aMule\'s operator budget with the extra variant', () => {
-    // B + K <= 11. Four alternatives leaves seven base tokens before quoting.
-    const seven = 'One Two Three Four Five Six Seven';
-    const { primaryQuery } = handler.buildTVSearchQueries(seven, '1', '5');
+  it('emits the unpadded episode form for episodes below ten', () => {
+    // aMule matches substrings, so "1x05" cannot reach a file named "1x5",
+    // and neither can the bare "05". Releases numbered without padding were
+    // unreachable for the first nine episodes of a season.
+    const { primaryQuery } = handler.buildTVSearchQueries('Example Show', '1', '5');
+    assert.ok(primaryQuery.includes(' 1x5 ') || primaryQuery.includes(' 1x5)'), primaryQuery);
+  });
+
+  it('does not duplicate it from episode ten onwards', () => {
+    // padStart only adds a character below ten, so above it the unpadded form
+    // is the form already emitted - repeating it would spend an operator for
+    // a term that matches nothing new.
+    for (const ep of ['10', '11', '12']) {
+      const { primaryQuery } = handler.buildTVSearchQueries('Example Show', '1', ep);
+      // Anchored on the separators, so the "1x10" inside "01x10" is not counted.
+      const term = new RegExp(`(^|[ (])1x${ep}([ )]|$)`, 'g');
+      assert.equal((primaryQuery.match(term) || []).length, 1, primaryQuery);
+    }
+  });
+
+  it('applies to the season number being padded too', () => {
+    const { primaryQuery } = handler.buildTVSearchQueries('Example Show', '10', '5');
+    assert.ok(primaryQuery.includes('10x5 ') || primaryQuery.includes('10x5)'), primaryQuery);
+  });
+
+  it('still fits aMule\'s operator budget with the extra variants', () => {
+    // B + K <= 11. Five alternatives leaves six base tokens before quoting.
+    const six = 'One Two Three Four Five Six';
+    const { primaryQuery } = handler.buildTVSearchQueries(six, '1', '5');
     assert.ok(!primaryQuery.startsWith('"'), `quoted too eagerly: ${primaryQuery}`);
-    const { primaryQuery: eight } = handler.buildTVSearchQueries(seven + ' Eight', '1', '5');
-    assert.ok(eight.startsWith('"'), `should have quoted: ${eight}`);
+    const { primaryQuery: seven } = handler.buildTVSearchQueries(six + ' Seven', '1', '5');
+    assert.ok(seven.startsWith('"'), `should have quoted: ${seven}`);
   });
 });
