@@ -25,6 +25,22 @@ const { convertToTorznabFeed } = require('./search');
 // they auto-append operators; reserve headroom then.
 const MAX_AMULE_QUERY_WORDS = 11;
 
+// Torznab is a synchronous HTTP search. *arr clients often time out at ~30s,
+// while aMule has one search slot and each network can take far longer.
+// `both` (Global then Kad, always) is what missed those clients: the first
+// network could already have the file, and the second still ran (#89).
+// Default is fallback-on-empty with Global first — the only order we have
+// timings for. Kad-first is available for operators who want to spare ED2K
+// servers; it is not the default without a Kad-vs-Global benchmark.
+const DEFAULT_NETWORK_STRATEGY = 'global-first';
+const NETWORK_STRATEGIES = {
+  'global-first': { first: 'global', second: 'kad', alwaysSecond: false },
+  'kad-first': { first: 'kad', second: 'global', alwaysSecond: false },
+  'global-only': { first: 'global', second: null, alwaysSecond: false },
+  'kad-only': { first: 'kad', second: null, alwaysSecond: false },
+  'both': { first: 'global', second: 'kad', alwaysSecond: true }
+};
+
 class TorznabHandler {
   constructor() {
     // Dependencies
@@ -38,10 +54,10 @@ class TorznabHandler {
     this.searchSettleMs = parseInt(process.env.ED2K_SEARCH_SETTLE_MS || '5000', 10);
     this.searchPollMs = parseInt(process.env.ED2K_SEARCH_POLL_MS || '1000', 10);
     this.searchTimeoutMs = parseInt(process.env.ED2K_SEARCH_TIMEOUT_MS || '120000', 10);
-    // How long a request waits for the ed2k search slot before giving up. Two
-    // searches run per request (global + kad), so a queue of *arr searches can
-    // legitimately wait a while before its turn.
+    // How long a request waits for the ed2k search slot before giving up.
+    // Distinct queries still serialize on aMule's single search slot.
     this.searchLockWaitMs = parseInt(process.env.ED2K_SEARCH_LOCK_WAIT_MS || '180000', 10);
+    this.searchNetworkStrategy = process.env.ED2K_SEARCH_NETWORK_STRATEGY || DEFAULT_NETWORK_STRATEGY;
     this.lastSearchTime = 0;
 
     // Cache state
@@ -328,6 +344,32 @@ class TorznabHandler {
   // RATE LIMITING
   // ============================================================================
 
+  isClientGone(req) {
+    return Boolean(req && (req.aborted || req.destroyed || req.socket?.destroyed));
+  }
+
+  async _waitUnlessGone(req, ms) {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (this.isClientGone(req)) return;
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, until - Date.now())));
+    }
+  }
+
+  resolveNetworkStrategy() {
+    const raw = String(this.searchNetworkStrategy || DEFAULT_NETWORK_STRATEGY)
+      .toLowerCase()
+      .trim();
+    const spec = NETWORK_STRATEGIES[raw];
+    if (spec) {
+      return { name: raw, ...spec };
+    }
+    logger.warn(
+      `[Torznab] Unknown ED2K_SEARCH_NETWORK_STRATEGY "${this.searchNetworkStrategy}", using ${DEFAULT_NETWORK_STRATEGY}`
+    );
+    return { name: DEFAULT_NETWORK_STRATEGY, ...NETWORK_STRATEGIES[DEFAULT_NETWORK_STRATEGY] };
+  }
+
   /**
    * Run one aMule search without monopolising the EC connection.
    *
@@ -347,10 +389,11 @@ class TorznabHandler {
    * @param {Object} amuleClient
    * @param {string} query
    * @param {string} network - 'global' or 'kad'
+   * @param {Object} [req] - HTTP request; used only to stop waiting if the client left
    * @returns {Promise<Object>} Same shape as searchAndWaitResults()
    * @private
    */
-  async _searchWithoutBlockingEC(amuleClient, query, network) {
+  async _searchWithoutBlockingEC(amuleClient, query, network, req) {
     const manager = this.getAmuleManager?.();
 
     // Unreachable in normal operation: the client is derived from this same
@@ -362,6 +405,11 @@ class TorznabHandler {
     }
 
     return manager.withSearchLock(async () => {
+      if (this.isClientGone(req)) {
+        logger.log(`[Torznab] HTTP client gone before ${network} search start; skipping`);
+        return { resultsLength: 0, totalLength: 0, results: [] };
+      }
+
       const started = await amuleClient.startSearch(query, network, '');
       if (started && started.started === false) {
         // The query goes in the log too. A refusal is almost always about the
@@ -374,13 +422,23 @@ class TorznabHandler {
       }
 
       // aMule needs a moment before its progress figure means anything.
-      await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
+      await this._waitUnlessGone(req, this.searchSettleMs);
+      if (this.isClientGone(req)) {
+        logger.log(`[Torznab] HTTP client gone during ${network} settle; collecting partial results`);
+        return amuleClient.getSearchResults({ groupByHash: true });
+      }
 
       const deadline = Date.now() + this.searchTimeoutMs;
       while (Date.now() < deadline) {
+        // EC cannot cancel a search already running in aMule. Stop waiting
+        // for it so the lock is released, then collect whatever is there.
+        if (this.isClientGone(req)) {
+          logger.log(`[Torznab] HTTP client gone during ${network} search; collecting partial results`);
+          break;
+        }
         const status = await amuleClient.getSearchProgress();
         if (status?.complete) break;
-        await new Promise(resolve => setTimeout(resolve, this.searchPollMs));
+        await this._waitUnlessGone(req, this.searchPollMs);
       }
 
       // Read results even on timeout: a slow search still has partial results,
@@ -389,14 +447,26 @@ class TorznabHandler {
     }, { timeoutMs: this.searchLockWaitMs });
   }
 
-  async rateLimitedSearch(searchFn) {
-    const now = Date.now();
-    const timeSinceLastSearch = now - this.lastSearchTime;
+  async rateLimitedSearch(searchFn, { network, req } = {}) {
+    // ED2K servers flood-protect; Kad is DHT and does not need the gap.
+    // Skipping it on Kad is what lets a Global miss still return inside a
+    // 30s *arr timeout (#89).
+    if (network !== 'kad') {
+      const now = Date.now();
+      const timeSinceLastSearch = now - this.lastSearchTime;
 
-    if (timeSinceLastSearch < this.searchDelayMs) {
-      const waitTime = this.searchDelayMs - timeSinceLastSearch;
-      logger.log(`[Torznab] Rate limiting: waiting ${waitTime}ms before next search`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
+      if (timeSinceLastSearch < this.searchDelayMs) {
+        const waitTime = this.searchDelayMs - timeSinceLastSearch;
+        logger.log(`[Torznab] Rate limiting: waiting ${waitTime}ms before next search`);
+        const until = Date.now() + waitTime;
+        while (Date.now() < until) {
+          if (this.isClientGone(req)) {
+            logger.log('[Torznab] HTTP client gone during rate-limit wait; not starting search');
+            return { resultsLength: 0, totalLength: 0, results: [] };
+          }
+          await this._waitUnlessGone(req, Math.min(50, until - Date.now()));
+        }
+      }
     }
 
     try {
@@ -423,7 +493,7 @@ class TorznabHandler {
    * entry.
    *
    * @param {Object} amuleClient
-   * @param {Object} params - { cacheKey, primaryQuery, fallbackQuery }
+   * @param {Object} params - { cacheKey, primaryQuery, fallbackQuery, req }
    * @returns {Promise<Array>} merged results
    * @private
    */
@@ -443,28 +513,39 @@ class TorznabHandler {
   }
 
   /**
-   * Search both aMule networks and merge the results.
+   * Search aMule according to ED2K_SEARCH_NETWORK_STRATEGY.
    *
-   * ED2K = server-indexed; Kad = DHT-indexed. They cover disjoint file sets in
-   * practice, so querying both broadens hits meaningfully. Sequential through
-   * the existing rate limiter - the 10s spacing exists to avoid ED2K server
-   * flood protection; Kad does not need it but sequential keeps total time
-   * bounded and code simple.
+   * Default `global-first`: run Global, return immediately if it found
+   * anything, otherwise Kad. That matches the 3.9.3 timing where Global
+   * already had a result in ~7s while waiting for Kad still missed a 30s
+   * Torznab client (#89). `kad-first` is the inverse fallback and is not
+   * the default: without a Kad-vs-Global benchmark it can invert the
+   * timeout (Kad 30–60s while Global would have answered in seconds).
+   * `both` is the old sequential merge; keep it for operators who want
+   * the union and can wait. Torznab does not carry a reliable
+   * manual/backlog/daily flag, so this is operator config, not caller
+   * detection.
    *
    * @private
    */
-  async _runSearch(amuleClient, { cacheKey, primaryQuery, fallbackQuery }) {
-    logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
+  async _runSearch(amuleClient, { cacheKey, primaryQuery, fallbackQuery, req }) {
+    const strategy = this.resolveNetworkStrategy();
+    logger.log(`[Torznab] Cache miss, searching aMule (${strategy.name}) for key: ${cacheKey}`);
 
     const allResults = [];
     const seenHashes = new Map();   // hash → the result we kept, for name merging
 
     const runQueryOnNetwork = async (searchQuery, network, label) => {
+      if (this.isClientGone(req)) {
+        logger.log(`[Torznab] HTTP client gone; not starting ${network} search`);
+        return;
+      }
       logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
       // groupByHash: one hash can be published under several filenames and
       // the extra ones are often the better-parsed release names (#82).
-      const result = await this.rateLimitedSearch(() =>
-        this._searchWithoutBlockingEC(amuleClient, searchQuery, network)
+      const result = await this.rateLimitedSearch(
+        () => this._searchWithoutBlockingEC(amuleClient, searchQuery, network, req),
+        { network, req }
       );
       const resultCount = (result.results || []).length;
       logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
@@ -488,23 +569,25 @@ class TorznabHandler {
       });
     };
 
-    const NETWORKS = ['global', 'kad'];
+    await runQueryOnNetwork(primaryQuery, strategy.first);
 
-    // Primary pass across both networks
-    for (const network of NETWORKS) {
-      await runQueryOnNetwork(primaryQuery, network);
+    if (strategy.second) {
+      const needSecond = strategy.alwaysSecond || allResults.length === 0;
+      if (!needSecond) {
+        logger.log(`[Torznab] ${strategy.first} returned ${allResults.length} result(s); skipping ${strategy.second}`);
+      } else if (this.isClientGone(req)) {
+        logger.log(`[Torznab] HTTP client gone; not starting ${strategy.second}`);
+      } else {
+        await runQueryOnNetwork(primaryQuery, strategy.second);
+      }
     }
 
-    // Fallback disabled — primary filters are permissive enough. Kept in
-    // return shape for easy re-enable if a class of releases surfaces that
-    // needs it.
-    //
-    // if (allResults.length === 0 && fallbackQuery && fallbackQuery !== primaryQuery) {
-    //   for (const network of NETWORKS) await runQueryOnNetwork(fallbackQuery, network, 'fallback');
-    // }
+    // Bare-title fallback disabled — primary filters are permissive enough.
+    // Kept in the return shape for easy re-enable if a class of releases
+    // surfaces that needs it.
     void fallbackQuery;
 
-    logger.log(`[Torznab] Total unique results after merging (ED2K + Kad): ${allResults.length}`);
+    logger.log(`[Torznab] Total unique results after merging: ${allResults.length}`);
     this.setCachedResults(cacheKey, allResults);
 
     return allResults;
@@ -622,7 +705,12 @@ class TorznabHandler {
     // Check cache
     let allResults = this.getCachedResults(cacheKey);
     if (!allResults) {
-      allResults = await this._searchOrJoinInFlight(amuleClient, { cacheKey, primaryQuery, fallbackQuery });
+      allResults = await this._searchOrJoinInFlight(amuleClient, {
+        cacheKey,
+        primaryQuery,
+        fallbackQuery,
+        req
+      });
     }
 
     // Apply pagination

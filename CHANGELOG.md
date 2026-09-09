@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **Torznab no longer waits for Kad after Global already found files.** *arr clients with a ~30s HTTP timeout were still waiting for the second network after the first had a result, so the feed arrived after the client had given up. The default is now `global-first`: Global, then Kad only if Global was empty. The previous sequential merge remains as `both`. Kad-first, Global-only and Kad-only are also configurable via `ED2K_SEARCH_NETWORK_STRATEGY`. If the HTTP client disconnects, the next network is not started; a search already running in aMule cannot be cancelled over EC (#89).
+
+---
+
 ## [3.9.3] - Searches That Reach aMule
 
 ### 🐛 Fixed
