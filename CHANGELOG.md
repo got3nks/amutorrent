@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.4] - Accented Titles, and Faster Searches
+
+### 🐛 Fixed
+
+- **Series and films with accented titles returned nothing.** A title or episode name carrying an accent, `é` or `à` for instance, could come back empty from both networks. There were two separate causes. The same accented letter has two encodings that look identical on screen, and ED2K servers only understand one of them, so half the time the search was silently unmatchable. And aMule's own Kad network does not treat accented and plain letters as equivalent at all, so a title spelled one way could not find a file spelled the other. Searches are now normalised before they are sent, and the Kad half is rewritten to match files whatever spelling they were published under (#93).
+- **Titles beginning with an accented word were unreachable on Kad.** Kad picks a single word from the search to decide where to look, and an accented one only ever reached files published with that exact spelling. A plain word is now used instead, which in testing took a search from no results at all to thirteen (#93).
+- **Curly apostrophes broke searches.** A title copied with a typographic apostrophe, the kind word processors and many metadata sources produce, does not match the plain one used in filenames. It is now converted before searching (#93).
+- **A search that timed out was remembered as "nothing found".** If a search was cut short, or aMule rejected it, the empty result was cached for ten minutes and served to every later request without searching again. Only searches that actually finish are cached now. A search that genuinely finds nothing is still remembered, since repeating it would be wasted work (#89).
+- **Kad searches waited for a delay that only exists for ED2K.** Every search paused for the ED2K flood-protection gap, including Kad, which has no such limit, and then reset the timer so the next ED2K search waited again. On one report this added ten seconds of pure waiting to every *arr search (#89, spotted by @Mika3578).
+
+### 🔧 Changed
+
+- **The gap between ED2K searches now defaults to 5 seconds instead of 10.** This is what the configuration reference and the sample `.env` already documented; the code disagreed with them. Combined with the fix above, an *arr search reaches both networks noticeably sooner. Operators who see dropped searches can raise `ED2K_SEARCH_DELAY_MS` again.
+
+---
+
 ## [3.9.3] - Searches That Reach aMule
 
 ### 🐛 Fixed
