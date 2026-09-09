@@ -25,6 +25,14 @@ const { convertToTorznabFeed } = require('./search');
 // they auto-append operators; reserve headroom then.
 const MAX_AMULE_QUERY_WORDS = 11;
 
+// Never promoted to the Kad keyword: the node indexing one of these holds a
+// large share of the network and answers with a bounded set, so the wanted
+// file would likely not come back.
+const KAD_KEY_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that',
+  'les', 'des', 'una', 'der', 'die', 'das'
+]);
+
 class TorznabHandler {
   constructor() {
     // Dependencies
@@ -164,6 +172,137 @@ class TorznabHandler {
    * @param {string} query
    * @returns {string}
    */
+  /**
+   * Canonicalise the query text so it can match what publishers indexed.
+   *
+   * Two transforms, both measured against a live public server rather than
+   * assumed:
+   *
+   *   - Typographic apostrophes become ASCII. Server tokenizers treat `'` as a
+   *     word separator but not U+2019, so "l\u2019immigration" stays one long
+   *     token and matches nothing, while "l'immigration" indexes the useful
+   *     half.
+   *   - NFC. ED2K servers fold precomposed diacritics, so an NFC query finds
+   *     files spelled with the plain letter, but they do not fold decomposed
+   *     ones: the same word in NFD returned 0 results where NFC returned the
+   *     full set. An *arr can send either form, so this is load-bearing (#93).
+   *
+   * @param {string} query
+   * @returns {string}
+   */
+  canonicaliseQuery(query) {
+    if (!query) return query;
+
+    const out = query.replace(/[\u2019\u2018\u02BC\u00B4`]/g, "'").normalize('NFC');
+    if (out !== query) {
+      logger.log(`[Torznab] Canonicalised query: "${query}" -> "${out}"`);
+    }
+    return out;
+  }
+
+  /** Does this word carry a diacritic? */
+  _hasDiacritic(word) {
+    return word.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') !== word.normalize('NFC');
+  }
+
+  /**
+   * The longest run of a word carrying no diacritic, or null if under 3 chars.
+   *
+   * Kad matches terms as substrings of the filename (Entry.cpp), so a stem is
+   * strictly broader than the word it replaces: any name containing
+   * "imp\u00F4ts" also contains "imp", in NFC, NFD or mojibake alike. Three
+   * characters is the floor aMule itself applies to keywords.
+   *
+   * @param {string} word
+   * @returns {string|null}
+   */
+  _diacriticFreeStem(word) {
+    const bare = (c) => c.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') === c;
+    let best = '';
+    let run = '';
+    for (const ch of word.normalize('NFC')) {
+      if (bare(ch)) {
+        run += ch;
+        if (run.length > best.length) best = run;
+      } else {
+        run = '';
+      }
+    }
+    return best.length >= 3 ? best : null;
+  }
+
+  /**
+   * Rewrite a query for Kad, which resolves it differently from an ED2K server.
+   *
+   * Kad hashes ONE keyword to choose the node that answers - words.front(), the
+   * first token of at least 3 bytes - and evaluates the rest as substring
+   * filters on that node. The two halves want opposite treatment:
+   *
+   *   - The key must be a word a publisher actually indexed, so the first word
+   *     is never stemmed. If it carries a diacritic the key only reaches
+   *     publishers who used our exact encoding, so a plain word is promoted
+   *     ahead of it when a good one exists. The words are AND-ed, so reordering
+   *     cannot change what matches, only which node is asked.
+   *   - Later words are filters, where a stem widens the match to every
+   *     encoding.
+   *
+   * Selectivity matters for the promoted word: Kad returns a bounded set per
+   * keyword, so promoting a common short word would ask a huge node and could
+   * crowd the wanted file out. Longest wins, stop-words never do.
+   *
+   * ED2K needs none of this. Its server intersects tokens, so order is
+   * meaningless, and prefixes match nothing there.
+   *
+   * @param {string} query - already canonicalised
+   * @returns {string}
+   */
+  adaptQueryForKad(query) {
+    if (!query) return query;
+
+    // Only the leading plain-text part is ours to reorder; from the first
+    // boolean operator onwards is the format OR-group.
+    const opAt = query.search(/\s(?:AND|OR|NOT)\s|\s\(/);
+    const head = opAt === -1 ? query : query.slice(0, opAt);
+    const tail = opAt === -1 ? '' : query.slice(opAt);
+
+    // A quoted anchor is one unit: _buildAnchoredQuery quotes a long base to
+    // reclaim operator budget, and reordering its words would strand the
+    // quotes and leave an expression aMule rejects outright.
+    if (head.includes('"')) return query;
+
+    const words = head.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return query;
+    const originalFirst = words[0];
+
+    // Step 1: promote a selective plain word when the key would be accented.
+    if (this._hasDiacritic(words[0])) {
+      const candidates = words
+        .map((w, i) => ({ w, i }))
+        .filter(({ w, i }) => i > 0
+          && !this._hasDiacritic(w)
+          && Buffer.byteLength(w, 'utf8') >= 3
+          && !KAD_KEY_STOP_WORDS.has(w.toLowerCase()));
+      if (candidates.length > 0) {
+        const pick = candidates.reduce((a, b) => (b.w.length > a.w.length ? b : a));
+        words.splice(pick.i, 1);
+        words.unshift(pick.w);
+        logger.log(`[Torznab] Kad: promoted "${pick.w}" ahead of the accented "${originalFirst}" for the keyword lookup`);
+      }
+    }
+
+    // Step 2: stem later words carrying diacritics. Never the first.
+    const adapted = words.map((w, i) => {
+      if (i === 0 || !this._hasDiacritic(w)) return w;
+      return this._diacriticFreeStem(w) || w;
+    });
+
+    const out = adapted.join(' ') + tail;
+    if (out !== query) {
+      logger.log(`[Torznab] Kad query adapted: "${query}" -> "${out}"`);
+    }
+    return out;
+  }
+
   stripSearchSyntax(query) {
     if (!query) return query;
 
@@ -463,8 +602,11 @@ class TorznabHandler {
       logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
       // groupByHash: one hash can be published under several filenames and
       // the extra ones are often the better-parsed release names (#82).
+      // Kad resolves a query differently from an ED2K server, so it gets its
+      // own text. See adaptQueryForKad.
+      const networkQuery = network === 'kad' ? this.adaptQueryForKad(searchQuery) : searchQuery;
       const result = await this.rateLimitedSearch(() =>
-        this._searchWithoutBlockingEC(amuleClient, searchQuery, network)
+        this._searchWithoutBlockingEC(amuleClient, networkQuery, network)
       );
       const resultCount = (result.results || []).length;
       logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
@@ -578,7 +720,7 @@ class TorznabHandler {
       effectiveQuery = [artist, album].filter(Boolean).join(' ').trim();
       logger.log(`[Torznab] Built music query from artist/album: "${effectiveQuery}"`);
     }
-    effectiveQuery = this.stripSearchSyntax(effectiveQuery);
+    effectiveQuery = this.canonicaliseQuery(this.stripSearchSyntax(effectiveQuery));
 
     // Has params but no text query - can't search ED2K
     if (!effectiveQuery) {
