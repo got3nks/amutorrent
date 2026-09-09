@@ -537,20 +537,33 @@ class TorznabHandler {
     }, { timeoutMs: this.searchLockWaitMs });
   }
 
-  async rateLimitedSearch(searchFn) {
-    const now = Date.now();
-    const timeSinceLastSearch = now - this.lastSearchTime;
+  /**
+   * Space out ED2K searches, and only ED2K searches.
+   *
+   * The gap exists for ED2K server flood protection. Kad is a DHT and has no
+   * such limit, so a Kad search neither waits for the gap nor stamps the clock.
+   * Stamping it would simply move the delay onto the next ED2K search instead
+   * of removing it (#89).
+   *
+   * @param {Function} searchFn
+   * @param {string} network - 'global', 'local' or 'kad'
+   */
+  async rateLimitedSearch(searchFn, network) {
+    const isEd2k = network !== 'kad';
 
-    if (timeSinceLastSearch < this.searchDelayMs) {
-      const waitTime = this.searchDelayMs - timeSinceLastSearch;
-      logger.log(`[Torznab] Rate limiting: waiting ${waitTime}ms before next search`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
+    if (isEd2k) {
+      const timeSinceLastSearch = Date.now() - this.lastSearchTime;
+      if (timeSinceLastSearch < this.searchDelayMs) {
+        const waitTime = this.searchDelayMs - timeSinceLastSearch;
+        logger.log(`[Torznab] Rate limiting: waiting ${waitTime}ms before the next ED2K search`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
     }
 
     try {
       return await searchFn();
     } finally {
-      this.lastSearchTime = Date.now();
+      if (isEd2k) this.lastSearchTime = Date.now();
     }
   }
 
@@ -615,8 +628,9 @@ class TorznabHandler {
       // Kad resolves a query differently from an ED2K server, so it gets its
       // own text. See adaptQueryForKad.
       const networkQuery = network === 'kad' ? this.adaptQueryForKad(searchQuery) : searchQuery;
-      const result = await this.rateLimitedSearch(() =>
-        this._searchWithoutBlockingEC(amuleClient, networkQuery, network)
+      const result = await this.rateLimitedSearch(
+        () => this._searchWithoutBlockingEC(amuleClient, networkQuery, network),
+        network
       );
       if (!result.completed) incomplete = true;
       const resultCount = (result.results || []).length;
