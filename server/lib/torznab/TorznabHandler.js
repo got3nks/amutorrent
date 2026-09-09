@@ -509,22 +509,31 @@ class TorznabHandler {
         // The reason can be multi-line; keep it on one line.
         const reason = (started.message || 'no reason given').split('\n').map(l => l.trim()).filter(Boolean).join(' | ');
         logger.warn(`[Torznab] aMule refused the ${network} search: ${reason} - query was: "${query}"`);
-        return { resultsLength: 0, totalLength: 0, results: [] };
+        // Nothing ran, so this is not an answer about the query and must not
+        // be cached as one.
+        return { resultsLength: 0, totalLength: 0, results: [], completed: false };
       }
 
       // aMule needs a moment before its progress figure means anything.
       await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
 
       const deadline = Date.now() + this.searchTimeoutMs;
+      let completed = false;
       while (Date.now() < deadline) {
         const status = await amuleClient.getSearchProgress();
-        if (status?.complete) break;
+        if (status?.complete) { completed = true; break; }
         await new Promise(resolve => setTimeout(resolve, this.searchPollMs));
       }
 
       // Read results even on timeout: a slow search still has partial results,
-      // and returning them beats returning nothing.
-      return amuleClient.getSearchResults({ groupByHash: true });
+      // and returning them beats returning nothing. `completed` records whether
+      // aMule itself declared the search finished, which is what decides
+      // whether the answer may be cached.
+      const results = await amuleClient.getSearchResults({ groupByHash: true });
+      if (!completed) {
+        logger.log(`[Torznab] ${network} search hit its ${this.searchTimeoutMs}ms timeout; partial results will not be cached`);
+      }
+      return { ...results, completed };
     }, { timeoutMs: this.searchLockWaitMs });
   }
 
@@ -597,6 +606,7 @@ class TorznabHandler {
 
     const allResults = [];
     const seenHashes = new Map();   // hash → the result we kept, for name merging
+    let incomplete = false;         // any leg cut short => the answer is not cacheable
 
     const runQueryOnNetwork = async (searchQuery, network, label) => {
       logger.log(`[Torznab] Searching aMule ${network} for: "${searchQuery}"${label ? ` (${label})` : ''}`);
@@ -608,6 +618,7 @@ class TorznabHandler {
       const result = await this.rateLimitedSearch(() =>
         this._searchWithoutBlockingEC(amuleClient, networkQuery, network)
       );
+      if (!result.completed) incomplete = true;
       const resultCount = (result.results || []).length;
       logger.log(`[Torznab] ${network} query returned ${resultCount} results (${result.totalLength ?? resultCount} incl. alternate names)`);
       (result.results || []).forEach(file => {
@@ -647,9 +658,33 @@ class TorznabHandler {
     void fallbackQuery;
 
     logger.log(`[Torznab] Total unique results after merging (ED2K + Kad): ${allResults.length}`);
-    this.setCachedResults(cacheKey, allResults);
+    this._cacheIfComplete(cacheKey, allResults, incomplete);
 
     return allResults;
+  }
+
+  /**
+   * Cache an answer only when it is one.
+   *
+   * Gating on the result count would be wrong in both directions. A query with
+   * genuinely no matches is a real answer worth keeping, and re-running it for
+   * the whole TTL is waste. What must not be cached is a search that was cut
+   * short - a timeout, or a query aMule refused - because its emptiness says
+   * nothing about the query, and caching it would serve that non-answer to
+   * every later request for ten minutes (#89).
+   *
+   * @param {string} cacheKey
+   * @param {Array} results
+   * @param {boolean} incomplete - did any leg fail to finish
+   * @returns {boolean} whether it was cached
+   */
+  _cacheIfComplete(cacheKey, results, incomplete) {
+    if (incomplete) {
+      logger.log(`[Torznab] Not caching ${cacheKey}: a search was cut short rather than finishing`);
+      return false;
+    }
+    this.setCachedResults(cacheKey, results);
+    return true;
   }
 
   // ============================================================================
