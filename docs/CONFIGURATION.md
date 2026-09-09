@@ -343,7 +343,7 @@ services:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between searches (avoid flood protection) |
+| `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between ED2K searches (avoid flood protection); Kad is not delayed |
 | `ED2K_CACHE_TTL_MS` | `600000` | Search result cache duration |
 
 #### Advanced

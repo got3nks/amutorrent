@@ -40,7 +40,11 @@ class TorznabHandler {
     this.getAmuleManager = null;
 
     // Rate limiting state
-    this.searchDelayMs = parseInt(process.env.ED2K_SEARCH_DELAY_MS || '10000', 10);
+    // 5s is the floor of the range INTEGRATIONS.md recommends, and what
+    // CONFIGURATION.md and .env.example already documented as the default while
+    // the code used 10s. Kad does not pay this gap (see rateLimitedSearch), so
+    // it now bounds ED2K searches only.
+    this.searchDelayMs = parseInt(process.env.ED2K_SEARCH_DELAY_MS || '5000', 10);
     // Poll-loop timings, matching what searchAndWaitResults() used so search
     // behaviour is unchanged; only the connection-holding differs.
     this.searchSettleMs = parseInt(process.env.ED2K_SEARCH_SETTLE_MS || '5000', 10);
