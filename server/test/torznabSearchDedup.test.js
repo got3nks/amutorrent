@@ -57,8 +57,8 @@ describe('in-flight search deduplication', () => {
     gate.resolve();
     await requests;
 
-    // One request searches both networks, so two startSearch calls total.
-    assert.equal(started.length, 2, `ran ${started.length / 2} searches instead of 1`);
+    // Global returned a hit, so Kad is skipped: one startSearch for five joiners.
+    assert.equal(started.length, 1, `ran ${started.length} searches instead of 1`);
   });
 
   it('does not merge different queries', async () => {
@@ -72,7 +72,7 @@ describe('in-flight search deduplication', () => {
     gate.resolve();
     await requests;
 
-    assert.equal(started.length, 4, 'two distinct queries should be two searches');
+    assert.equal(started.length, 2, 'two distinct queries should be two searches');
   });
 
   it('gives every joiner the same results', async () => {
@@ -101,7 +101,7 @@ describe('in-flight search deduplication', () => {
     assert.equal(handler.inFlightSearches.size, 0, 'the in-flight entry outlived the search');
 
     await handler.handleRequest(query('example show'), res());
-    assert.equal(started.length, 2, 'the second request should have hit the cache');
+    assert.equal(started.length, 1, 'the second request should have hit the cache');
   });
 
   it('clears the key when the search fails, so the next request retries', async () => {
