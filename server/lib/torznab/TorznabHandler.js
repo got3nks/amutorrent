@@ -518,12 +518,30 @@ class TorznabHandler {
         return { resultsLength: 0, totalLength: 0, results: [], completed: false };
       }
 
-      // aMule needs a moment before its progress figure means anything.
-      await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
+      // Whether the settle is needed at all is a property of the core, and the
+      // first poll reveals it.
+      //
+      // A core from 3.1 reports EC_TAG_SEARCH_LIFECYCLE_STATE, which says
+      // plainly whether THIS search is running or finished, so it can be
+      // trusted from the first reading and no settle is needed.
+      //
+      // Older cores have only the overloaded progress figure, and it carries
+      // the PREVIOUS search's value for a moment: measured on a 3.0.1 core, a
+      // global search still reported 100 at 0.0s and 0.5s, with the real sweep
+      // only starting near 1.0s at 8%. Reading it in that window says
+      // "complete" with zero results - and since the completion flag decides
+      // whether the answer is cached, that empty answer would be served for
+      // the whole TTL. Hence the wait, and hence its size: the stale window
+      // ran to ~0.7s, so a second of margin is not enough.
+      const first = await amuleClient.getSearchProgress();
+      const hasLifecycle = first?.lifecycleState !== null && first?.lifecycleState !== undefined;
+      let completed = Boolean(hasLifecycle && first.complete);
+      if (!hasLifecycle) {
+        await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
+      }
 
       const deadline = Date.now() + this.searchTimeoutMs;
-      let completed = false;
-      while (Date.now() < deadline) {
+      while (!completed && Date.now() < deadline) {
         const status = await amuleClient.getSearchProgress();
         if (status?.complete) { completed = true; break; }
         await new Promise(resolve => setTimeout(resolve, this.searchPollMs));
