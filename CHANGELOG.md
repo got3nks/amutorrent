@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.5] - Accents in the Search Box, Faster Searches on aMule 3.1
+
+### 🐛 Fixed
+
+- **An accented search typed in the web interface returned only half the files.** Searching for a title with an accent could come back with only the files spelled with the accent, while searching the plain spelling returned both. The cause is that the same accented letter has two encodings that look identical on screen, and ED2K servers understand only one of them. Text pasted from a file manager, macOS Finder in particular, uses the other one, so the search was silently unmatchable. Automatic searches from Sonarr and Radarr were already corrected for this; searches you type are now corrected too. Only the encoding is changed - the words sent are still exactly the ones you typed, so the results always match what is on screen.
+- **A Kad search typed in the web interface and beginning with an accented word found nothing.** Kad picks one word from the search to decide which part of the network to ask, and an accented one only reaches files published with that exact spelling. A plain word from the same search is now used instead, as it already was for automatic searches. This does not change which files can match, only where they are looked for.
+
+### 🔧 Changed
+
+- **Sonarr, Radarr and Medusa searches are around ten seconds faster on aMule 3.1 and newer.** Every search paused for five seconds before checking its progress, once for each network, because older aMule versions report a misleading figure in the moment just after a search starts - often the previous search's. aMule 3.1 says which search the figure belongs to, so the pause is no longer needed there and is skipped automatically. On aMule 3.0.x nothing changes: the pause is still required, and without it a search would be recorded as finished with nothing found.
+
+---
+
 ## [3.9.4] - Accented Titles, and Faster Searches
 
 ### 🐛 Fixed
