@@ -9,6 +9,7 @@ const config = require('./config');
 const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
 const { parseEd2kLink } = require('../lib/torrentUtils');
+const { normaliseQueryForm, adaptQueryForKad } = require('../lib/searchQuery');
 const {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -1299,7 +1300,7 @@ class AmuleManager extends BaseClientManager {
 
   /**
    * Run a search and wait for results
-   * @param {string} query - Search query
+   * @param {string} query - Search query, normalised to NFC before it is sent
    * @param {string} type - Search type (e.g. 'global')
    * @param {string} extension - File extension filter
    * @param {Object} [options] - Passed to the client, e.g. { groupByHash }
@@ -1307,7 +1308,19 @@ class AmuleManager extends BaseClientManager {
    */
   async search(query, type, extension, options = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.searchAndWaitResults(query, type, extension, { ...SEARCH_DEFAULTS, ...options });
+
+    // A typed query is sent as typed, bar the two rewrites the user cannot see:
+    // NFC, because a decomposed accent looks identical but matches nothing, and
+    // on Kad the keyword promotion, which only picks the node to ask (#96).
+    let sent = normaliseQueryForm(query);
+    if (type === 'kad') {
+      sent = adaptQueryForKad(sent, { stem: false, log: m => this.log(m) });
+    }
+    if (sent !== query) {
+      this.log(`Search query normalised: "${query}" -> "${sent}"`);
+    }
+
+    return await this.client.searchAndWaitResults(sent, type, extension, { ...SEARCH_DEFAULTS, ...options });
   }
 
   // ============================================================================
