@@ -1312,13 +1312,14 @@ class AmuleManager extends BaseClientManager {
     // A typed query is sent as typed, bar the two rewrites the user cannot see:
     // NFC, because a decomposed accent looks identical but matches nothing, and
     // on Kad the keyword promotion, which only picks the node to ask (#96).
-    let sent = normaliseQueryForm(query);
-    if (type === 'kad') {
-      sent = adaptQueryForKad(sent, { stem: false, log: m => this.log(m) });
+    const composed = normaliseQueryForm(query);
+    if (composed !== query) {
+      this.log(`Search query composed to NFC: "${query}" -> "${composed}"`);
     }
-    if (sent !== query) {
-      this.log(`Search query normalised: "${query}" -> "${sent}"`);
-    }
+    // Debug: the reorder changes no result, and reading it as one alarms users.
+    const sent = type === 'kad'
+      ? adaptQueryForKad(composed, { stem: false, log: m => this.debug(m) })
+      : composed;
 
     return await this.client.searchAndWaitResults(sent, type, extension, { ...SEARCH_DEFAULTS, ...options });
   }

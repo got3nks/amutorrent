@@ -281,11 +281,13 @@ class TorznabHandler {
    * into one call per network. aMule's parser handles the OR inline.
    *
    * Smart-quoting: quote the series ONLY when the operator budget would
-   * overflow (base + K − 1 > 10 → B > 11 − K). Quoted content still
-   * substring-AND-matches server-side (Entry.cpp:231-248) — same match set,
-   * just 1 token instead of B. Punctuation is free per aMule's client
-   * scanner (Scanner.l:45, keywordchar = `[^ "()]`), so we count whitespace
-   * tokens only.
+   * overflow (base + K − 1 > 10 → B > 11 − K). The quotes never leave the
+   * client. `"` is grammar rather than a keyword character (Scanner.l:45,
+   * keywordchar = `[^ "()]`), so a quoted base and a bare one put identical
+   * bytes on the wire - measured against eserver 17.15. Quoting buys operator
+   * budget and nothing else; it cannot change the match set, and the server
+   * splits the string into the same words either way. Punctuation is free for
+   * the same reason, so we count whitespace tokens only.
    *
    * @param {string} seriesName - bare title (already year-stripped for tvsearch)
    * @param {Array<string>} alternatives - format tokens to OR-group

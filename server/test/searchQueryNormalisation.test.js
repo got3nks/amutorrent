@@ -55,6 +55,18 @@ describe('adaptQueryForKad: promotion and stemming are separable', () => {
   it('returns a plain-keyed query untouched either way', () => {
     assert.equal(adaptQueryForKad('Example Show', { stem: false }), 'Example Show');
   });
+
+  it('does not reorder around a word too short to be the key', () => {
+    // aMule skips words under 3 UTF-8 bytes when choosing the keyword, so the
+    // reorder would change nothing and only makes the log look like a bug.
+    assert.equal(adaptQueryForKad('È stata la prova', { stem: false }),
+      'È stata la prova');
+  });
+
+  it('reorders inside a quoted anchor rather than giving up', () => {
+    const out = adaptQueryForKad('"Élite Example Show" AND (S01E05)', { stem: false });
+    assert.equal(out, '"Example Élite Show" AND (S01E05)');
+  });
 });
 
 // The UI path: what the user typed is what gets sent, bar the invisible parts.
@@ -93,5 +105,14 @@ describe('user-initiated search: only the invisible rewrites apply', () => {
     const { manager, sent } = makeManager();
     await manager.search('Élite Example', 'global', null);
     assert.equal(sent[0], 'Élite Example');
+  });
+
+  it('sends a Kad query led by a short accented word exactly as typed (#96)', async () => {
+    // The reported case. The accent cannot be folded away by us - Kad does no
+    // folding - and the word is too short to be the key, so there is nothing
+    // to reorder and nothing to rewrite.
+    const { manager, sent } = makeManager();
+    await manager.search('È stata la prova', 'kad', null);
+    assert.equal(sent[0], 'È stata la prova');
   });
 });

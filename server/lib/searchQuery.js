@@ -86,20 +86,28 @@ function diacriticFreeStem(word) {
 /**
  * Rewrite a query for Kad, which resolves it differently from an ED2K server.
  *
- * Kad hashes ONE keyword to choose the node that answers - words.front(), the
- * first token of at least 3 bytes - and evaluates the rest as substring filters
- * on that node. The two halves want opposite treatment:
+ * Kad hashes ONE keyword to choose the node that answers, then evaluates every
+ * word of the query as a substring filter on that node. The two roles want
+ * opposite treatment:
  *
- *   - The key must be a word a publisher actually indexed, so the first word is
- *     never stemmed. If it carries a diacritic the key only reaches publishers
- *     who used our exact encoding, so a plain word is promoted ahead of it when
- *     a good one exists. Selectivity matters for the promoted word: Kad returns
- *     a bounded set per keyword, so a common short word would ask a huge node
- *     and could crowd the wanted file out. Longest wins, stop-words never do.
- *   - Later words are filters, where a stem widens the match to every encoding.
+ *   - The key must be a word a publisher actually indexed, so it is never
+ *     stemmed. If it carries a diacritic it only reaches publishers who used
+ *     our exact encoding, so a plain word is promoted ahead of it when a good
+ *     one exists. Selectivity matters for the promoted word: Kad returns a
+ *     bounded set per keyword, so a common short word would ask a huge node and
+ *     could crowd the wanted file out. Longest wins, stop-words never do.
+ *   - Every other word is a filter, where a stem widens the match to every
+ *     encoding.
+ *
+ * The key is the first word of at least 3 UTF-8 bytes, not simply the first
+ * word: CSearchManager::GetWords skips shorter ones when choosing it
+ * (SearchList.cpp:613). Promoting past a short accented word would therefore
+ * achieve nothing, because aMule was already going to skip it. A short word
+ * still filters, wherever it sits - that path is parsed from the raw query with
+ * no length rule at all (SearchList.cpp:1579) - but nothing here can help that.
  *
  * Only the promotion runs on a user-typed query. The words are AND-ed, so
- * reordering cannot change what matches, only which node is asked - whereas a
+ * reordering cannot change what matches, only which node is asked, whereas a
  * stem returns files the user did not ask for.
  *
  * ED2K needs none of this. Its server intersects tokens, so order is
@@ -108,7 +116,7 @@ function diacriticFreeStem(word) {
  * @param {string} query - already canonicalised
  * @param {Object} [opts]
  * @param {boolean} [opts.stem=true] - Apply the widening step.
- * @param {Function} [opts.log] - Called with a message when a step fires.
+ * @param {Function} [opts.log] - Called once when the query changed.
  * @returns {string}
  */
 function adaptQueryForKad(query, { stem = true, log } = {}) {
@@ -120,38 +128,44 @@ function adaptQueryForKad(query, { stem = true, log } = {}) {
   const head = opAt === -1 ? query : query.slice(0, opAt);
   const tail = opAt === -1 ? '' : query.slice(opAt);
 
-  // A quoted anchor is one unit: _buildAnchoredQuery quotes a long base to
-  // reclaim operator budget, and reordering its words would strand the quotes
-  // and leave an expression aMule rejects outright.
-  if (head.includes('"')) return query;
+  // A long anchor is quoted to stay under aMule's operator limit. The quotes
+  // are grammar and never reach the wire, so reorder inside them and leave
+  // them where they are. Any other shape carrying a quote is left alone.
+  const quoted = head.match(/^"([^"]*)"$/);
+  if (!quoted && head.includes('"')) return query;
 
-  const words = head.split(/\s+/).filter(Boolean);
+  const words = (quoted ? quoted[1] : head).split(/\s+/).filter(Boolean);
   if (words.length === 0) return query;
-  const originalFirst = words[0];
+
+  const isKeyable = (w) => Buffer.byteLength(w, 'utf8') >= 3;
+  const keyAt = words.findIndex(isKeyable);
 
   // Step 1: promote a selective plain word when the key would be accented.
-  if (hasDiacritic(words[0])) {
+  if (keyAt !== -1 && hasDiacritic(words[keyAt])) {
     const candidates = words
       .map((w, i) => ({ w, i }))
-      .filter(({ w, i }) => i > 0
+      .filter(({ w, i }) => i !== keyAt
         && !hasDiacritic(w)
-        && Buffer.byteLength(w, 'utf8') >= 3
+        && isKeyable(w)
         && !KAD_KEY_STOP_WORDS.has(w.toLowerCase()));
     if (candidates.length > 0) {
       const pick = candidates.reduce((a, b) => (b.w.length > a.w.length ? b : a));
+      // Every word before keyAt is too short to be keyable, so the pick always
+      // sits after it and removing it cannot shift keyAt.
       words.splice(pick.i, 1);
-      words.unshift(pick.w);
-      log?.(`Kad: promoted "${pick.w}" ahead of the accented "${originalFirst}" for the keyword lookup`);
+      words.splice(keyAt, 0, pick.w);
     }
   }
 
-  // Step 2: stem later words carrying diacritics. Never the first.
+  // Step 2: stem words carrying diacritics, never the key itself.
+  const newKeyAt = words.findIndex(isKeyable);
   const adapted = stem
-    ? words.map((w, i) => (i === 0 || !hasDiacritic(w) ? w : diacriticFreeStem(w) || w))
+    ? words.map((w, i) => (i === newKeyAt || !hasDiacritic(w) ? w : diacriticFreeStem(w) || w))
     : words;
 
-  const out = adapted.join(' ') + tail;
-  if (out !== query) log?.(`Kad query adapted: "${query}" -> "${out}"`);
+  const body = adapted.join(' ');
+  const out = (quoted ? `"${body}"` : body) + tail;
+  if (out !== query) log?.(`Kad keyword lookup: "${query}" -> "${out}"`);
   return out;
 }
 

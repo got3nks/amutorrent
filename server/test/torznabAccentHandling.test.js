@@ -92,15 +92,42 @@ describe('Kad adaptation: promoting the keyword', () => {
       'Example lite AND (S01E05 OR 1x05)');
   });
 
-  it('does not disturb a quoted anchor', () => {
-    // _buildAnchoredQuery quotes a long base to reclaim operator budget.
-    // Reordering its words would strand the quotes and produce an expression
-    // aMule rejects, the same class of failure as the parentheses bug.
+  it('reorders inside a quoted anchor, without stranding the quotes', () => {
+    // _buildAnchoredQuery quotes a long base to reclaim operator budget. The
+    // quotes are grammar and never reach the wire, so the words inside can be
+    // reordered; moving one across them would produce an expression aMule
+    // rejects, the same class of failure as the parentheses bug.
     const h = handler();
     const q = h._buildAnchoredQuery('Élite Example Show With A Very Long Title Here',
       ['S01E05', '1x05', '01x05']);
     assert.ok(q.startsWith('"'), q);
-    assert.equal(h.adaptQueryForKad(q), q);
+
+    const out = h.adaptQueryForKad(q);
+    assert.notEqual(out, q, 'a long accented title must still get its keyword promoted');
+    assert.ok(out.startsWith('"'), out);
+    assert.equal((out.match(/"/g) || []).length, 2, `quotes must stay balanced: ${out}`);
+    assert.equal(out.slice(1).split('"')[0].split(/\s+/)[0], 'Example');
+    assert.ok(out.endsWith(q.slice(q.lastIndexOf('"') + 1)), 'the OR-group must be untouched');
+  });
+
+  it('leaves a head carrying an unbalanced quote alone', () => {
+    // Not a shape we build, so there is nothing safe to assume about it.
+    const h = handler();
+    assert.equal(h.adaptQueryForKad('Élite Ex"ample Show'), 'Élite Ex"ample Show');
+  });
+
+  it('does not promote past a short accented word', () => {
+    // aMule skips words under 3 UTF-8 bytes when choosing the keyword
+    // (SearchList.cpp:613), so reordering around one achieves nothing.
+    const h = handler();
+    assert.equal(h.adaptQueryForKad('È stata la prova'), 'È stata la prova');
+  });
+
+  it('promotes past the first word that can actually be the key', () => {
+    // The short word is skipped, so the accented word after it is the key.
+    // This is the Torznab wrapper, so the demoted word is stemmed as usual.
+    const h = handler();
+    assert.equal(h.adaptQueryForKad('È Élite Example'), 'È Example lite');
   });
 });
 
