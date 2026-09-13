@@ -161,7 +161,9 @@ const SettingsView = () => {
       }
     }
     if ((results.sonarr && results.sonarr.success === false) ||
-        (results.radarr && results.radarr.success === false)) {
+        (results.radarr && results.radarr.success === false) ||
+        (results.lidarr && results.lidarr.success === false) ||
+        (results.readarr && results.readarr.success === false)) {
       updates.integrations = true;
     }
     if (results.prowlarr && results.prowlarr.success === false) {
@@ -194,6 +196,8 @@ const SettingsView = () => {
   const handleTestDirectories = makeTestHandler('directories', c => c.directories);
   const handleTestSonarr      = makeTestHandler('sonarr',      c => c.integrations.sonarr);
   const handleTestRadarr      = makeTestHandler('radarr',      c => c.integrations.radarr);
+  const handleTestLidarr      = makeTestHandler('lidarr',      c => c.integrations.lidarr);
+  const handleTestReadarr     = makeTestHandler('readarr',     c => c.integrations.readarr);
   const handleTestProwlarr    = makeTestHandler('prowlarr',    c => c.integrations.prowlarr);
 
   // Test Event Script Path
@@ -221,6 +225,8 @@ const SettingsView = () => {
     const payload = { directories: unmasked.directories };
     if (unmasked.integrations?.sonarr?.enabled) payload.sonarr = unmasked.integrations.sonarr;
     if (unmasked.integrations?.radarr?.enabled) payload.radarr = unmasked.integrations.radarr;
+    if (unmasked.integrations?.lidarr?.enabled) payload.lidarr = unmasked.integrations.lidarr;
+    if (unmasked.integrations?.readarr?.enabled) payload.readarr = unmasked.integrations.readarr;
     if (unmasked.integrations?.prowlarr?.enabled) payload.prowlarr = unmasked.integrations.prowlarr;
     return payload;
   };
@@ -377,7 +383,9 @@ const SettingsView = () => {
 
   const enabledArrs = [
     formData.integrations.sonarr?.enabled && 'Sonarr',
-    formData.integrations.radarr?.enabled && 'Radarr'
+    formData.integrations.radarr?.enabled && 'Radarr',
+    formData.integrations.lidarr?.enabled && 'Lidarr',
+    formData.integrations.readarr?.enabled && 'Readarr'
   ].filter(Boolean);
   const arrBadge = enabledArrs.length > 0 ? pill(enabledArrs.join(', ')) : null;
 
@@ -740,7 +748,7 @@ const SettingsView = () => {
     // *arr Integrations
     h(ConfigSection, {
       title: '*arr Integrations',
-      description: 'Torznab and qBittorrent-compatible API for ED2K, Sonarr and Radarr schedulers',
+      description: 'Torznab and qBittorrent-compatible API for ED2K, Sonarr, Radarr, Lidarr, and Readarr schedulers',
       defaultOpen: false,
       open: openSections.integrations,
       onToggle: (value) => toggleSection('integrations', value),
@@ -845,6 +853,124 @@ const SettingsView = () => {
           testResults?.results?.sonarr && h(TestResultIndicator, {
             result: testResults.results.sonarr,
             label: 'Sonarr API Test'
+          })
+        )
+      ),
+
+      // Lidarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.lidarr?.enabled || false,
+          onChange: (value) => updateNestedField('integrations', 'lidarr', 'enabled', value),
+          label: 'Enable Lidarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing albums via Lidarr API'
+        }),
+        formData.integrations.lidarr?.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Lidarr URL',
+            description: 'Lidarr server URL (e.g., http://localhost:8686)',
+            value: formData.integrations.lidarr?.url || '',
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'url', value),
+            placeholder: 'http://localhost:8686',
+            required: formData.integrations.lidarr?.enabled,
+            fromEnv: meta?.fromEnv.lidarrUrl
+          }),
+          meta?.fromEnv.lidarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Lidarr API key is set via LIDARR_API_KEY environment variable.')
+          ),
+          !meta?.fromEnv.lidarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Lidarr API key (found in Settings → General)',
+            value: formData.integrations.lidarr?.apiKey || '',
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'apiKey', value),
+            required: formData.integrations.lidarr?.enabled,
+            fromEnv: meta?.fromEnv.lidarrApiKey
+          },
+            h(PasswordField, {
+              value: formData.integrations.lidarr?.apiKey || '',
+              onChange: (value) => updateNestedField('integrations', 'lidarr', 'apiKey', value),
+              placeholder: 'Enter Lidarr API key',
+              disabled: meta?.fromEnv.lidarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.lidarr?.searchIntervalHours || 6,
+            onChange: (value) => updateNestedField('integrations', 'lidarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6',
+            fromEnv: meta?.fromEnv.lidarrSearchInterval
+          }),
+          h('div', { className: 'mt-4' },
+            h(TestButton, {
+              onClick: handleTestLidarr,
+              loading: isTesting,
+              disabled: !formData.integrations.lidarr?.url || !formData.integrations.lidarr?.apiKey
+            }, 'Test Lidarr Connection')
+          ),
+          testResults?.results?.lidarr && h(TestResultIndicator, {
+            result: testResults.results.lidarr,
+            label: 'Lidarr API Test'
+          })
+        )
+      ),
+
+      // Readarr scheduler
+      h('div', { className: 'mb-6' },
+        h(EnableToggle, {
+          enabled: formData.integrations.readarr?.enabled || false,
+          onChange: (value) => updateNestedField('integrations', 'readarr', 'enabled', value),
+          label: 'Enable Readarr scheduler',
+          description: '(Optional) Schedule automatic searches for missing books via Readarr API'
+        }),
+        formData.integrations.readarr?.enabled && h('div', { className: 'mt-4 space-y-4' },
+          h(ConfigField, {
+            label: 'Readarr URL',
+            description: 'Readarr server URL (e.g., http://localhost:8787)',
+            value: formData.integrations.readarr?.url || '',
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'url', value),
+            placeholder: 'http://localhost:8787',
+            required: formData.integrations.readarr?.enabled,
+            fromEnv: meta?.fromEnv.readarrUrl
+          }),
+          meta?.fromEnv.readarrApiKey && h(AlertBox, { type: 'warning' },
+            h('p', {}, 'Readarr API key is set via READARR_API_KEY environment variable.')
+          ),
+          !meta?.fromEnv.readarrApiKey && h(ConfigField, {
+            label: 'API Key',
+            description: 'Readarr API key (found in Settings → General)',
+            value: formData.integrations.readarr?.apiKey || '',
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'apiKey', value),
+            required: formData.integrations.readarr?.enabled,
+            fromEnv: meta?.fromEnv.readarrApiKey
+          },
+            h(PasswordField, {
+              value: formData.integrations.readarr?.apiKey || '',
+              onChange: (value) => updateNestedField('integrations', 'readarr', 'apiKey', value),
+              placeholder: 'Enter Readarr API key',
+              disabled: meta?.fromEnv.readarrApiKey
+            })
+          ),
+          h(ConfigField, {
+            label: 'Search Interval (hours)',
+            description: 'Hours between automatic searches (0 = disabled)',
+            value: formData.integrations.readarr?.searchIntervalHours || 6,
+            onChange: (value) => updateNestedField('integrations', 'readarr', 'searchIntervalHours', value),
+            type: 'number',
+            placeholder: '6',
+            fromEnv: meta?.fromEnv.readarrSearchInterval
+          }),
+          h('div', { className: 'mt-4' },
+            h(TestButton, {
+              onClick: handleTestReadarr,
+              loading: isTesting,
+              disabled: !formData.integrations.readarr?.url || !formData.integrations.readarr?.apiKey
+            }, 'Test Readarr Connection')
+          ),
+          testResults?.results?.readarr && h(TestResultIndicator, {
+            result: testResults.results.readarr,
+            label: 'Readarr API Test'
           })
         )
       ),
