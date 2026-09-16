@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.6] - A Steady aMule Connection
+
+### 🐛 Fixed
+
+- **Every time aMule went away, aMuTorrent kept one more connection open to it.** If aMule restarted or dropped for a moment, aMuTorrent reconnected correctly, but the old connection also came back by itself and stayed open next to the new one. Two outages left three connections, and they kept piling up until aMuTorrent restarted. Now there is exactly one connection, however often aMule goes away. This needs no settings change.
+- **Long titles starting with an accented word could not be found on Kad.** Kad looks up one word from the search, and an accented word only reaches files published with that exact spelling. aMuTorrent already swaps in a plain word from the same title, but it skipped long titles, so a Sonarr or Radarr search for a long title starting with an accented word found nothing on Kad. Those are now handled like any other title.
+
+### 🔧 Changed
+
+- **Less alarming logs on Kad searches.** A Kad search typed in the web interface could log that its words had been "reordered", even when nothing useful changed. This happened when the first word was very short, which aMule already skips when choosing the lookup word. That useless reordering is gone, and the remaining note is logged at debug level only.
+
+---
+
 ## [3.9.5] - Accents in the Search Box, Faster Searches on aMule 3.1
 
 ### 🐛 Fixed
