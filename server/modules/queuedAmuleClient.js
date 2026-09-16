@@ -60,24 +60,34 @@ class QueuedAmuleClient {
       if (this.client && this.client.session) {
         const session = this.client.session;
 
-        // Add error event listener
         if (session.socket) {
           session.socket.on('error', (err) => {
             logger.error('[QueuedAmuleClient] Socket error:', err.message);
-            this.connectionLost = true;
-            if (this.errorHandler) {
-              this.errorHandler(err);
-            }
+            this._reportLoss(err);
           });
 
+          // A clean close from the daemon emits no 'error', and the library no
+          // longer reconnects on its own, so the owner must hear about it here.
           session.socket.on('close', () => {
-            this.connectionLost = true;
+            this._reportLoss(new Error('Connection to aMule closed'));
           });
         }
       }
     } catch (err) {
       // Ignore setup errors - this is defensive programming
       logger.warn('[QueuedAmuleClient] Could not setup error handlers:', err.message);
+    }
+  }
+
+  /**
+   * Tell the owner once that this connection is gone. An error is followed by
+   * a close, and disconnect() closes too, so both of those must stay silent.
+   */
+  _reportLoss(err) {
+    if (this.connectionLost) return;
+    this.connectionLost = true;
+    if (this.errorHandler) {
+      this.errorHandler(err);
     }
   }
 
@@ -130,6 +140,8 @@ class QueuedAmuleClient {
   }
 
   async disconnect() {
+    // Closing on purpose is not a loss to report.
+    this.connectionLost = true;
     try {
       if (this.client && typeof this.client.close === 'function') {
         // AmuleClient uses close() not disconnect()

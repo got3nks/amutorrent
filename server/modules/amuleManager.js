@@ -59,14 +59,7 @@ class AmuleManager extends BaseClientManager {
         logger.error('⚠️  ECProtocol error caught (prevented crash):', err.message);
         logger.error('Stack:', err.stack);
 
-        // Mark client as disconnected
-        if (this.client) {
-          this._setConnectionError(err);
-          this.client = null;
-        }
-
-        // Trigger reconnection if not already scheduled
-        this.scheduleReconnect(10000);
+        this._dropClient(err, 10000);
 
         // Return true to indicate we handled this error
         return true;
@@ -89,6 +82,24 @@ class AmuleManager extends BaseClientManager {
   }
 
   /**
+   * Retire the active client and schedule a fresh one.
+   *
+   * Always closes the old client: one that is only dropped stays connected to
+   * aMule, and every outage used to leave one behind.
+   * @param {Error} err - Why the connection is being dropped
+   * @param {number} retryMs - Reconnect interval
+   */
+  _dropClient(err, retryMs) {
+    const old = this.client;
+    this.client = null;
+    this._setConnectionError(err);
+    if (old && typeof old.disconnect === 'function') {
+      Promise.resolve(old.disconnect()).catch(() => {});
+    }
+    this.scheduleReconnect(retryMs);
+  }
+
+  /**
    * Initialize aMule client connection.
    * Creates a QueuedAmuleClient, connects, and sets up error/reconnection handlers.
    * @returns {Promise<boolean>} True if connection succeeded
@@ -107,6 +118,7 @@ class AmuleManager extends BaseClientManager {
     }
 
     this.connectionInProgress = true;
+    let newClient = null;
 
     try {
       // IMPORTANT: Always cleanup old client before creating a new one
@@ -125,18 +137,18 @@ class AmuleManager extends BaseClientManager {
       }
 
       this.log(`🔌 Creating new aMule client (${this._clientConfig.host}:${this._clientConfig.port})...`);
-      const newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password, {
-        requestTimeout: 60000 // 60s — large shared file lists (3000+) can take >30s for aMule to respond
+      newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password, {
+        requestTimeout: 60000, // 60s — large shared file lists (3000+) can take >30s for aMule to respond
+        // We rebuild the client ourselves: getUpdate() state only resyncs on a
+        // fresh connection. A library reconnect alongside ours would bring a
+        // discarded client back as an extra EC connection per outage.
+        autoReconnect: false
       });
 
-      // Set up error handler for the client
       newClient.onError((err) => {
         this.error('❌ aMule client error:', logger.errorDetail(err));
-        // Only set client to null if this is still the active client
         if (this.client === newClient) {
-          this._setConnectionError(err);
-          this.client = null;
-          this.scheduleReconnect(10000);
+          this._dropClient(err, 10000);
         }
       });
 
@@ -174,6 +186,11 @@ class AmuleManager extends BaseClientManager {
       this.error('❌ Failed to connect to aMule:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
+      // TCP can succeed and auth fail (a daemon still starting, a bad
+      // password). That socket is open, and nothing else will close it.
+      if (newClient) {
+        Promise.resolve(newClient.disconnect()).catch(() => {});
+      }
       return false;
     } finally {
       this.connectionInProgress = false;
@@ -425,13 +442,7 @@ class AmuleManager extends BaseClientManager {
     // cycle so the UI doesn't flash empty during the reconnect window.
     const triggerReconnect = (err) => {
       this.error(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
-      const failedClient = this.client;
-      this.client = null;
-      this._setConnectionError(err);
-      if (failedClient && typeof failedClient.disconnect === 'function') {
-        Promise.resolve(failedClient.disconnect()).catch(() => {});
-      }
-      this.scheduleReconnect(1000);
+      this._dropClient(err, 1000);
     };
 
     let updateData;

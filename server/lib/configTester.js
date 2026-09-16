@@ -109,7 +109,8 @@ async function testAmuleConnection(host, port, password) {
 
   try {
     // Create temporary client
-    client = new QueuedAmuleClient(host, port, password);
+    // A throwaway test connection must never reconnect by itself.
+    client = new QueuedAmuleClient(host, port, password, { autoReconnect: false });
 
     // Try to connect with timeout
     const connectPromise = client.connect();
