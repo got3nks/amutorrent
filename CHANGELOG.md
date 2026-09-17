@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.7] - Searches That Wait in Line
+
+### 🐛 Fixed
+
+- **A large Sonarr, Radarr or Medusa backlog kept failing with "Timed out waiting for the aMule search lock".** aMule can only run one search at a time, so searches have to wait for each other. But a search kept waiting, and then ran on both networks, even after the app that asked for it had given up. Under a backlog, most of aMule's search time went to answers nobody would read, and the searches still waiting behind them timed out. A search is now dropped as soon as the app that asked for it disconnects, whether it is still waiting or already running. In testing, the next search in line was answered after 104 seconds instead of 157.
+- **Waiting searches were served in no particular order.** Whichever one happened to check first got the next turn, so an older search could keep losing to newer ones until it timed out. Searches now take turns in the order they arrived, and each one finishes both ED2K and Kad before the next one starts. A search you start from the web interface can still run between those two steps.
+
+---
+
 ## [3.9.6] - A Steady aMule Connection
 
 ### 🐛 Fixed
