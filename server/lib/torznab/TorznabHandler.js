@@ -14,6 +14,7 @@ const logger = require('../logger');
 const { generateCapabilities } = require('./capabilities');
 const { convertToTorznabFeed } = require('./search');
 const { canonicaliseQuery: canonicalise, adaptQueryForKad } = require('../searchQuery');
+const { FifoLock, abortableSleep, abortError } = require('../FifoLock');
 
 // aMule's SearchList.cpp:104 rejects a parsed expression when
 // AND + OR + NOT operators > 10. The parser inserts an implicit AND
@@ -43,16 +44,20 @@ class TorznabHandler {
     this.searchSettleMs = parseInt(process.env.ED2K_SEARCH_SETTLE_MS || '5000', 10);
     this.searchPollMs = parseInt(process.env.ED2K_SEARCH_POLL_MS || '1000', 10);
     this.searchTimeoutMs = parseInt(process.env.ED2K_SEARCH_TIMEOUT_MS || '120000', 10);
-    // How long a request waits for the ed2k search slot before giving up. Two
-    // searches run per request (global + kad), so a queue of *arr searches can
-    // legitimately wait a while before its turn.
+    // How long a request waits for its turn before giving up. A client that
+    // disconnects leaves the queue sooner, so this bounds only clients that
+    // keep waiting.
     this.searchLockWaitMs = parseInt(process.env.ED2K_SEARCH_LOCK_WAIT_MS || '180000', 10);
+    // One Torznab request searches both networks before the next one starts,
+    // in arrival order. Each network leg still takes the aMule search lock, so
+    // a web UI search can run between the two legs.
+    this.torznabLock = new FifoLock();
     this.lastSearchTime = 0;
 
     // Cache state
     this.cacheTtlMs = parseInt(process.env.ED2K_CACHE_TTL_MS || '600000', 10);
     this.searchCache = new Map();
-    this.inFlightSearches = new Map();   // cacheKey -> Promise<results>, see _searchOrJoinInFlight
+    this.inFlightSearches = new Map();   // cacheKey -> { promise, controller, subscribers }, see _searchOrJoinInFlight
 
     // Expired entries used to be dropped only when the same key was asked for
     // again, so a backlog of distinct queries held every result set it ever
@@ -400,10 +405,11 @@ class TorznabHandler {
    * @param {Object} amuleClient
    * @param {string} query
    * @param {string} network - 'global' or 'kad'
+   * @param {AbortSignal} [signal] - Stop once no client is waiting for the answer
    * @returns {Promise<Object>} Same shape as searchAndWaitResults()
    * @private
    */
-  async _searchWithoutBlockingEC(amuleClient, query, network) {
+  async _searchWithoutBlockingEC(amuleClient, query, network, signal) {
     const manager = this.getAmuleManager?.();
 
     // Unreachable in normal operation: the client is derived from this same
@@ -415,6 +421,8 @@ class TorznabHandler {
     }
 
     return manager.withSearchLock(async () => {
+      // The slot may have been free while the client was already gone.
+      if (signal?.aborted) throw abortError();
       const started = await amuleClient.startSearch(query, network, '');
       if (started && started.started === false) {
         // The query goes in the log too. A refusal is almost always about the
@@ -447,14 +455,16 @@ class TorznabHandler {
       const hasLifecycle = first?.lifecycleState !== null && first?.lifecycleState !== undefined;
       let completed = Boolean(hasLifecycle && first.complete);
       if (!hasLifecycle) {
-        await new Promise(resolve => setTimeout(resolve, this.searchSettleMs));
+        await abortableSleep(this.searchSettleMs, signal);
       }
 
       const deadline = Date.now() + this.searchTimeoutMs;
       while (!completed && Date.now() < deadline) {
         const status = await amuleClient.getSearchProgress();
         if (status?.complete) { completed = true; break; }
-        await new Promise(resolve => setTimeout(resolve, this.searchPollMs));
+        // Abandoning the poll frees the slot; amule-ec-node has no way to stop
+        // the search itself, and the next startSearch replaces it anyway.
+        await abortableSleep(this.searchPollMs, signal);
       }
 
       // Read results even on timeout: a slow search still has partial results,
@@ -466,7 +476,7 @@ class TorznabHandler {
         logger.log(`[Torznab] ${network} search hit its ${this.searchTimeoutMs}ms timeout; partial results will not be cached`);
       }
       return { ...results, completed };
-    }, { timeoutMs: this.searchLockWaitMs });
+    }, { timeoutMs: this.searchLockWaitMs, signal });
   }
 
   /**
@@ -480,7 +490,7 @@ class TorznabHandler {
    * @param {Function} searchFn
    * @param {string} network - 'global', 'local' or 'kad'
    */
-  async rateLimitedSearch(searchFn, network) {
+  async rateLimitedSearch(searchFn, network, signal) {
     const isEd2k = network !== 'kad';
 
     if (isEd2k) {
@@ -488,7 +498,7 @@ class TorznabHandler {
       if (timeSinceLastSearch < this.searchDelayMs) {
         const waitTime = this.searchDelayMs - timeSinceLastSearch;
         logger.log(`[Torznab] Rate limiting: waiting ${waitTime}ms before the next ED2K search`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+        await abortableSleep(waitTime, signal);
       }
     }
 
@@ -515,24 +525,56 @@ class TorznabHandler {
    * share one search the same way repeat requests already share one cache
    * entry.
    *
+   * A shared search is cancelled only when every request attached to it has
+   * disconnected. A request that leaves early stops waiting at once, and the
+   * search carries on for the others.
+   *
    * @param {Object} amuleClient
    * @param {Object} params - { cacheKey, primaryQuery, fallbackQuery }
+   * @param {AbortSignal} [signal] - Fires when this request's client disconnects
    * @returns {Promise<Array>} merged results
    * @private
    */
-  _searchOrJoinInFlight(amuleClient, params) {
-    const running = this.inFlightSearches.get(params.cacheKey);
-    if (running) {
+  _searchOrJoinInFlight(amuleClient, params, signal) {
+    if (signal?.aborted) return Promise.reject(abortError());
+
+    let entry = this.inFlightSearches.get(params.cacheKey);
+    // A cancelled search can still be unwinding; never join one.
+    if (entry && !entry.controller.signal.aborted) {
       logger.log(`[Torznab] Joining the search already running for key: ${params.cacheKey}`);
-      return running;
+    } else {
+      const controller = new AbortController();
+      const created = { controller, subscribers: 0 };
+      // Cleared however it ends, so a failed search does not poison the key -
+      // but only if it is still ours, not a newer search for the same key.
+      created.promise = this._runSearch(amuleClient, params, controller.signal)
+        .finally(() => {
+          if (this.inFlightSearches.get(params.cacheKey) === created) {
+            this.inFlightSearches.delete(params.cacheKey);
+          }
+        });
+      this.inFlightSearches.set(params.cacheKey, created);
+      entry = created;
     }
 
-    // Cleared however it ends, so a failed search does not poison the key.
-    const search = this._runSearch(amuleClient, params)
-      .finally(() => this.inFlightSearches.delete(params.cacheKey));
+    entry.subscribers++;
+    if (!signal) return entry.promise;
 
-    this.inFlightSearches.set(params.cacheKey, search);
-    return search;
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        entry.subscribers--;
+        if (entry.subscribers === 0) {
+          logger.log(`[Torznab] Every client asking for this search disconnected, cancelling: ${params.cacheKey}`);
+          entry.controller.abort();
+        }
+        reject(abortError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      entry.promise.then(
+        (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+        (e) => { signal.removeEventListener('abort', onAbort); reject(e); }
+      );
+    });
   }
 
   /**
@@ -546,7 +588,26 @@ class TorznabHandler {
    *
    * @private
    */
-  async _runSearch(amuleClient, { cacheKey, primaryQuery, fallbackQuery }) {
+  async _runSearch(amuleClient, { cacheKey, primaryQuery, fallbackQuery }, signal) {
+    const ahead = this.torznabLock.pending;
+    if (ahead > 0) {
+      logger.log(`[Torznab] ${ahead} earlier request(s) searching or queued, waiting in line for key: ${cacheKey}`);
+    }
+    try {
+      await this.torznabLock.acquire({ timeoutMs: this.searchLockWaitMs, signal });
+    } catch (err) {
+      if (err.code === 'LOCK_TIMEOUT') throw new Error('Timed out waiting for the Torznab search queue');
+      throw err;
+    }
+
+    try {
+      return await this._runSearchLegs(amuleClient, { cacheKey, primaryQuery, fallbackQuery }, signal);
+    } finally {
+      this.torznabLock.release();
+    }
+  }
+
+  async _runSearchLegs(amuleClient, { cacheKey, primaryQuery, fallbackQuery }, signal) {
     logger.log(`[Torznab] Cache miss, searching aMule (ED2K + Kad) for key: ${cacheKey}`);
 
     const allResults = [];
@@ -561,8 +622,9 @@ class TorznabHandler {
       // own text. See adaptQueryForKad.
       const networkQuery = network === 'kad' ? this.adaptQueryForKad(searchQuery) : searchQuery;
       const result = await this.rateLimitedSearch(
-        () => this._searchWithoutBlockingEC(amuleClient, networkQuery, network),
-        network
+        () => this._searchWithoutBlockingEC(amuleClient, networkQuery, network, signal),
+        network,
+        signal
       );
       if (!result.completed) incomplete = true;
       const resultCount = (result.results || []).length;
@@ -591,6 +653,7 @@ class TorznabHandler {
 
     // Primary pass across both networks
     for (const network of NETWORKS) {
+      if (signal?.aborted) throw abortError();
       await runQueryOnNetwork(primaryQuery, network);
     }
 
@@ -659,6 +722,10 @@ class TorznabHandler {
       // Unknown function type
       res.status(400).send('Invalid t parameter (expected: caps, search, tvsearch, movie, or music)');
     } catch (error) {
+      if (error.name === 'AbortError') {
+        logger.log(`[Torznab] Client disconnected before its search finished, dropped: "${q || ''}"`);
+        return;
+      }
       logger.error('[Torznab] Error:', error);
       const emptyFeed = convertToTorznabFeed([], q || '', cat || '');
       res.set('Content-Type', 'application/xml');
@@ -745,7 +812,12 @@ class TorznabHandler {
     // Check cache
     let allResults = this.getCachedResults(cacheKey);
     if (!allResults) {
-      allResults = await this._searchOrJoinInFlight(amuleClient, { cacheKey, primaryQuery, fallbackQuery });
+      // Nothing notices a client that gave up on its own: without this, a
+      // request would still wait its turn and search for a closed socket, and
+      // under a backlog most of aMule's search time went to answers nobody read.
+      const disconnect = new AbortController();
+      res.on?.('close', () => { if (!res.writableFinished) disconnect.abort(); });
+      allResults = await this._searchOrJoinInFlight(amuleClient, { cacheKey, primaryQuery, fallbackQuery }, disconnect.signal);
     }
 
     // Apply pagination

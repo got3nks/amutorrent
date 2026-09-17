@@ -10,6 +10,7 @@ const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
 const { parseEd2kLink } = require('../lib/torrentUtils');
 const { normaliseQueryForm, adaptQueryForKad } = require('../lib/searchQuery');
+const { abortableSleep } = require('../lib/FifoLock');
 const {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -256,16 +257,22 @@ class AmuleManager extends BaseClientManager {
    * loop themselves - which is the point, so the connection stays usable -
    * must take this lock instead.
    *
+   * Polling rather than a queue on purpose: Torznab requests already queue in
+   * order on their own lock, and web UI searches never wait, so the only waiter
+   * here is the one Torznab request whose turn it is.
+   *
    * @param {Object} [opts]
    * @param {number} [opts.timeoutMs] - Give up after this long
    * @param {number} [opts.pollMs] - How often to retry
+   * @param {AbortSignal} [opts.signal] - Stop waiting when aborted
    * @returns {Promise<boolean>} False if the lock could not be taken in time
+   * @throws {Error} AbortError when the signal fires first
    */
-  async acquireSearchLockWaiting({ timeoutMs = 120000, pollMs = 250 } = {}) {
+  async acquireSearchLockWaiting({ timeoutMs = 120000, pollMs = 250, signal } = {}) {
     const deadline = Date.now() + timeoutMs;
     while (!this.acquireSearchLock()) {
       if (Date.now() >= deadline) return false;
-      await new Promise(resolve => setTimeout(resolve, pollMs));
+      await abortableSleep(pollMs, signal);
     }
     return true;
   }
