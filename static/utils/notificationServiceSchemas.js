@@ -59,6 +59,18 @@ export const SERVICE_TYPES = {
         required: true,
         placeholder: '123456789',
         helpText: 'Your chat or group ID (use @userinfobot to find it)'
+      },
+      {
+        key: 'topic',
+        label: 'Topic ID (optional)',
+        type: 'text',
+        required: false,
+        // Apprise rejects a non-integer topic outright, which fails the whole
+        // notification rather than falling back to General — catch it at entry.
+        pattern: /^\d+$/,
+        patternError: 'Topic ID must be a number',
+        placeholder: '42',
+        helpText: 'For groups with Topics enabled — leave empty to post in General. Open the topic in Telegram Web; the ID is the last number in the URL.'
       }
     ],
     helpUrl: 'https://core.telegram.org/bots#how-do-i-create-a-bot',
@@ -330,11 +342,17 @@ export const validateServiceConfig = (type, config) => {
   const errors = [];
 
   schema.fields.forEach(field => {
-    if (field.required) {
-      const value = config[field.key];
-      if (value === undefined || value === null || value === '') {
-        errors.push(`${field.label} is required`);
-      }
+    const value = config[field.key];
+    const isEmpty = value === undefined || value === null || String(value).trim() === '';
+
+    if (field.required && isEmpty) {
+      errors.push(`${field.label} is required`);
+      return;
+    }
+
+    // Format check. Skipped when empty so an optional field left blank passes.
+    if (!isEmpty && field.pattern && !field.pattern.test(String(value).trim())) {
+      errors.push(field.patternError || `${field.label} is invalid`);
     }
   });
 

@@ -59,6 +59,15 @@ class DataFetchService extends BaseModule {
     return this.getBatchData();
   }
 
+  /**
+   * Drop the cached batch snapshot so the next fetch reflects recent changes
+   * (e.g. immediately after torrents/add). Does not cancel an in-flight fetch.
+   */
+  invalidateBatchCache() {
+    this._cachedBatchData = null;
+    this._cacheTimestamp = 0;
+  }
+
   // ============================================================================
   // ENRICHMENT
   // ============================================================================

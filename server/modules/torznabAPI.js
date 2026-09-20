@@ -15,22 +15,25 @@ class TorznabAPI extends BaseModule {
   constructor() {
     super();
     this.handler = new TorznabHandler();
-    // Initialize handler dependencies (uses configured or first aMule instance)
-    this.handler.setDependencies({
-      getAmuleClient: () => {
-        const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-        let amuleMgr;
-        if (configuredId) {
-          amuleMgr = registry.get(configuredId);
-          if (!amuleMgr) {
-            amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.warn(`⚠️ [TorznabAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
-          }
-        } else {
-          amuleMgr = registry.getByType('amule').find(m => m.isConnected());
+    // One resolver, and the client derived from it: the search lock and the
+    // connection must be the same instance or the lock protects nothing.
+    const resolveAmuleManager = () => {
+      const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
+      if (configuredId) {
+        const byId = registry.get(configuredId);
+        if (byId) return byId;
+        const fallback = registry.getByType('amule').find(m => m.isConnected());
+        if (fallback) {
+          this.warn(`⚠️ [TorznabAPI] Configured amuleInstanceId "${configuredId}" not found, falling back to "${fallback.instanceId}"`);
         }
-        return amuleMgr?.getClient() || null;
+        return fallback || null;
       }
+      return registry.getByType('amule').find(m => m.isConnected()) || null;
+    };
+
+    this.handler.setDependencies({
+      getAmuleManager: resolveAmuleManager,
+      getAmuleClient: () => resolveAmuleManager()?.getClient() || null
     });
   }
 

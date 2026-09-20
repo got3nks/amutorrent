@@ -55,18 +55,30 @@ class EventScriptingManager extends BaseModule {
    * @param {Object} eventData - Event data object
    */
   emit(eventType, eventData) {
+    // Look up the source manager once — used both for name enrichment and the
+    // per-instance notifications gate below.
+    const sourceManager = eventData.instanceId ? registry.get(eventData.instanceId) : null;
+
     // Enrich with instanceName from registry if not already set
-    if (eventData.instanceId && !eventData.instanceName) {
-      const manager = registry.get(eventData.instanceId);
-      eventData.instanceName = manager?.displayName || eventData.instanceId;
+    if (sourceManager && !eventData.instanceName) {
+      eventData.instanceName = sourceManager.displayName || eventData.instanceId;
     }
 
     // Enrich with owner/triggeredBy from userManager
     this._enrichWithUserInfo(eventData);
 
-    // Send Apprise notification (if enabled for this event)
-    // Client health events use flood prevention to avoid notification spam
-    if (eventType === 'clientAvailable' || eventType === 'clientUnavailable') {
+    // Send Apprise notification (if enabled for this event AND for the source
+    // instance). Client health events use flood prevention to avoid spam.
+    // Per-instance opt-out gates both branches — users flipping notifications
+    // off on a chatty client expect silence from that client entirely,
+    // including its availability alerts.
+    const notificationsAllowed = sourceManager
+      ? sourceManager.isNotificationsEnabled()
+      : true;
+    if (!notificationsAllowed) {
+      // Skip Apprise entirely for this instance. Event script execution below
+      // still runs — scripts are automation, not messaging.
+    } else if (eventType === 'clientAvailable' || eventType === 'clientUnavailable') {
       const floodKey = `${eventData.instanceId || 'global'}:${eventType}`;
       const { allowed, isFinalWarning } = this._floodGuard.check(floodKey);
       if (allowed) {

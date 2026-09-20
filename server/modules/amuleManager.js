@@ -4,16 +4,25 @@
  */
 
 const QueuedAmuleClient = require('./queuedAmuleClient');
+const { CATEGORY_REASON } = require('amule-ec-node');
 const config = require('./config');
 const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
 const { parseEd2kLink } = require('../lib/torrentUtils');
+const { normaliseQueryForm, adaptQueryForKad } = require('../lib/searchQuery');
+const { abortableSleep } = require('../lib/FifoLock');
 const {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
   normalizeAmuleUpload,
   normalizeAmuleDownloadSource
 } = require('../lib/downloadNormalizer');
+
+// Search options every path through this manager shares. groupByHash belongs
+// here rather than at each call site: running a search and re-reading its
+// cached results are separate handlers, and when they disagree the same search
+// renders grouped or flat depending on which one served it (#82).
+const SEARCH_DEFAULTS = Object.freeze({ groupByHash: true });
 
 class AmuleManager extends BaseClientManager {
   constructor() {
@@ -22,6 +31,8 @@ class AmuleManager extends BaseClientManager {
     this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
+    this._categorySlotCache = null;  // { at, categories } - see _getCategoriesForResolve()
+    this._serverCapabilities = new Set();  // EC_TAG_CAN_* advertised on AUTH_OK
     this._tcpPort = null;   // ED2K TCP listen port (from connection preferences)
     this._udpPort = null;   // KAD UDP listen port (from connection preferences)
     this.setupGlobalErrorHandlers();
@@ -49,14 +60,7 @@ class AmuleManager extends BaseClientManager {
         logger.error('⚠️  ECProtocol error caught (prevented crash):', err.message);
         logger.error('Stack:', err.stack);
 
-        // Mark client as disconnected
-        if (this.client) {
-          this._setConnectionError(err);
-          this.client = null;
-        }
-
-        // Trigger reconnection if not already scheduled
-        this.scheduleReconnect(10000);
+        this._dropClient(err, 10000);
 
         // Return true to indicate we handled this error
         return true;
@@ -79,6 +83,24 @@ class AmuleManager extends BaseClientManager {
   }
 
   /**
+   * Retire the active client and schedule a fresh one.
+   *
+   * Always closes the old client: one that is only dropped stays connected to
+   * aMule, and every outage used to leave one behind.
+   * @param {Error} err - Why the connection is being dropped
+   * @param {number} retryMs - Reconnect interval
+   */
+  _dropClient(err, retryMs) {
+    const old = this.client;
+    this.client = null;
+    this._setConnectionError(err);
+    if (old && typeof old.disconnect === 'function') {
+      Promise.resolve(old.disconnect()).catch(() => {});
+    }
+    this.scheduleReconnect(retryMs);
+  }
+
+  /**
    * Initialize aMule client connection.
    * Creates a QueuedAmuleClient, connects, and sets up error/reconnection handlers.
    * @returns {Promise<boolean>} True if connection succeeded
@@ -97,6 +119,7 @@ class AmuleManager extends BaseClientManager {
     }
 
     this.connectionInProgress = true;
+    let newClient = null;
 
     try {
       // IMPORTANT: Always cleanup old client before creating a new one
@@ -115,18 +138,18 @@ class AmuleManager extends BaseClientManager {
       }
 
       this.log(`🔌 Creating new aMule client (${this._clientConfig.host}:${this._clientConfig.port})...`);
-      const newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password, {
-        requestTimeout: 60000 // 60s — large shared file lists (3000+) can take >30s for aMule to respond
+      newClient = new QueuedAmuleClient(this._clientConfig.host, this._clientConfig.port, this._clientConfig.password, {
+        requestTimeout: 60000, // 60s — large shared file lists (3000+) can take >30s for aMule to respond
+        // We rebuild the client ourselves: getUpdate() state only resyncs on a
+        // fresh connection. A library reconnect alongside ours would bring a
+        // discarded client back as an extra EC connection per outage.
+        autoReconnect: false
       });
 
-      // Set up error handler for the client
       newClient.onError((err) => {
         this.error('❌ aMule client error:', logger.errorDetail(err));
-        // Only set client to null if this is still the active client
         if (this.client === newClient) {
-          this._setConnectionError(err);
-          this.client = null;
-          this.scheduleReconnect(10000);
+          this._dropClient(err, 10000);
         }
       });
 
@@ -134,6 +157,12 @@ class AmuleManager extends BaseClientManager {
 
       // Only set as active client if connection succeeded
       this.client = newClient;
+      // Capabilities are advertised once, on the AUTH_OK reply, and hold for
+      // the life of the connection - so snapshot them here rather than reaching
+      // into the session on every check. Re-taken on each (re)connect, since a
+      // daemon restarted onto a different build advertises a different set.
+      this._serverCapabilities = new Set(newClient.session?.serverCapabilities || []);
+      this.log(`🔌 aMule capabilities: ${[...this._serverCapabilities].join(', ') || '(none)'}`);
       this._clearConnectionError();
 
       this.log('✅ Connected to aMule successfully');
@@ -158,6 +187,11 @@ class AmuleManager extends BaseClientManager {
       this.error('❌ Failed to connect to aMule:', logger.errorDetail(err));
       this._setConnectionError(err);
       this.client = null;
+      // TCP can succeed and auth fail (a daemon still starting, a bad
+      // password). That socket is open, and nothing else will close it.
+      if (newClient) {
+        Promise.resolve(newClient.disconnect()).catch(() => {});
+      }
       return false;
     } finally {
       this.connectionInProgress = false;
@@ -184,16 +218,81 @@ class AmuleManager extends BaseClientManager {
   }
 
   // Search lock management
+  //
+  // The lock doubles as the UI's "search busy" signal. It is a mutex, so it has
+  // exactly one holder and its two transitions are the only edges there are -
+  // no separate flag and no owner counting. Every path that starts an aMule
+  // search takes it, so the search box greys for exactly the moments a user
+  // search would be refused.
   acquireSearchLock() {
     if (this.searchInProgress) {
       return false;
     }
     this.searchInProgress = true;
+    this._broadcastSearchLock(true);
     return true;
   }
 
   releaseSearchLock() {
+    if (!this.searchInProgress) return;
     this.searchInProgress = false;
+    this._broadcastSearchLock(false);
+  }
+
+  /** Tell the clients that may search about the slot changing hands. */
+  _broadcastSearchLock(locked) {
+    this.broadcast?.({ type: 'search-lock', locked }, {
+      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
+    });
+  }
+
+  /**
+   * Acquire the search lock, waiting for it rather than failing immediately.
+   *
+   * aMule keeps ONE ed2k search slot: every EC_OP_SEARCH_START clears the
+   * previous result set, so a second search started before the first is read
+   * back destroys those results. Until now the client library's monolithic
+   * searchAndWaitResults() prevented that as a side effect of blocking the
+   * whole EC queue for the duration of a search. Callers that drive the poll
+   * loop themselves - which is the point, so the connection stays usable -
+   * must take this lock instead.
+   *
+   * Polling rather than a queue on purpose: Torznab requests already queue in
+   * order on their own lock, and web UI searches never wait, so the only waiter
+   * here is the one Torznab request whose turn it is.
+   *
+   * @param {Object} [opts]
+   * @param {number} [opts.timeoutMs] - Give up after this long
+   * @param {number} [opts.pollMs] - How often to retry
+   * @param {AbortSignal} [opts.signal] - Stop waiting when aborted
+   * @returns {Promise<boolean>} False if the lock could not be taken in time
+   * @throws {Error} AbortError when the signal fires first
+   */
+  async acquireSearchLockWaiting({ timeoutMs = 120000, pollMs = 250, signal } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.acquireSearchLock()) {
+      if (Date.now() >= deadline) return false;
+      await abortableSleep(pollMs, signal);
+    }
+    return true;
+  }
+
+  /**
+   * Run `fn` holding the search lock, releasing it however `fn` ends.
+   * @param {Function} fn
+   * @param {Object} [opts] - Passed to acquireSearchLockWaiting
+   * @returns {Promise<*>} Whatever `fn` returns
+   * @throws {Error} If the lock could not be acquired
+   */
+  async withSearchLock(fn, opts = {}) {
+    if (!(await this.acquireSearchLockWaiting(opts))) {
+      throw new Error('Timed out waiting for the aMule search lock');
+    }
+    try {
+      return await fn();
+    } finally {
+      this.releaseSearchLock();
+    }
   }
 
   isSearchInProgress() {
@@ -251,20 +350,13 @@ class AmuleManager extends BaseClientManager {
     }
 
     try {
-      // If shared dir roots are configured, rescan subdirectories and let
-      // rescanAndWrite handle the reload — it calls refreshSharedFiles()
-      // internally so we don't need to (and mustn't) double-refresh here.
-      const hasRoots = this._clientConfig?.sharedDirDatPath
-        && this._clientConfig?.sharedDirRoots?.length > 0;
-      if (hasRoots) {
-        this.log('📂 Auto-rescanning shared directories...');
-        const sharedDirAPI = require('./sharedDirAPI');
-        await sharedDirAPI.rescanAndWrite(this.instanceId);
+      // aMule owns the folder list now, so there is nothing to rewrite first -
+      // a reload is just a rescan.
+      if (await this.refreshSharedFilesIfUnwatched()) {
+        this.log('✅ Shared files auto-reload completed');
       } else {
-        this.log('📂 Auto-reloading shared files...');
-        await this.client.refreshSharedFiles();
+        this.log('ℹ️  Shared files auto-reload skipped: aMule watches its own folders');
       }
-      this.log('✅ Shared files auto-reload completed');
     } catch (err) {
       this.error('❌ Shared files auto-reload failed:', logger.errorDetail(err));
     }
@@ -288,6 +380,47 @@ class AmuleManager extends BaseClientManager {
       throw new Error('aMule not connected');
     }
     await this.client.refreshSharedFiles();
+  }
+
+  /**
+   * Does the core watch its own shared folders?
+   *
+   * aMule emits EC_TAG_DIRECTORIES_AUTO_RESCAN only while its directory
+   * watcher is enabled, so absence covers both a user who turned it off and
+   * a core too old to have one. Read on every call: aMule applies the
+   * preference live, so a startup snapshot goes stale.
+   * @returns {Promise<boolean>}
+   */
+  async isWatchingSharedDirs() {
+    if (!this.client) return false;
+    // Anything but a clear "yes" reads as "not watching": a redundant reload is
+    // the cheaper error than a shared entry that never goes away. The queue
+    // turns a failed call into null rather than throwing, but do not lean on
+    // that - a throw has to land on the same side.
+    let prefs = null;
+    try {
+      prefs = await this.client.getDirectoryPreferences();
+    } catch (err) {
+      this.warn('⚠️  Directory preferences read failed:', err.message);
+    }
+    if (!prefs) {
+      this.warn('⚠️  Could not read directory preferences, assuming no watcher');
+      return false;
+    }
+    return prefs.autoRescan === true;
+  }
+
+  /**
+   * Rescan, unless aMule's own watcher already covers it.
+   *
+   * For automated callers only (after a delete or a move, and the scheduler).
+   * The manual reload buttons call refreshSharedFiles() and always run.
+   * @returns {Promise<boolean>} whether a reload was issued
+   */
+  async refreshSharedFilesIfUnwatched() {
+    if (await this.isWatchingSharedDirs()) return false;
+    await this.refreshSharedFiles();
+    return true;
   }
 
   // ============================================================================
@@ -316,13 +449,7 @@ class AmuleManager extends BaseClientManager {
     // cycle so the UI doesn't flash empty during the reconnect window.
     const triggerReconnect = (err) => {
       this.error(`❌ getUpdate() failed: ${err.message} — reconnecting to resync state`);
-      const failedClient = this.client;
-      this.client = null;
-      this._setConnectionError(err);
-      if (failedClient && typeof failedClient.disconnect === 'function') {
-        Promise.resolve(failedClient.disconnect()).catch(() => {});
-      }
-      this.scheduleReconnect(1000);
+      this._dropClient(err, 1000);
     };
 
     let updateData;
@@ -824,13 +951,24 @@ class AmuleManager extends BaseClientManager {
       throw new Error(`Category "${categoryName}" not found`);
     }
 
-    // Already has amuleId for this instance
+    if (!this.client) return null;
+
+    // Re-check before setFileCategory: #1228 bounds-checks the update path only.
+    // CPartFile::SetCategory guards with a bare wxASSERT, and a bad value is
+    // persisted to the .met and later indexed on the file-completion path.
     const existingId = category.amuleIds?.[this.instanceId];
     if (existingId != null) {
-      return existingId;
+      const resolved = await this._resolveCategorySlot({ id: existingId, lookupName: category.name });
+      if (resolved.ok) {
+        if (resolved.id !== existingId) {
+          categoryManager.linkAmuleId(category.name, this.instanceId, resolved.id);
+          await categoryManager.save();
+        }
+        return resolved.id;
+      }
+      // Stale beyond repair — fall through and re-create/re-link below.
+      this.warn(`⚠️ Cached aMule ID ${existingId} for category "${category.name}" is stale: ${resolved.reason}`);
     }
-
-    if (!this.client) return null;
 
     try {
       const result = await this.ensureCategoryExists({
@@ -847,6 +985,123 @@ class AmuleManager extends BaseClientManager {
       this.warn(`⚠️ Failed to ensure aMule category "${categoryName}": ${err.message}`);
     }
     return null;
+  }
+
+  // ============================================================================
+  // CATEGORY ID RESOLUTION
+  //
+  // An aMule category ID is its index in `m_CatList`: deleting one shifts every
+  // higher ID down, so a cached ID can point at the wrong category or past the
+  // end. Names are unique on both sides — name is the identity, ID only a hint.
+  // ============================================================================
+
+  /**
+   * Drop the memoized category list. Called by every mutation on this manager.
+   * @private
+   */
+  _invalidateCategorySlotCache() {
+    this._categorySlotCache = null;
+  }
+
+  /**
+   * Category list for slot resolution, briefly memoized so a batch change
+   * costs one EC round trip rather than one per item. Mutations drop it.
+   * @returns {Promise<Array|null>}
+   * @private
+   */
+  async _getCategoriesForResolve(maxAgeMs = 2000) {
+    const cached = this._categorySlotCache;
+    if (cached && Date.now() - cached.at < maxAgeMs) return cached.categories;
+    const categories = await this.getCategories();
+    if (categories) this._categorySlotCache = { at: Date.now(), categories };
+    return categories;
+  }
+
+  /**
+   * Resolve which aMule slot a write should target: name is the identity,
+   * the cached ID only a fallback hint.
+   * @param {Object} opts - { id, lookupName }
+   * @returns {Promise<Object>} { ok: true, id } or { ok: false, reason }
+   * @private
+   */
+  async _resolveCategorySlot({ id, lookupName }) {
+    let amuleCategories;
+    try {
+      amuleCategories = await this._getCategoriesForResolve();
+    } catch (err) {
+      return { ok: false, reason: `could not read aMule categories: ${err.message}` };
+    }
+    if (!amuleCategories) return { ok: false, reason: 'aMule returned no category list' };
+
+    // Name is authoritative.
+    if (lookupName) {
+      const byName = amuleCategories.find(c => c.title === lookupName);
+      if (byName && byName.id != null) {
+        if (id != null && byName.id !== id) {
+          this.log(`🔗 Category "${lookupName}" moved in aMule: cached ID ${id} → ${byName.id}`);
+        }
+        return { ok: true, id: byName.id };
+      }
+    }
+
+    // No name match: the cached ID is usable only if it exists and isn't now
+    // owned by another category we manage — writing would rename a bystander.
+    if (id == null) return { ok: false, reason: `no category named "${lookupName}" in aMule and no cached ID` };
+    const bySlot = amuleCategories.find(c => c.id === id);
+    if (!bySlot) {
+      return { ok: false, reason: `stale aMule category ID ${id} (aMule has ${amuleCategories.length} categories)` };
+    }
+
+    const categoryManager = require('../lib/CategoryManager');
+    if (bySlot.title !== lookupName && categoryManager.getByName(bySlot.title)) {
+      return { ok: false, reason: `cached ID ${id} now belongs to category "${bySlot.title}"` };
+    }
+    return { ok: true, id };
+  }
+
+  /**
+   * Re-resolve this instance's cached category IDs by name; drop dead ones.
+   * Call after anything that shifts aMule's indices (notably a delete).
+   * @returns {Promise<void>}
+   */
+  async refreshCategoryIds() {
+    if (!this.client) return;
+    const categoryManager = require('../lib/CategoryManager');
+
+    let amuleCategories;
+    try {
+      this._invalidateCategorySlotCache();
+      amuleCategories = await this.getCategories();
+    } catch (err) {
+      this.warn(`⚠️ Could not refresh aMule category IDs: ${err.message}`);
+      return;
+    }
+    if (!amuleCategories) return;
+
+    const idByTitle = new Map(amuleCategories.filter(c => c.id != null).map(c => [c.title, c.id]));
+    let relinked = 0, dropped = 0;
+
+    for (const [name, cat] of categoryManager.getCategoriesSnapshot().entries()) {
+      const cached = cat.amuleIds?.[this.instanceId];
+      if (cached == null) continue;
+      // "Default" is pinned to aMule's built-in slot 0 regardless of its title.
+      const fresh = name === 'Default' ? 0 : idByTitle.get(name);
+
+      if (fresh == null) {
+        delete cat.amuleIds[this.instanceId];
+        dropped++;
+        this.log(`🔗 Dropped stale aMule ID ${cached} for category "${name}" (no longer in aMule)`);
+      } else if (fresh !== cached) {
+        cat.amuleIds[this.instanceId] = fresh;
+        relinked++;
+        this.log(`🔗 Re-linked category "${name}": aMule ID ${cached} → ${fresh}`);
+      }
+    }
+
+    if (relinked > 0 || dropped > 0) {
+      await categoryManager.save();
+      this.log(`📊 Refreshed aMule category IDs: ${relinked} re-linked, ${dropped} dropped`);
+    }
   }
 
   // ============================================================================
@@ -869,6 +1124,7 @@ class AmuleManager extends BaseClientManager {
    */
   async createCategory({ name, path = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
+    this._invalidateCategorySlotCache();
     const result = await this.client.createCategory(name, path, comment, color, priority);
     // aMule EC protocol returns EC_OP_NOOP with no ID — discover it via re-fetch
     if (result.success && result.categoryId == null) {
@@ -884,26 +1140,52 @@ class AmuleManager extends BaseClientManager {
    * @param {Object} opts - { id, name, path, defaultPath, comment, color, priority }
    * @returns {Promise<Object>} { success, verified, mismatches }
    */
-  async editCategory({ id, name, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
+  async editCategory({ id, name, lookupName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    if (id == null) return { success: false, verified: false, mismatches: ['No aMule category ID'] };
+
+    // Never write to a cached ID — re-resolve the slot first.
+    const resolved = await this._resolveCategorySlot({ id, lookupName: lookupName || name });
+    if (!resolved.ok) {
+      this.warn(`⚠️ Refusing to update category "${name}" in aMule: ${resolved.reason}`);
+      return { success: false, verified: false, mismatches: [resolved.reason] };
+    }
+    const targetId = resolved.id;
 
     // aMule doesn't accept empty path — use default directory
     const effectivePath = path || defaultPath || '';
 
     try {
-      await this.client.updateCategory(id, name, effectivePath, comment, color, priority);
-      this.log(`📤 Updated category "${name}" in aMule (ID: ${id}, path: "${effectivePath}")`);
+      this._invalidateCategorySlotCache();
+      const result = await this.client.updateCategory(targetId, name, effectivePath, comment, color, priority);
+      const daemonMsg = result.message ? ` — aMule said: "${result.message}"` : '';
+
+      if (result.reason === CATEGORY_REASON.NO_SUCH_CATEGORY) {
+        // Nothing was applied; our cached IDs are stale.
+        this.warn(`⚠️ aMule rejected the update of category "${name}" (ID: ${targetId})${daemonMsg}`);
+        await this.refreshCategoryIds();
+        return { success: false, verified: false, mismatches: [result.message || 'aMule: no such category'] };
+      }
+      if (!result.success) {
+        this.warn(`⚠️ aMule refused the update of category "${name}" (ID: ${targetId})${daemonMsg}`);
+        return { success: false, verified: false, mismatches: [result.message || 'aMule refused the category update'] };
+      }
+      if (result.reason === CATEGORY_REASON.PATH_REJECTED) {
+        // Title/comment/colour/priority were applied; aMule could not create the
+        // directory and kept its own (#1213).
+        this.warn(`⚠️ aMule refused path "${effectivePath}" for category "${name}", kept "${result.keptPath || '(unknown)'}"${daemonMsg}`);
+      } else {
+        this.log(`📤 Updated category "${name}" in aMule (ID: ${targetId}, path: "${effectivePath}")`);
+      }
 
       // Verify by reading back
       const amuleCategories = await this.getCategories();
-      const savedCat = amuleCategories?.find(c => c.id === id);
+      const savedCat = amuleCategories?.find(c => c.id === targetId);
 
       if (!savedCat) {
-        this.warn(`⚠️ Verify: Category with ID ${id} not found after update`);
-        return { success: true, verified: false, mismatches: ['Category not found after update'] };
+        this.warn(`⚠️ Verify: Category with ID ${targetId} not found after update`);
+        await this.refreshCategoryIds();
+        return { success: false, verified: false, mismatches: ['Category not found after update'] };
       }
-
       const mismatches = [];
       if (savedCat.title !== name) mismatches.push(`title: expected "${name}", got "${savedCat.title}"`);
       if ((savedCat.path || '') !== effectivePath) mismatches.push(`path: expected "${effectivePath}", got "${savedCat.path || ''}"`);
@@ -912,8 +1194,13 @@ class AmuleManager extends BaseClientManager {
       if ((savedCat.priority ?? 0) !== priority) mismatches.push(`priority: expected ${priority}, got ${savedCat.priority ?? 0}`);
 
       if (mismatches.length > 0) {
-        this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
-        return { success: true, verified: false, mismatches };
+        // A path mismatch after PATH_REJECTED is expected, not a discrepancy.
+        const onlyExpectedPath = result.reason === CATEGORY_REASON.PATH_REJECTED
+          && mismatches.every(m => m.startsWith('path:'));
+        if (!onlyExpectedPath) {
+          this.warn(`⚠️ Verify: Category "${name}" mismatches: ${mismatches.join(', ')}`);
+        }
+        return { success: true, verified: false, mismatches, pathRejected: result.reason === CATEGORY_REASON.PATH_REJECTED };
       }
 
       this.log(`✅ Verify: Category "${name}" saved correctly in aMule`);
@@ -928,10 +1215,24 @@ class AmuleManager extends BaseClientManager {
    * Delete a category from aMule
    * @param {Object} opts - { id }
    */
-  async deleteCategory({ id } = {}) {
+  async deleteCategory({ id, name } = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    if (id == null) return;
-    await this.client.deleteCategory(id);
+
+    // Resolve by name — a stale ID would delete a different category outright.
+    const resolved = await this._resolveCategorySlot({ id, lookupName: name });
+    if (!resolved.ok) {
+      this.log(`ℹ️  Nothing to delete in aMule for category "${name}": ${resolved.reason}`);
+      return;
+    }
+    const result = await this.client.deleteCategory(resolved.id);
+    if (!result.success) {
+      // Unreachable until amule-org/amule#1231 lands — the handler answers
+      // EC_OP_NOOP for every delete, including ones it discards.
+      const why = result.message || result.reason || 'unknown reason';
+      this.warn(`⚠️ aMule refused to delete category "${name}" (ID: ${resolved.id}): ${why}`);
+    }
+    // CategoryManager.delete() re-resolves across clients afterwards.
+    this._invalidateCategorySlotCache();
   }
 
   /**
@@ -939,8 +1240,9 @@ class AmuleManager extends BaseClientManager {
    * @param {Object} opts - { id, newName, path, defaultPath, comment, color, priority }
    * @returns {Promise<Object>} { success, verified, mismatches }
    */
-  async renameCategory({ id, newName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
-    return await this.editCategory({ id, name: newName, path, defaultPath, comment, color, priority });
+  async renameCategory({ id, oldName, newName, path = '', defaultPath = '', comment = '', color = 0xCCCCCC, priority = 0 } = {}) {
+    // lookupName is the *current* title in aMule — newName isn't there yet.
+    return await this.editCategory({ id, name: newName, lookupName: oldName, path, defaultPath, comment, color, priority });
   }
 
   /**
@@ -1016,23 +1318,103 @@ class AmuleManager extends BaseClientManager {
 
   /**
    * Run a search and wait for results
-   * @param {string} query - Search query
+   * @param {string} query - Search query, normalised to NFC before it is sent
    * @param {string} type - Search type (e.g. 'global')
    * @param {string} extension - File extension filter
+   * @param {Object} [options] - Passed to the client, e.g. { groupByHash }
    * @returns {Promise<Object>} { results, resultsLength }
    */
-  async search(query, type, extension) {
+  async search(query, type, extension, options = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.searchAndWaitResults(query, type, extension);
+
+    // A typed query is sent as typed, bar the two rewrites the user cannot see:
+    // NFC, because a decomposed accent looks identical but matches nothing, and
+    // on Kad the keyword promotion, which only picks the node to ask (#96).
+    const composed = normaliseQueryForm(query);
+    if (composed !== query) {
+      this.log(`Search query composed to NFC: "${query}" -> "${composed}"`);
+    }
+    // Debug: the reorder changes no result, and reading it as one alarms users.
+    const sent = type === 'kad'
+      ? adaptQueryForKad(composed, { stem: false, log: m => this.debug(m) })
+      : composed;
+
+    return await this.client.searchAndWaitResults(sent, type, extension, { ...SEARCH_DEFAULTS, ...options });
+  }
+
+  // ============================================================================
+  // SHARED FOLDERS (amule-org/amule#530)
+  // ============================================================================
+
+  /**
+   * Whether this daemon can have its shared folders configured over EC.
+   * Cores predating #530 do not advertise it, and must never be sent the
+   * opcode: it reaches the tail of ProcessRequest2, which hits wxFAIL and
+   * aborts a debug build.
+   * @returns {boolean}
+   */
+  supportsSharedDirsConfig() {
+    return this.hasServerCapability('EC_TAG_CAN_SHAREDDIRS_CONFIG');
+  }
+
+  /**
+   * Whether the connected daemon advertised a capability at authentication.
+   * Reads the connect-time snapshot: stable for the connection, and cheap
+   * enough to call from a render path. Returns false when disconnected.
+   * @param {string} tagName - e.g. "EC_TAG_CAN_SHAREDDIRS_CONFIG"
+   * @returns {boolean}
+   */
+  hasServerCapability(tagName) {
+    return !!this.client && this._serverCapabilities.has(tagName);
+  }
+
+  /**
+   * Shared folders as aMule holds them.
+   * @returns {Promise<Array<{path: string, recursive: boolean}>>}
+   */
+  async getSharedDirs() {
+    if (!this.client) throw new Error('aMule not connected');
+    // Guard here, outside the request queue: QueuedAmuleClient catches every
+    // error and resolves null, so the library's own refusal would be swallowed
+    // and read as an empty folder list.
+    if (!this.supportsSharedDirsConfig()) {
+      throw new Error('This aMule build cannot report its shared folders over EC');
+    }
+    const dirs = await this.client.getSharedDirs();
+    if (!Array.isArray(dirs)) {
+      throw new Error('aMule did not return a shared folder list');
+    }
+    return dirs;
+  }
+
+  /**
+   * Replace the shared-folder configuration. aMule has no add or remove, so
+   * this is always the complete list, and an empty one shares nothing.
+   * @param {Array<{path: string, recursive: boolean}>} dirs
+   * @returns {Promise<Object>} { success, rejected: [{ path, error }] }
+   */
+  async setSharedDirs(dirs) {
+    if (!this.client) throw new Error('aMule not connected');
+    if (!this.supportsSharedDirsConfig()) {
+      throw new Error('This aMule build cannot be sent a shared folder list over EC');
+    }
+    const result = await this.client.setSharedDirs(dirs);
+    // A null here means the queue caught something - a dropped connection, or
+    // the library refusing because the daemon changed under a reconnect. It
+    // must not be read as "applied with nothing rejected".
+    if (!result || typeof result !== 'object') {
+      throw new Error('aMule did not confirm the shared folder update');
+    }
+    return result;
   }
 
   /**
    * Get cached search results
    * @returns {Promise<Object>} { results }
    */
-  async getSearchResults() {
+  async getSearchResults(options = {}) {
     if (!this.client) throw new Error('aMule not connected');
-    return await this.client.getSearchResults();
+    return await this.client.getSearchResults({ ...SEARCH_DEFAULTS, ...options });
   }
 
   /**
@@ -1176,7 +1558,18 @@ class AmuleManager extends BaseClientManager {
         continue;
       }
 
-      let appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
+      // Name first — trusting the shifted ID is what made drift survive a reconnect.
+      let appCat = snapshot.getByName(amuleTitle);
+      // "Default" is pinned to slot 0 above — never re-link it by title.
+      if (appCat && appCat.name !== 'Default') {
+        if (this.isCategorySyncOut()) categoryManager.addSource(amuleTitle, this.instanceId);
+        if (appCat.amuleIds?.[this.instanceId] !== amuleId) {
+          categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
+          linked++;
+        }
+      }
+      if (!appCat) appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
+
       if (appCat) {
         // Category exists — check if params differ (app wins)
         const appColor = hexColorToAmule(appCat.color);
@@ -1194,23 +1587,20 @@ class AmuleManager extends BaseClientManager {
 
         if (diffs.length > 0) {
           toUpdateInAmule.push({
-            id: amuleId, name: appCat.name, path: appEffectivePath,
+            // lookupName differs from name when the app renamed while offline.
+            id: amuleId, name: appCat.name, lookupName: amuleTitle, path: appEffectivePath,
             comment: appCat.comment || '', color: appColor, priority: appCat.priority ?? 0
           });
           updated++;
           this.log(`🔄 Category "${appCat.name}" differs from aMule: ${diffs.join(', ')}`);
         }
       } else {
-        appCat = snapshot.getByName(amuleTitle);
-        if (appCat) {
-          // Only link if this instance doesn't already have a link for this category
-          // (e.g., "Default" is already linked to ID 0 — don't overwrite with a duplicate)
-          if (appCat.amuleIds?.[this.instanceId] == null) {
-            categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
-            linked++;
-          }
-        } else {
+        if (this.isCategorySyncOut()) {
+          // Only IMPORT this instance's local categories into the central
+          // registry when sync-out is enabled. Linking (above) is always
+          // allowed since it doesn't share data outward.
           categoryManager.importCategory({
+            source: this.instanceId,
             name: amuleTitle, color: amuleColorToHex(amuleCat.color),
             path: amuleCat.path || null, comment: amuleCat.comment || 'Imported from aMule',
             priority: amuleCat.priority ?? 0, amuleIds: { [this.instanceId]: amuleId }
@@ -1222,35 +1612,40 @@ class AmuleManager extends BaseClientManager {
 
     if (imported > 0 || linked > 0) await categoryManager.save();
 
-    // Phase 2: Push app-only categories (no amuleId for this instance) to this aMule instance
+    // Phase 2 + 3 modify this aMule instance — both gated by sync-in.
     let pushed = 0;
-    for (const unlinkedCat of categoryManager.getCategoriesSnapshot().getUnlinkedFor(this.instanceId)) {
-      try {
-        const result = await this.createCategory({
-          name: unlinkedCat.name, path: unlinkedCat.path || '',
-          comment: unlinkedCat.comment || '',
-          color: hexColorToAmule(unlinkedCat.color), priority: unlinkedCat.priority || 0
-        });
-        if (result.success && result.categoryId != null) {
-          categoryManager.linkAmuleId(unlinkedCat.name, this.instanceId, result.categoryId);
-          pushed++;
-          this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
+    if (this.isCategorySyncIn()) {
+      // Phase 2: Push app-only categories (no amuleId for this instance) to this aMule instance
+      for (const unlinkedCat of categoryManager.getCategoriesSnapshot().getUnlinkedFor(this.instanceId)) {
+        try {
+          const result = await this.createCategory({
+            name: unlinkedCat.name, path: unlinkedCat.path || '',
+            comment: unlinkedCat.comment || '',
+            color: hexColorToAmule(unlinkedCat.color), priority: unlinkedCat.priority || 0
+          });
+          if (result.success && result.categoryId != null) {
+            categoryManager.linkAmuleId(unlinkedCat.name, this.instanceId, result.categoryId);
+            pushed++;
+            this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
+          }
+        } catch (err) {
+          this.warn(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
         }
-      } catch (err) {
-        this.warn(`⚠️ Failed to push category "${unlinkedCat.name}" to aMule: ${err.message}`);
       }
-    }
-    if (pushed > 0) await categoryManager.save();
+      if (pushed > 0) await categoryManager.save();
 
-    // Phase 3: Push app-wins updates back to aMule
-    for (const catUpdate of toUpdateInAmule) {
-      await this.editCategory(catUpdate);
+      // Phase 3: Push app-wins updates back to aMule
+      for (const catUpdate of toUpdateInAmule) {
+        await this.editCategory(catUpdate);
+      }
     }
 
     this.log(`📊 aMule sync complete: ${imported} imported, ${updated} to update, ${linked} linked, ${pushed} pushed`);
 
-    // Propagate all app categories to other connected clients that may not have them
-    await categoryManager.propagateToOtherClients(this.instanceId);
+    // Only broadcast central state outward if we actually shared anything inward.
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
     await categoryManager.validateAllPaths();
   }
 

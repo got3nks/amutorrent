@@ -159,7 +159,6 @@ services:
       - AMULE_HOST=host.docker.internal
       - AMULE_PORT=4712
       - AMULE_PASSWORD=your_ec_password  # Locks UI editing
-      # - AMULE_SHARED_DIR_DAT=/home/amule/.aMule/shareddir.dat  # Optional: shared directory management
 
       # rTorrent Connection (optional)
       - RTORRENT_ENABLED=true
@@ -250,8 +249,7 @@ services:
 | `AMULE_HOST` | `127.0.0.1` | aMule daemon hostname or IP |
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
-| `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders |
-| `AMULE_SHARED_DIR_DAT` | - | Path to aMule's `shareddir.dat` file (enables shared directory management) |
+| `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders (skipped while aMule's own folder watcher is on) |
 
 #### rTorrent Connection
 
@@ -345,7 +343,7 @@ services:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between searches (avoid flood protection) |
+| `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between ED2K searches (avoid flood protection); Kad is not delayed |
 | `ED2K_CACHE_TTL_MS` | `600000` | Search result cache duration |
 
 #### Advanced

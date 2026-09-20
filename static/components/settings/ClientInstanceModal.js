@@ -11,9 +11,14 @@ import React from 'https://esm.sh/react@18.2.0';
 import { Icon, AlertBox, Portal } from '../common/index.js';
 import ClientIcon from '../common/ClientIcon.js';
 import ConfigField from './ConfigField.js';
-import PasswordField from './PasswordField.js';
 import EnableToggle from './EnableToggle.js';
 import TestResultIndicator from './TestResultIndicator.js';
+import {
+  TYPE_LABELS,
+  CLIENT_FIELDS,
+  TYPE_DEFAULTS,
+  ClientFieldsRenderer
+} from './clientFields.js';
 
 const { createElement: h, useState, useEffect } = React;
 
@@ -80,18 +85,14 @@ const TYPE_LABELS = {
   deluge: 'Deluge',
   transmission: 'Transmission'
 };
+// TYPE_LABELS and CLIENT_FIELDS are re-exported at the bottom of the file
+// so the existing `ClientInstanceCard` import path keeps working without any
+// migration.
 
+const { createElement: h, useState, useEffect } = React;
 
-// Derived from CLIENT_FIELDS: defaultValue for valued fields, '' for sensitive, false for toggles.
-const TYPE_DEFAULTS = Object.fromEntries(
-  Object.entries(CLIENT_FIELDS).map(([type, fields]) => [
-    type,
-    Object.fromEntries(fields.map(f => [
-      f.field,
-      f.defaultValue !== undefined ? f.defaultValue : f.sensitive ? '' : f.toggle ? false : ''
-    ]))
-  ])
-);
+// (Field schema and factories moved to ./clientFields.js so both this modal
+// and the SetupWizard consume the same source of truth.)
 
 const INSTANCE_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#6c5ce7', '#00cec9', '#fd79a8'];
 
@@ -334,82 +335,15 @@ const ClientInstanceModal = ({ isOpen, onClose, onSave, onTest, editClient = nul
               ' as the hostname.')
           ),
 
-          // Type-specific fields
-          ...fields
-            .filter(fieldDef => !fieldDef.hideWhen || !fieldDef.hideWhen(formState))
-            .map(fieldDef => {
-            // Select dropdown fields
-            if (fieldDef.select) {
-              const value = formState[fieldDef.field] ?? fieldDef.defaultValue ?? '';
-              return h(ConfigField, {
-                key: fieldDef.field,
-                label: fieldDef.label,
-                description: fieldDef.description
-              },
-                h('select', {
-                  value,
-                  onChange: (e) => handleFieldChange(fieldDef.field, e.target.value),
-                  disabled: testing || isFieldFromEnv(fieldDef.field),
-                  className: 'w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50'
-                },
-                  fieldDef.options.map(opt =>
-                    h('option', { key: opt.value, value: opt.value }, opt.label)
-                  )
-                )
-              );
-            }
-
-            if (fieldDef.toggle) {
-              return h(EnableToggle, {
-                key: fieldDef.field,
-                label: fieldDef.label,
-                description: fieldDef.description,
-                enabled: formState[fieldDef.field] || false,
-                onChange: (value) => handleFieldChange(fieldDef.field, value)
-              });
-            }
-
-            if (fieldDef.sensitive) {
-              const envProvided = isFieldFromEnv(fieldDef.field);
-              const prefix = { amule: 'AMULE', rtorrent: 'RTORRENT', qbittorrent: 'QBITTORRENT', deluge: 'DELUGE', transmission: 'TRANSMISSION' }[formState.type];
-              const suffix = { password: 'PASSWORD', username: 'USERNAME' }[fieldDef.field];
-              const envName = prefix && suffix ? `${prefix}_${suffix}` : null;
-
-              return h('div', { key: fieldDef.field },
-                envProvided
-                  ? h(AlertBox, { type: 'warning' },
-                      h('p', {}, `${fieldDef.label} is set via ${envName || 'environment variable'} and cannot be changed here.`)
-                    )
-                  : h(ConfigField, {
-                      label: fieldDef.label,
-                      description: fieldDef.description,
-                      required: fieldDef.required && isEnabled
-                    },
-                      h(PasswordField, {
-                        value: formState[fieldDef.field] || '',
-                        onChange: (value) => handleFieldChange(fieldDef.field, value),
-                        placeholder: fieldDef.placeholder,
-                        disabled: testing
-                      })
-                    )
-              );
-            }
-
-            const value = formState[fieldDef.field] ?? fieldDef.defaultValue ?? '';
-            return h(ConfigField, {
-              key: fieldDef.field,
-              label: fieldDef.label,
-              description: fieldDef.description,
-              value,
-              onChange: (val) => {
-                const parsed = fieldDef.parseValue ? fieldDef.parseValue(val) : val;
-                handleFieldChange(fieldDef.field, parsed);
-              },
-              type: fieldDef.type || 'text',
-              placeholder: fieldDef.placeholder,
-              required: fieldDef.required && isEnabled,
-              fromEnv: isFieldFromEnv(fieldDef.field)
-            });
+          // Type-specific fields — shared renderer, same schema the wizard uses.
+          h(ClientFieldsRenderer, {
+            type: formState.type,
+            fields,
+            values: formState,
+            onFieldChange: handleFieldChange,
+            isFieldFromEnv,
+            isEnabled,
+            disabled: testing
           })
         )
       ),

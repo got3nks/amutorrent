@@ -9,9 +9,6 @@ const fs = require('fs').promises;
 const path = require('path');
 const { hoursToMs, minutesToMs, MS_PER_HOUR } = require('../lib/timeRange');
 
-// Client registry - replaces direct singleton manager imports
-const registry = require('../lib/ClientRegistry');
-
 // Debug mode - set to true to see detailed search decisions
 const DEBUG = true;
 
@@ -215,54 +212,6 @@ class ArrManager extends BaseModule {
   }
 
   /**
-   * Acquire search lock with timeout
-   */
-  async acquireSearchLockWithTimeout(service) {
-    const maxWaitTime = minutesToMs(10);
-    const pollInterval = 10000; // 10 seconds
-    const startTime = Date.now();
-
-    const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-    const amuleMgr = configuredId
-      ? registry.get(configuredId)
-      : registry.getByType('amule').find(m => m.isConnected());
-    if (!amuleMgr) {
-      this.warn(`⚠️  No aMule instance connected, skipping ${service} automatic search`);
-      return false;
-    }
-    while (!amuleMgr.acquireSearchLock()) {
-      if (Date.now() - startTime > maxWaitTime) {
-        this.warn(`⚠️  Timeout waiting for search lock, skipping ${service} automatic search`);
-        return false;
-      }
-      this.log('⏳ Search already in progress, waiting for lock to be freed...');
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    amuleMgr.searchInProgress = true;
-    this.broadcast({ type: 'search-lock', locked: true }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-    this.log(`🔒 Search lock acquired for ${service} automatic search (${amuleMgr.instanceId})`);
-    return true;
-  }
-
-  /**
-   * Release search lock
-   */
-  releaseSearchLock(service) {
-    const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-    const amuleMgr = configuredId
-      ? registry.get(configuredId)
-      : registry.getByType('amule').find(m => m.isConnected());
-    if (amuleMgr) amuleMgr.releaseSearchLock();
-    this.broadcast({ type: 'search-lock', locked: false }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-    this.log(`🔓 Search lock released after ${service} automatic search`);
-  }
-
-  /**
    * Check if content has been released
    * For movies: checks digital/physical release dates
    * For episodes: checks air date
@@ -334,11 +283,6 @@ class ArrManager extends BaseModule {
 
     if (!cfg.url || !cfg.apiKey) {
       this.warn(`⚠️  ${service} URL or API key not configured, skipping automatic search`);
-      return;
-    }
-
-    // Acquire search lock
-    if (!await this.acquireSearchLockWithTimeout(service)) {
       return;
     }
 
@@ -516,8 +460,6 @@ class ArrManager extends BaseModule {
 
     } catch (err) {
       this.error(`❌ Error during ${service} refresh/missing search:`, err.message);
-    } finally {
-      this.releaseSearchLock(service);
     }
   }
 

@@ -54,7 +54,6 @@ AMULE_HOST=localhost
 AMULE_PORT=4712
 AMULE_PASSWORD=your_ec_password
 AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS=3
-AMULE_SHARED_DIR_DAT=/home/amule/.aMule/shareddir.dat
 ```
 
 ### Via config.json
@@ -85,9 +84,6 @@ services:
       - AMULE_PASSWORD=your_password
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      # Optional: shared directory management (path to your aMule shareddir.dat)
-      # - /path/to/.aMule/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
     ports:
       - "4000:4000"
 ```
@@ -126,8 +122,6 @@ services:
     volumes:
       # Download directories (optional): Required for moving/deleting files
       - ./data/aMule/incoming:/downloads
-      # Shared directory management (optional): mount aMule's shareddir.dat
-      - ./data/aMule/config/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
     ports:
       - "4000:4000"
     restart: unless-stopped
@@ -178,38 +172,31 @@ Categories created in aMuTorrent can be assigned to aMule downloads. When a cate
 
 ---
 
-## Shared Directory Management (Experimental)
+## Shared Folder Management
 
-aMuTorrent can manage aMule's `shareddir.dat` file — the list of directories aMule shares on the ed2k/Kademlia network. The feature is available in the **Shared Files** view via the "Manage Shared Dirs" button.
+aMuTorrent can manage the folders aMule shares on the ed2k/Kademlia network,
+from the **Shared Files** view via the "Manage Shared Dirs" button, or per
+instance from Settings.
+
+The folder list is read from and written to aMule over the EC protocol, so
+aMuTorrent needs no access to aMule's files and no shared volume. Paths are
+resolved by aMule, on the machine aMule runs on.
 
 ### How It Works
 
-- The UI shows **root directories** only (subdirectories are auto-collapsed)
-- When saving, aMuTorrent runs `find -type d` on each root to enumerate all subdirectories
-- The expanded list is written to `shareddir.dat` and aMule reloads shared files
-- The periodic auto-reload (configured via `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS`) also rescans subdirectories automatically, picking up new folders
+- Add a folder by path, or browse for one
+- Tick **Subfolders** to share everything beneath it - aMule expands the
+  subtree itself, so there is no need to list child directories
+- Saving replaces the whole list; aMule validates each path and reports any it
+  refuses, applying the rest
+- aMule rescans shortly after saving. "Rescan now" triggers one immediately
 
-### Configuration
+### Requirements
 
-Set the path to `shareddir.dat` via environment variable or directly in the UI:
+This needs an aMule core that supports configuring shared folders over EC
+(amule-org/amule#530). Cores without it report so in the modal, and the folder
+list can only be edited in aMule itself.
 
-```bash
-AMULE_SHARED_DIR_DAT=/home/amule/.aMule/shareddir.dat
-```
-
-Or click "Manage Shared Dirs" in the Shared Files view and configure the path in the modal.
-
-### Docker Requirements
-
-1. **Mount the shareddir.dat file** (or its parent directory) with write permissions — aMule sets `shareddir.dat` to read-only (444), so aMuTorrent needs to chmod it before writing:
-   ```yaml
-   volumes:
-     # Single file mount:
-     - ./data/aMule/config/shareddir.dat:/home/amule/.aMule/shareddir.dat:rw
-     # Or directory mount:
-     # - ./data/aMule/config:/home/amule/.aMule:rw
-   ```
-
-2. **Same UID** — both the aMuTorrent and aMule containers must run with the same user ID (e.g., `PUID=1000`) so aMuTorrent can modify the read-only file.
-
-3. **Same mount paths** — shared directories listed in `shareddir.dat` must be accessible at the same path in both containers. For example, if aMule sees `/downloads`, aMuTorrent must also have `/downloads` mounted.
+Note that #530 is not in a released aMule version yet, so a current release
+(3.0.1 and earlier) will not have it - updating to the latest release is not
+enough on its own.

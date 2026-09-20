@@ -11,9 +11,12 @@ const logger = require('../logger');
 const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
-const { convertToQBittorrentInfo } = require('./stateMapping');
+const { convertToQBittorrentInfo, convertToQBittorrentProperties, convertToQBittorrentFiles } = require('./stateMapping');
+const path = require('path');
 const { convertMagnetToEd2k } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
+const { resolveCategoryForAdd } = require('./addParams');
+const { matchesTorrentHash } = require('./torrentLookup');
 const preferences = require('./preferences.json');
 
 class QBittorrentHandler {
@@ -38,12 +41,15 @@ class QBittorrentHandler {
     this.getWebApiVersion = this.getWebApiVersion.bind(this);
     this.getPreferences = this.getPreferences.bind(this);
     this.getTorrentsInfo = this.getTorrentsInfo.bind(this);
+    this.getTorrentProperties = this.getTorrentProperties.bind(this);
+    this.getTorrentFiles = this.getTorrentFiles.bind(this);
     this.addTorrent = this.addTorrent.bind(this);
     this.deleteTorrent = this.deleteTorrent.bind(this);
     this.pauseTorrent = this.pauseTorrent.bind(this);
     this.resumeTorrent = this.resumeTorrent.bind(this);
     this.getCategories = this.getCategories.bind(this);
     this.createCategory = this.createCategory.bind(this);
+    this.setCategory = this.setCategory.bind(this);
   }
 
   /**
@@ -376,6 +382,125 @@ class QBittorrentHandler {
   }
 
   /**
+   * Map a unified DataFetchService item to the download shape used by converters.
+   *
+   * Numeric fields are passed as numbers, not strings. Earlier code String()-cast
+   * size/sizeDownloaded/progress; that was a needless intermediate representation
+   * that made the qBit-compat JSON output non-numeric for those fields
+   * (item.size arrives as a number here, the String cast turned it back to a
+   * string, and convertToQBittorrentInfo then emitted it verbatim). Real
+   * qBittorrent returns numbers; strict consumers like Medusa (#72) crash on
+   * strings.
+   */
+  _mapUnifiedItemToDownload(item) {
+    return {
+      fileName: item.name,
+      fileHash: item.hash,
+      fileSize: item.size || 0,
+      fileSizeDownloaded: item.sizeDownloaded || 0,
+      progress: item.progress || 0,
+      sourceCount: item.sources?.connected || 0,
+      speed: item.downloadSpeed || 0,
+      priority: item.downloadPriority ?? 0,
+      category: item.categoryId || null,
+      status: item.status,
+      uploadSpeed: item.uploadSpeed || 0,
+      ratio: item.ratio || 0,
+      uploadTotal: item.uploadTotal || 0,
+      directory: item.directory || ''
+    };
+  }
+
+  /**
+   * Fetch active aMule downloads in the normalized download shape.
+   * @param {boolean} forceRefresh - Invalidate cache and fetch a fresh snapshot
+   */
+  async _getAmuleDownloads(forceRefresh = false) {
+    const dataFetchService = require('../DataFetchService');
+
+    if (forceRefresh) {
+      dataFetchService.invalidateBatchCache();
+      const data = await dataFetchService.getBatchData();
+      return this._downloadsFromBatchData(data);
+    }
+
+    const data = await dataFetchService.getOrFetchBatchData(10000);
+    return this._downloadsFromBatchData(data);
+  }
+
+  _downloadsFromBatchData(data) {
+    const items = data?.items || [];
+    const targetInstanceId = this.getAmuleInstanceId?.();
+
+    return items
+      .filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId))
+      .map(item => this._mapUnifiedItemToDownload(item));
+  }
+
+  /**
+   * Resolve a torrent hash (magnet or ED2K) to qBittorrent info format.
+   * Tries the cached snapshot first, then forces a fresh fetch before 404.
+   * Two optimizations vs the naive approach:
+   *   - Match on raw fileHash + hashStore before enriching, so enrichDownload
+   *     runs at most once per query (the winner), not once per candidate.
+   *   - Small negative-result cache (30s TTL) so bogus-hash polls that even
+   *     force-refresh doesn't help don't hammer aMule on every request. The
+   *     add path clears this cache on success so a just-added hash never
+   *     lingers in the miss set past its own arrival.
+   * @returns {Promise<object|null>}
+   */
+  async _findTorrentInfoByHash(hash) {
+    const lower = String(hash).toLowerCase();
+    if (this._isKnownMiss(lower)) return null;
+
+    const getEd2kHash = h => this.hashStore.getEd2kHash(h);
+    // matchesTorrentHash's info.hash branch is redundant with the hashStore
+    // reverse-lookup — we can call it pre-enrichment with an empty info stub.
+    const findMatch = (downloads) =>
+      downloads.find(d => matchesTorrentHash(lower, {}, d.fileHash, getEd2kHash));
+
+    const search = async (forceRefresh) => {
+      const downloads = await this._getAmuleDownloads(forceRefresh);
+      const match = findMatch(downloads);
+      if (!match) return null;
+      const enriched = await this.enrichDownload(match);
+      return convertToQBittorrentInfo(enriched);
+    };
+
+    const result = (await search(false)) ?? (await search(true));
+    if (!result) this._recordMiss(lower);
+    return result;
+  }
+
+  /**
+   * Negative-result cache: hashes we've confirmed (via cached + forced fetch)
+   * that aMule doesn't have. 5s TTL matches DataFetchService's default cache
+   * window — consistent staleness semantics with the primary read path. Add
+   * path clears the cache proactively so a just-added hash never gets shadowed;
+   * for out-of-band adds via aMule's own UI, the worst-case delay before the
+   * hash becomes visible is 5s + one autoRefresh tick.
+   */
+  _isKnownMiss(hash) {
+    if (!this._missedHashes) return false;
+    const expiresAt = this._missedHashes.get(hash);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      this._missedHashes.delete(hash);
+      return false;
+    }
+    return true;
+  }
+
+  _recordMiss(hash) {
+    if (!this._missedHashes) this._missedHashes = new Map();
+    this._missedHashes.set(hash, Date.now() + 5_000);
+  }
+
+  _clearMissedHashes() {
+    if (this._missedHashes) this._missedHashes.clear();
+  }
+
+  /**
    * GET /api/v2/torrents/info
    */
   async getTorrentsInfo(req, res) {
@@ -394,25 +519,9 @@ class QBittorrentHandler {
 
       // Filter to the target aMule instance
       const targetInstanceId = this.getAmuleInstanceId?.();
-      let downloads = items.filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId));
-
-      // Map unified items to the format expected by convertToQBittorrentInfo
-      downloads = downloads.map(item => ({
-        fileName: item.name,
-        fileHash: item.hash,
-        fileSize: String(item.size || 0),
-        fileSizeDownloaded: String(item.sizeDownloaded || 0),
-        progress: String(item.progress || 0),
-        sourceCount: item.sources?.connected || 0,
-        speed: item.downloadSpeed || 0,
-        priority: item.downloadPriority ?? 0,
-        category: item.categoryId || null,
-        status: item.status,
-        uploadSpeed: item.uploadSpeed || 0,
-        ratio: item.ratio || 0,
-        uploadTotal: item.uploadTotal || 0,
-        directory: item.directory || ''
-      }));
+      let downloads = items
+        .filter(item => item.client === 'amule' && (!targetInstanceId || item.instanceId === targetInstanceId))
+        .map(item => this._mapUnifiedItemToDownload(item));
 
       // Filter by category if requested
       if (category) {
@@ -442,11 +551,63 @@ class QBittorrentHandler {
   }
 
   /**
+   * GET /api/v2/torrents/properties
+   *
+   * LazyLibrarian and other clients call this after add to verify the torrent
+   * exists. Returns 404 with an empty body when the hash is unknown, matching
+   * qBittorrent Web API behavior.
+   */
+  async getTorrentProperties(req, res) {
+    try {
+      const { hash } = req.query;
+      if (!hash) {
+        return response.badRequest(res, 'Missing hash parameter');
+      }
+
+      const info = await this._findTorrentInfoByHash(hash);
+      if (!info) {
+        return res.status(404).type('text/plain').send('');
+      }
+
+      res.json(convertToQBittorrentProperties(info));
+    } catch (error) {
+      logger.error('[qBittorrent] Get torrent properties error:', error);
+      return response.serverError(res, 'Failed to get torrent properties');
+    }
+  }
+
+  /**
+   * GET /api/v2/torrents/files
+   *
+   * LazyLibrarian calls getFiles() during post-download processing. ED2K
+   * transfers are single-file; we expose one synthetic file entry.
+   */
+  async getTorrentFiles(req, res) {
+    try {
+      const { hash } = req.query;
+      if (!hash) {
+        return response.badRequest(res, 'Missing hash parameter');
+      }
+
+      const info = await this._findTorrentInfoByHash(hash);
+      if (!info) {
+        return res.status(404).type('text/plain').send('');
+      }
+
+      res.json(convertToQBittorrentFiles(info));
+    } catch (error) {
+      logger.error('[qBittorrent] Get torrent files error:', error);
+      return response.serverError(res, 'Failed to get torrent files');
+    }
+  }
+
+  /**
    * POST /api/v2/torrents/add
    */
   async addTorrent(req, res) {
     try {
-      const { urls, category } = req.body;
+      const urls = req.body.urls;
+      const savepath = req.body.savepath || req.body.save_path || '';
 
       if (!urls) {
         return response.badRequest(res, 'Missing urls parameter');
@@ -457,24 +618,28 @@ class QBittorrentHandler {
         return response.serviceUnavailable(res, 'aMule not connected');
       }
 
+      await this.waitForCategoryInit();
+
+      const { categoryId, warnings } = resolveCategoryForAdd(
+        {
+          category: req.body.category,
+          label: req.body.label,
+          savepath
+        },
+        this.categoriesCache
+      );
+      for (const message of warnings) {
+        logger.warn(`[qBittorrent] ${message}`);
+      }
+
       const magnetLinks = urls
         .split(/[\n\r]+/)
         .map(s => s.trim())
         .filter(Boolean);
 
       const results = [];
-
-      // Get category ID
-      let categoryId = 0;
-      if (category) {
-        const categoryObj = await this.getCategoryByName(category);
-        if (categoryObj) {
-          categoryId = categoryObj.id;
-          logger.log(`[qBittorrent] Category "${category}" -> ID: ${categoryId}`);
-        } else {
-          logger.log(`[qBittorrent] Category "${category}" not found, using default`);
-        }
-      }
+      const dataFetchService = require('../DataFetchService');
+      let cacheInvalidated = false;
 
       for (const magnetLink of magnetLinks) {
         try {
@@ -489,9 +654,15 @@ class QBittorrentHandler {
           if (success) {
             this.hashStore.setMapping(ed2kHash, magnetHash, {
               fileName: this.extractFileName(magnetLink),
-              category: category || '',
+              category: req.body.category || req.body.label || '',
               addedAt: Date.now()
             });
+
+            if (!cacheInvalidated) {
+              dataFetchService.invalidateBatchCache();
+              this._clearMissedHashes();
+              cacheInvalidated = true;
+            }
 
             // Record ownership for the authenticated API user
             if (req.apiUser?.id && this.userManager) {
@@ -585,7 +756,15 @@ class QBittorrentHandler {
           // Look up cached state to decide active-download vs shared-file path.
           const item = this._findCachedItem(finalHash);
           const isShared = !!(item?.shared && !item?.downloading);
-          const filePath = item?.filePath || null;
+          // `filePath` on a unified item is the DIRECTORY, not the file: aMule
+          // sends the containing directory in EC_TAG_KNOWNFILE_FILENAME for a
+          // completed file, despite the tag's name. Passing it straight to
+          // deleteItem made the unlink fail with EISDIR, so the file survived
+          // while the delete still reported success (#81). Join it with the
+          // filename, the same way handleBatchDelete already does.
+          const dir = item?.raw?.path || item?.filePath || null;
+          const name = item?.rawName || item?.name || null;
+          const filePath = isShared && dir && name ? path.join(dir, name) : null;
 
           logger.log(`[qBittorrent] Deleting hash: ${finalHash} (shared=${isShared}, deleteFiles=${deleteFiles})`);
 
@@ -594,36 +773,60 @@ class QBittorrentHandler {
           // For shared files, deleteItem returns the path(s) but the caller
           // (us) is expected to actually unlink them. Mirrors the contract
           // used by webSocketHandlers.handleBatchDelete.
+          let unlinkFailed = false;
           if (deleteFiles && Array.isArray(result?.pathsToDelete)) {
             for (const p of result.pathsToDelete) {
               try {
                 await fs.unlink(p);
                 logger.log(`[qBittorrent] Removed file: ${p}`);
-                needsSharedRefresh = true;
               } catch (unlinkErr) {
-                if (unlinkErr.code !== 'ENOENT') {
+                if (unlinkErr.code === 'ENOENT') {
+                  // Already gone, normally because the *arr moved it out on
+                  // import. Say so rather than passing silently, since the
+                  // silence read as a clean delete in #81.
+                  logger.log(`[qBittorrent] File already gone: ${p}`);
+                } else {
+                  unlinkFailed = true;
                   logger.warn(`[qBittorrent] Failed to unlink ${p}: ${unlinkErr.message}`);
                 }
               }
             }
           }
 
+          // Rescan whenever aMule dropped a shared entry, including when the
+          // file had already been moved away: that stale entry is exactly what
+          // a rescan clears (#81). Gated on the core's own watcher below, like
+          // every other automated rescan.
+          if (isShared && deleteFiles && result?.success) {
+            needsSharedRefresh = true;
+          }
+
           if (ed2kHash) {
             this.hashStore.removeMapping(ed2kHash);
           }
 
-          logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
+          // Say what actually happened: the *arr treats this as "the file is
+          // gone" and stops tracking it, so a silent failure here strands the
+          // download in its queue with nothing in the log to explain it.
+          if (!result?.success) {
+            logger.warn(`[qBittorrent] aMule did not remove ${finalHash}: ${result?.error || 'unknown error'}`);
+          } else if (unlinkFailed) {
+            logger.warn(`[qBittorrent] Removed ${finalHash} from aMule, but its file could not be deleted`);
+          } else {
+            logger.log(`[qBittorrent] Successfully deleted: ${finalHash}`);
+          }
         } catch (error) {
           logger.error('[qBittorrent] Exception deleting hash:', hash, error);
         }
       }
 
       // After unlinking shared files, ask aMule to rescan so the entries
-      // disappear from getSharedFiles() / the UI immediately. Best-effort —
-      // failures here shouldn't fail the delete request.
+      // disappear from getSharedFiles() / the UI immediately. Skipped when the
+      // core watches its own shared folders. Best-effort — failures here
+      // shouldn't fail the delete request.
       if (needsSharedRefresh) {
         try {
-          await manager.refreshSharedFiles();
+          await manager.refreshSharedFilesIfUnwatched();
         } catch (refreshErr) {
           logger.warn('[qBittorrent] refreshSharedFiles failed after delete:', refreshErr.message);
         }
@@ -677,6 +880,68 @@ class QBittorrentHandler {
     } catch (error) {
       logger.error('[qBittorrent] Pause torrent error:', error);
       return response.serverError(res, 'Failed to pause torrent');
+    }
+  }
+
+  /**
+   * POST /api/v2/torrents/setCategory
+   *
+   * Applies a named category to one or more torrents. Matches qBittorrent's
+   * WebAPI contract:
+   *   - 200 Ok. on success
+   *   - 409 Conflict when the requested category doesn't exist (qBit's exact
+   *     status/body — clients like Medusa handle this by calling
+   *     createCategory first and retrying)
+   *   - empty category name is accepted as a no-op (qBit clears the category
+   *     here; aMule has no clean "no category" concept, since every partfile
+   *     lives in category 0 by default)
+   */
+  async setCategory(req, res) {
+    try {
+      const { hashes, category } = req.body;
+      if (!hashes) return response.badRequest(res, 'Missing hashes parameter');
+      if (category === undefined) return response.badRequest(res, 'Missing category parameter');
+
+      // Empty string ⇒ clear category (qBit semantics). aMule has no clean
+      // mapping for that, so no-op with 200 for compat.
+      if (category === '') {
+        logger.log('[qBittorrent] setCategory: empty category (no-op — aMule has no clear semantic)');
+        return res.send('Ok.');
+      }
+
+      await this.waitForCategoryInit();
+
+      // Match qBit's 409 when the category doesn't exist. Clients (Medusa,
+      // qbittorrent-api) call createCategory + retry on this status.
+      const exists = this.categoriesCache.some(c => c.title === category);
+      if (!exists) {
+        return res.status(409).type('text/plain').send('Category does not exist');
+      }
+
+      const manager = this._getAmuleManager();
+      if (!manager || !manager.isConnected()) {
+        return response.serviceUnavailable(res, 'aMule not connected');
+      }
+
+      const hashList = hashes.split('|').map(h => h.trim()).filter(Boolean);
+      for (const hash of hashList) {
+        try {
+          const ed2kHash = this.hashStore.getEd2kHash(hash);
+          const finalHash = ed2kHash || hash;
+          const result = await manager.setCategoryOrLabel(finalHash, { categoryName: category });
+          if (result?.success) {
+            logger.log(`[qBittorrent] setCategory: ${finalHash} → "${category}"`);
+          } else {
+            logger.warn(`[qBittorrent] setCategory failed for ${hash}: ${result?.error || 'unknown'}`);
+          }
+        } catch (err) {
+          logger.warn(`[qBittorrent] setCategory failed for ${hash}: ${err.message}`);
+        }
+      }
+      res.send('Ok.');
+    } catch (error) {
+      logger.error('[qBittorrent] setCategory error:', error);
+      return response.serverError(res, 'Failed to set category');
     }
   }
 

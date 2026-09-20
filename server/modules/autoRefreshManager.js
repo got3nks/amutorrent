@@ -146,6 +146,12 @@ class AutoRefreshManager extends BaseModule {
           connected: !!mgr.isConnected(),
           color: mgr._clientConfig?.color || null,
           capabilities: clientMeta.get(ct).capabilities,
+          // Runtime capability, unlike the static clientMeta ones above: it
+          // depends on how old the connected daemon is, so the UI can hide the
+          // shared-folder editor rather than let a request fail (#530).
+          sharedDirsConfig: typeof mgr.supportsSharedDirsConfig === 'function'
+            ? mgr.supportsSharedDirsConfig()
+            : false,
           networkStatus: instData ? instData.manager.getNetworkStatus(instData.stats) : null,
           error: mgr.lastError || null,
           errorTime: mgr.lastErrorTime || null

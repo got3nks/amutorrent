@@ -5,6 +5,183 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.7] - Searches That Wait in Line
+
+### 🐛 Fixed
+
+- **A large Sonarr, Radarr or Medusa backlog kept failing with "Timed out waiting for the aMule search lock".** aMule can only run one search at a time, so searches have to wait for each other. But a search kept waiting, and then ran on both networks, even after the app that asked for it had given up. Under a backlog, most of aMule's search time went to answers nobody would read, and the searches still waiting behind them timed out. A search is now dropped as soon as the app that asked for it disconnects, whether it is still waiting or already running. In testing, the next search in line was answered after 104 seconds instead of 157.
+- **Waiting searches were served in no particular order.** Whichever one happened to check first got the next turn, so an older search could keep losing to newer ones until it timed out. Searches now take turns in the order they arrived, and each one finishes both ED2K and Kad before the next one starts. A search you start from the web interface can still run between those two steps.
+
+---
+
+## [3.9.6] - A Steady aMule Connection
+
+### 🐛 Fixed
+
+- **Every time aMule went away, aMuTorrent kept one more connection open to it.** If aMule restarted or dropped for a moment, aMuTorrent reconnected correctly, but the old connection also came back by itself and stayed open next to the new one. Two outages left three connections, and they kept piling up until aMuTorrent restarted. Now there is exactly one connection, however often aMule goes away. This needs no settings change.
+- **Long titles starting with an accented word could not be found on Kad.** Kad looks up one word from the search, and an accented word only reaches files published with that exact spelling. aMuTorrent already swaps in a plain word from the same title, but it skipped long titles, so a Sonarr or Radarr search for a long title starting with an accented word found nothing on Kad. Those are now handled like any other title.
+
+### 🔧 Changed
+
+- **Less alarming logs on Kad searches.** A Kad search typed in the web interface could log that its words had been "reordered", even when nothing useful changed. This happened when the first word was very short, which aMule already skips when choosing the lookup word. That useless reordering is gone, and the remaining note is logged at debug level only.
+
+---
+
+## [3.9.5] - Accents in the Search Box, Faster Searches on aMule 3.1
+
+### 🐛 Fixed
+
+- **An accented search typed in the web interface returned only half the files.** Searching for a title with an accent could come back with only the files spelled with the accent, while searching the plain spelling returned both. The cause is that the same accented letter has two encodings that look identical on screen, and ED2K servers understand only one of them. Text pasted from a file manager, macOS Finder in particular, uses the other one, so the search was silently unmatchable. Automatic searches from Sonarr and Radarr were already corrected for this; searches you type are now corrected too. Only the encoding is changed - the words sent are still exactly the ones you typed, so the results always match what is on screen.
+- **A Kad search typed in the web interface and beginning with an accented word found nothing.** Kad picks one word from the search to decide which part of the network to ask, and an accented one only reaches files published with that exact spelling. A plain word from the same search is now used instead, as it already was for automatic searches. This does not change which files can match, only where they are looked for.
+
+### 🔧 Changed
+
+- **Sonarr, Radarr and Medusa searches are around ten seconds faster on aMule 3.1 and newer.** Every search paused for five seconds before checking its progress, once for each network, because older aMule versions report a misleading figure in the moment just after a search starts - often the previous search's. aMule 3.1 says which search the figure belongs to, so the pause is no longer needed there and is skipped automatically. On aMule 3.0.x nothing changes: the pause is still required, and without it a search would be recorded as finished with nothing found.
+
+---
+
+## [3.9.4] - Accented Titles, and Faster Searches
+
+### 🐛 Fixed
+
+- **Series and films with accented titles returned nothing.** A title or episode name carrying an accent, `é` or `à` for instance, could come back empty from both networks. There were two separate causes. The same accented letter has two encodings that look identical on screen, and ED2K servers only understand one of them, so half the time the search was silently unmatchable. And aMule's own Kad network does not treat accented and plain letters as equivalent at all, so a title spelled one way could not find a file spelled the other. Searches are now normalised before they are sent, and the Kad half is rewritten to match files whatever spelling they were published under.
+- **Titles beginning with an accented word were unreachable on Kad.** Kad picks a single word from the search to decide where to look, and an accented one only ever reached files published with that exact spelling. A plain word is now used instead, which in testing took a search from no results at all to thirteen.
+- **Curly apostrophes broke searches.** A title copied with a typographic apostrophe, the kind word processors and many metadata sources produce, does not match the plain one used in filenames. It is now converted before searching.
+- **A search that timed out was remembered as "nothing found".** If a search was cut short, or aMule rejected it, the empty result was cached for ten minutes and served to every later request without searching again. Only searches that actually finish are cached now. A search that genuinely finds nothing is still remembered, since repeating it would be wasted work.
+- **Kad searches waited for a delay that only exists for ED2K.** Every search paused for the ED2K flood-protection gap, including Kad, which has no such limit, and then reset the timer so the next ED2K search waited again. On one report this added ten seconds of pure waiting to every *arr search.
+
+### 🔧 Changed
+
+- **The gap between ED2K searches now defaults to 5 seconds instead of 10.** This is what the configuration reference and the sample `.env` already documented; the code disagreed with them. Combined with the fix above, an *arr search reaches both networks noticeably sooner. Operators who see dropped searches can raise `ED2K_SEARCH_DELAY_MS` again.
+
+---
+
+## [3.9.3] - Searches That Reach aMule
+
+### 🐛 Fixed
+
+- **Series with a country suffix in the name never returned anything.** aMule reads a search as a boolean expression, and it treats brackets of the round kind as part of that expression rather than as part of the name. A show like `Example Show (US)` made the whole search invalid, so aMule rejected it and Sonarr saw an empty list, every time, for every episode. Those characters are now removed before the search is sent, which also covers movie, music and plain searches. When aMule does reject a search, the log now shows the query that was sent, so the next one of these is a one-line diagnosis rather than a guess (#89).
+- **aMuTorrent's own automatic Sonarr and Radarr search blocked itself.** aMule can only run one search at a time. aMuTorrent claimed that slot for the whole automatic run, then asked Sonarr to search and waited - but Sonarr searching means Sonarr asking aMuTorrent, which then waited three minutes for a slot aMuTorrent was holding itself, gave up, and returned nothing. This ran every six hours by default, and produced the `Timed out waiting for the aMule search lock` messages (#89).
+- **The same search was run over and over during a backlog.** When Sonarr, Radarr or Medusa asked for the same episode several times in a row, each request waited for the previous one to finish and then searched again from scratch, rather than using the answer that had just arrived. Five requests for one episode meant ten searches and around eleven minutes of aMule's time; now they share one search and all get the same results (#89).
+- **Episodes numbered without padding were unreachable.** Some series are published as `1x5` rather than `1x05`, and aMuTorrent only asked for the padded form, so the first nine episodes of a season could not be found for those releases. Both forms are searched now (#91).
+- **The search box could get stuck greyed out.** Opening the page while Sonarr or Radarr had a search running left the box disabled with nothing to re-enable it. It now follows the actual state.
+- **Search results were kept in memory after they expired.** Cached results are cleared on a timer now, rather than only when the same search happened to be repeated.
+
+### 🔧 Changed
+
+- **A search from the web interface during an automatic Sonarr or Radarr run now waits its turn instead of being refused.** It used to fail immediately with "Another search is running". The search box also greys only for as long as a search actually holds aMule, rather than for the whole automatic run.
+
+---
+
+## [3.9.2] - Responsive Searches, Fewer Shared Folder Rescans
+
+### 🐛 Fixed
+
+- **A Sonarr or Radarr search froze everything else.** A search held the aMule connection for as long as it ran, up to two minutes, so downloads stopped updating, adds timed out and the interface looked stuck. Searches now let other work through while they wait: in testing, 244 unrelated requests completed during a 49 second search without any of them waiting more than 10ms. Two searches at once still take turns, since aMule can only run one ED2K search at a time (#88, #89).
+- **Episode searches matched too loosely, and missed a naming style.** The fallback that searches for an episode number on its own could match almost anything when the show name was a single word, worst of all when that word is an everyday one, so it is now used only for titles of two words or more. The padded `01x05` form is also searched, alongside the `S01E05` and `1x05` forms already covered (#91).
+- **Deleting a finished download did not always report what happened.** The Sonarr and Radarr delete route said "Successfully deleted" whether or not aMule accepted it, and said nothing at all about a file that had already been moved away during import. Both are now reported accurately, and a file that was moved away still gets its entry cleared from aMule's shared list (#81).
+
+### 🔧 Changed
+
+- **aMuTorrent no longer asks aMule to rescan its shared folders when aMule is already watching them.** aMule watches its own shared directories and notices changes by itself, so the rescans aMuTorrent triggered after every delete, after every move and every few hours were repeating work it had already done, and on a large collection each one is slow. aMuTorrent now checks whether that watcher is switched on and stays out of the way when it is. If you have turned it off, or you are on an older aMule without it, nothing changes. **Rescan now** and the Shared view's refresh button always run, whatever the setting.
+
+---
+
+## [3.9.1] - Lidarr Support, Deletion Fix
+
+### ✨ Added
+
+- **Lidarr support.** aMuTorrent now advertises music categories and accepts Lidarr's searches, so it can be added as an indexer exactly like you would for Sonarr or Radarr (#80). Note that ED2K searches cannot be filtered by file type yet, so results will include unrelated files and a mix of tracks, albums and archives.
+
+### 🐛 Fixed
+
+- **Sonarr and Radarr could not delete finished downloads.** aMuTorrent tried to delete the containing folder instead of the file, so the file stayed on disk, aMule kept sharing it, and the download stuck in the queue - while aMuTorrent reported success. Deleting from aMuTorrent's own interface was unaffected, and nothing was ever at risk of being deleted by mistake (#81).
+
+### 🔒 Security
+
+- **Dependency updates clearing five advisories.** One would let anyone able to reach aMuTorrent exhaust its memory and take it offline without logging in - worth updating if your instance is reachable from the internet.
+
+---
+
+## [3.9.0] - Shared Folders Without File Access, Better Search Results
+
+### ✨ Added
+
+- **Manage aMule's shared folders from aMuTorrent, with no shared volume.** The Shared Folders panel now talks to aMule directly instead of editing its files, so there is nothing to mount, no permissions to line up, and no matching user IDs between containers. Add a folder, tick **Subfolders** to share everything beneath it, and aMule handles the rest. Anything it refuses (a path that does not exist, or one it cannot read) is listed on its own, and the folders that were fine still get saved (#75).
+- **Search results now show every name a file is shared under.** The same file is often shared under several names, and the one aMule shows is the most common rather than the most useful. A caret next to a result expands the alternatives, and the filter searches them too, so you can find a release by the name that actually describes it. Sonarr and Radarr are offered every name as well, so they can pick whichever their parser understands (#82).
+- **Search results tell you what you already have.** Results the connected aMule already knows are badged **Downloaded**, **Queued** or **Cancelled**, so you are not re-adding something twice. This comes from aMule itself, so it stays right after a page reload and covers downloads added by Sonarr, Radarr or another user (#77).
+- **Sonarr and Radarr searches now cover Kad as well as the ED2K servers.** Each search runs against both networks and merges the results, which in testing surfaced around 10% more files that the servers alone would have missed. Queries are also sent in a single request per network instead of several, so searches finish faster.
+- **Telegram notifications can target a topic.** Groups with Topics enabled no longer get everything in General. There is a new optional **Topic ID** field next to the Chat ID; find the number at the end of the topic's URL in Telegram Web (#83).
+- **Rescan shared files on demand.** A **Rescan now** button in the Shared Folders panel asks aMule to re-read its shared files immediately, rather than waiting for the periodic refresh. Previously this was only reachable if you had configured the old shared-folder file (#84).
+
+### 🐛 Fixed
+
+- **Deleting a category could rename or wipe out a different one, and could crash aMule.** aMule identifies categories by position, so removing one shifts the rest, and aMuTorrent was still using the old positions. Editing a category afterwards could land on its neighbour, and on some aMule versions could take the daemon down and undo the deletion on restart. Categories are now matched by name, so deleting one leaves the others alone (#85, #86).
+- **Categories reappearing after you disabled the client they came from.** Categories imported from a download client stayed forever, even with that client turned off. aMuTorrent now remembers where each category came from and stops copying it around once every client that had it is disabled. Nothing is deleted, so re-enabling a client brings it back (#85).
+- **A category whose folder aMule could not create was reported as failed.** It had actually been saved, only with a different folder. The distinction is now reported correctly, and the message says which folder aMule kept.
+
+### 🗑️ Removed
+
+- **The experimental `shareddir.dat` configuration**, replaced by the panel described above. The `AMULE_SHARED_DIR_DAT` setting, and the file mounts it needed, can be removed from your configuration. Editing that file never reliably worked: aMule keeps its shared-folder settings in more than one place and would undo the changes on its next reload (#75).
+
+### ⚠️ Requirements
+
+- Shared folder management needs a recent aMule. It is not in any aMule release yet, including 3.0.1, so updating to the newest release will not be enough on its own. It is expected in aMule **3.1.0**; until then you can build aMule from source, or use a development build such as `ngosang/amule:develop`. aMuTorrent says so plainly on cores that do not have it, and **Rescan now** still works on every version.
+
+---
+
+## [3.8.8] - LazyLibrarian Compat, qBittorrent 2.11.2 API, Torznab Query Hardening
+
+### ✨ Added
+
+- **LazyLibrarian → aMuTorrent → aMule support.** Multipart `POST /api/v2/torrents/add` handling (LazyLibrarian sends the dummy-file variant even for magnet URLs), new `GET /api/v2/torrents/properties` and `GET /api/v2/torrents/files` endpoints for LazyLibrarian's post-add verification and post-download file discovery, and `invalidateBatchCache()` on successful add so the next `torrents/info` poll sees fresh data (Sonarr/Radarr get the same small QoL win). `savepath` sent alongside `urls` is mapped to a matching aMule category by path when no category/label is set, with explicit warnings when the path doesn't match anything (#71, contributed by @Mika3578).
+- **qBittorrent WebAPI ≥2.11.2 route aliases.** `POST /torrents/stop` and `POST /torrents/start` alias `pauseTorrent` / `resumeTorrent` respectively — real qBit renamed those in 2.11.2, and clients like Medusa key off the advertised `webapiVersion` (`2.11.4`) and call the new names. New `POST /torrents/setCategory` handler; returns 409 `text/plain "Category does not exist"` when the requested name isn't in the compat categories cache, matching qBit exactly so clients trigger the `createCategory` + retry handshake (#74).
+
+### 🐛 Fixed
+
+- **rTorrent 0.16.18 stuck showing "Firewalled" regardless of actual state.** rTorrent 0.16.18 deprecated `network.port_open`; our multicall was still calling it and falling into the `false` branch. That command was never a real firewall check anyway — it was a config toggle. Replaced with `network.listen.port > 0` (rTorrent is actually bound and listening), forward-compatible with 0.16.18 and backward-compatible with older builds.
+- **`size` / `downloaded` / `completed` shipped as JSON strings, crashing Medusa** (`unsupported operand type(s) for /: 'str' and 'str'`). Real qBit returns numbers; Sonarr/Radarr's .NET deserializer coerces silently, but strict consumers (Python, typed Go/Rust) don't. Root cause: `_mapUnifiedItemToDownload` was needlessly `String()`-casting numeric fields on the way in, and the converter passed them through verbatim. Fixed at both layers: source (drop the casts) and output boundary (`Number()`-coerce every numeric field before returning). Covers `size`, `total_size`, `amount_left`, `downloaded`, `completed`, `downloaded_session`, `uploaded`, `uploaded_session`, `dlspeed`, `upspeed`, `ratio` (#72).
+- **Torznab returned 0 items for long `q` values** (Medusa passes series name + full episode title as free-text). aMule's `SearchList.cpp:104` rejects a parsed expression when boolean operators exceed 10; the grammar inserts an implicit AND per adjacent-word pair, so 12+ words trips "Search expression is too complex". Long queries are now capped at 11 words (10 for tvsearch, reserving 1 for the appended format token), with a warn-level log so users can correlate. tvsearch also emits an absolute-style variant (`Show 05`) alongside the existing `1x05` / `S01E05` — catches ED2K releases named "Show 01 - Title" (common French / documentary / anime naming). If all season/episode variants collectively return 0, falls back to a single retry with the bare (capped) series name (#73).
+
+### ♻️ Improved
+
+- **qBittorrent-compat polish.** `_findTorrentInfoByHash` enriches only the matched candidate instead of every one (O(N) → O(1) enrich calls per lookup); negative-result cache (5s TTL, cleared on successful add) so bogus-hash polls don't refetch aMule on every request; 404 responses on `properties` / `files` now `text/plain` matching qBit; `npm test` script portable across all shells (`test/**/*.test.js` glob replaced with `test/` directory recursion).
+
+---
+
+## [3.8.7] - Setup Wizard Field Parity
+
+### 🐛 Fixed
+
+- **Setup wizard was missing the "Category Sync" and "Notifications" toggles** on every client-instance section, so users configuring aMuTorrent for the first time couldn't opt out of either behavior during the initial installation flow — they had to complete setup and then edit each instance individually to change the defaults. Backend behavior was unaffected (missing fields default to `true`, meaning sync + notifications on), so this was purely a first-run UX gap, not a functional break. Root cause: the wizard's per-client sections used their own hand-coded field blocks instead of consuming the same `CLIENT_FIELDS` schema the "edit instance" modal uses, so any new field added to the modal quietly missed the wizard. See the "Improved" entry below for the structural fix (#68).
+
+### ♻️ Improved
+
+- **Single source of truth for client-instance fields.** Extracted the per-client-type field schema (`CLIENT_FIELDS`, `TYPE_LABELS`, `DAEMON_LABELS`, the `F.*` factories, `TYPE_DEFAULTS`) and the field renderer into a new shared module `static/components/settings/clientFields.js`. Both `ClientInstanceModal` (edit an existing instance) and `SetupWizardView` (initial installation flow) now consume the same `<ClientFieldsRenderer>` component. Adding a field to the schema surfaces in both surfaces automatically — no more "we shipped a toggle in the modal but forgot to wire it in the wizard" bugs like the one that hit us with #68. Adapter layer is deliberately thin: each surface passes its own `onFieldChange(field, value)` wrapper and `isFieldFromEnv(field) => bool` accessor, letting the wizard and modal keep their native state models (wizard's flat client-prefixed `fromEnv` map, modal's per-instance `_fromEnv` object). Net −464 lines across both consumers; bundle 729 KB → 721 KB from string + JSX dedupe.
+
+---
+
+## [3.8.6] - Per-Instance Category & Notification Toggles + KAD Firewall Accuracy
+
+### ✨ Added
+
+- **Per-instance "Category Sync" toggle** on every client-instance modal (default ON). Turn it off on any instance to isolate it from the central category registry — the instance won't publish its local categories out, won't accept categories pushed in, and manually-created categories from the aMuTorrent UI won't be pushed to it either. Motivation: users running mixed aMule + BitTorrent setups reported that BitTorrent categories like "Film" / "FreeLeech" were being pushed to aMule, creating stray directories on paths that don't match aMule's local layout and cluttering `amule.conf`. Existing configs stay synced without migration (missing field defaults to true). Internally split into `categorySyncIn` / `categorySyncOut` with the UI unified today, so a future advanced-config UI can override per direction without any data migration (#62).
+- **Per-instance "Notifications" toggle** on every client-instance modal (default ON). Silence Apprise notifications sourced from a single client — both download-lifecycle events (`downloadAdded`, `downloadFinished`) and health alerts (`clientAvailable` / `clientUnavailable`) — without touching global notification settings. Event script execution (post-import moves, file cleanup, etc.) stays independent because scripts are automation, not messaging (#67).
+- **Status footer tooltip now shows ED2K TCP and KAD UDP listen ports** for aMule. Cached from `getConnectionPreferences()` on connect, surfaced in the single-instance footer and per-instance multi-line summaries. Contributed by @paulo-roger (#56).
+- **KAD tooltip: per-port TCP/UDP firewall status breakdown** — when the headline shows "Firewalled," the tooltip now spells out which side (UDP `<port>`, TCP `<port>`) is firewalled versus OK, so users can see exactly what needs work (#57).
+
+### 🐛 Fixed
+
+- **aMule footer shows "Firewalled" when aMule's own GUI shows "Firewall: OK"** for the same node (#57). Root cause: we only checked `EC_TAG_STATS_KAD_FIREWALLED_UDP`, while aMule's Kad panel uses `Kademlia::CKademlia::IsFirewalled()` — the TCP-side check. A node can be UDP-firewalled with TCP fine (or vice versa) depending on how the NAT/router handles each protocol. TCP status is exposed via EC, packed as bit `0x08` of the `EC_TAG_CONNSTATE` value bitfield, per aMule's `ECSpecialCoreTags.cpp`. `getNetworkStatus()` now reads both, and the headline uses the combined "either firewalled → Firewalled" semantic (more conservative than aMule's GUI which only checks TCP — matches user expectation that "Firewalled" means "Kad isn't fully functional"). Per-port breakdown lives in the tooltip.
+- **Footer KAD tooltip collapsed UDP and TCP status onto one line.** The tooltip's inner container has `whiteSpace: 'normal'` (so the background pill wraps cleanly), which collapses `\n` in plain-string content to a single space. The two port statuses ended up rendered as `UDP 4672: OK TCP 4662: Firewalled` on one line instead of stacked. `buildKadTooltip` now emits one `<div>` per port wrapped in `space-y-1`, matching how the multi-instance kadTooltip already builds its per-instance rows.
+- **Latent toggle-default bug in `ClientInstanceModal`.** The toggle binding was `formState[field] || false`, which silently forced any `toggle` field with `defaultValue: true` to OFF when the field was absent from a legacy saved config — meaning users editing an existing instance would see the new `categorySync` / `notifications` toggles rendered as OFF even though the backend was treating them as ON. Now uses `?? defaultValue ?? false`, so absence gets the declared default and the UI matches backend behavior.
+
+### ♻️ Improved
+
+- **`ClientInstanceModal` field-def dedupe.** Extracted the repeated per-client field definitions (host, port, password, useSsl, reverse-proxy path, categorySync, notifications) into a small factory block. Descriptions interpolate `TYPE_LABELS` (short-form, "qBittorrent") or `DAEMON_LABELS` (long-form, "qBittorrent WebUI"). Fields whose call site would need three or more property overrides (aMule's password, rTorrent's mode + socketPath + XML-RPC path + basic-auth username/password, qBittorrent's admin-default username, Transmission's RPC path + generic username) stay inlined with a comment explaining why — cleaner than growing factory options. Adding a 6th client type (slskd, eMuleBB, etc.) is now mostly picking factories rather than copy-pasting field defs. Bundle shrunk by ~3 KB (string dedupe).
+
+---
+
 ## [3.8.5] - Deluge Statistics & Sonarr/Radarr Auth Compatibility
 
 ### ✨ Added

@@ -560,24 +560,31 @@ class RtorrentHandler {
    * @returns {Promise<Object>}
    */
   async getGlobalStats() {
+    // Note: we intentionally do NOT query `network.port_open` — it was
+    // deprecated in rtorrent 0.16.18 and always returns empty (a warn is
+    // emitted server-side). It was never a real firewall check anyway; it
+    // just reflected the config toggle for whether rtorrent should attempt
+    // to open the port at all (default: yes). Deriving port status from
+    // `network.listen.port` > 0 — i.e. "rtorrent is actually bound and
+    // listening" — is both accurate and forward-compatible.
     const results = await this.multicall([
       { method: 'throttle.global_down.rate', params: [] },
       { method: 'throttle.global_up.rate', params: [] },
       { method: 'throttle.global_down.total', params: [] },
       { method: 'throttle.global_up.total', params: [] },
-      { method: 'network.port_open', params: [] },
       { method: 'network.listen.port', params: [] },
       { method: 'system.pid', params: [] }
     ]);
 
+    const listenPort = parseInt(results[4], 10) || 0;
     return {
       downloadSpeed: parseInt(results[0], 10) || 0,
       uploadSpeed: parseInt(results[1], 10) || 0,
       downloadTotal: parseInt(results[2], 10) || 0,
       uploadTotal: parseInt(results[3], 10) || 0,
-      portOpen: results[4] === 1 || results[4] === '1',
-      listenPort: parseInt(results[5], 10) || 0,
-      pid: parseInt(results[6], 10) || 0  // Process ID - changes on restart
+      portOpen: listenPort > 0,
+      listenPort,
+      pid: parseInt(results[5], 10) || 0  // Process ID - changes on restart
     };
   }
 

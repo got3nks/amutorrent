@@ -1,5 +1,25 @@
+const crypto = require('crypto');
 const { create } = require('xmlbuilder2');
 const { convertEd2kToMagnet } = require('../linkConverter');
+
+/**
+ * Every distinct filename a result is published under, parent first.
+ * aMule can repeat the parent's own name among its children, so dedupe.
+ * @param {Object} result - Search result, possibly carrying `children`
+ * @returns {string[]} Distinct names, at least one
+ */
+function distinctNames(result) {
+  const names = [];
+  const seen = new Set();
+  for (const candidate of [result, ...(result.children || [])]) {
+    const name = candidate?.fileName;
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names.length > 0 ? names : ['Unknown'];
+}
 
 /**
  * Convert aMule search results to Torznab RSS feed
@@ -31,21 +51,33 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
     type: 'application/rss+xml'
   }).up();
 
-  // Convert each aMule result to RSS item
+  // One item per distinct filename. A hash published under several names is
+  // usually the same release with differently-parseable titles (#82), so each
+  // is offered separately and the *arr picks whichever its parser prefers —
+  // every one of them grabs the same file.
+  const expanded = [];
   amuleResults.forEach((result, index) => {
+    const fileHash = result.fileHash || `result-${index}`;
+    distinctNames(result).forEach((fileName, nameIndex) => {
+      expanded.push({ result, index, fileHash, fileName, nameIndex });
+    });
+  });
+
+  expanded.forEach(({ result, fileHash, fileName, nameIndex }) => {
     const item = channel.ele('item');
 
-    // Basic item info
-    const fileName = result.fileName || 'Unknown';
-    const fileHash = result.fileHash || `result-${index}`;
     const fileSize = result.fileSize || 0;
     const sourceCount = result.sourceCount || 0;
 
-    // Log each result for debugging
-    // console.log(`[Torznab] Result ${index + 1}: ${fileName} (${fileSize} bytes, ${sourceCount} sources)`);
+    // The first name keeps the bare hash as its guid so releases already in an
+    // *arr's history keep matching; alternates get a stable suffix derived
+    // from the name, so the same search always yields the same guid.
+    const guid = nameIndex === 0
+      ? fileHash
+      : `${fileHash}-${crypto.createHash('md5').update(fileName).digest('hex').slice(0, 8)}`;
 
     item.ele('title').txt(fileName).up();
-    item.ele('guid').txt(fileHash).up();
+    item.ele('guid').txt(guid).up();
     item.ele('pubDate').txt(new Date().toUTCString()).up();
 
     // Size
@@ -74,11 +106,15 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
     // All available categories
     const allMovieCategories = ['2000', '2010', '2020', '2030', '2040', '2045', '2050', '2060', '2070', '2080', '2090'];
     const allTVCategories = ['5000', '5010', '5020', '5030', '5040', '5045', '5050', '5060', '5070', '5080', '5090'];
+    // Audio, for Lidarr (#80). ED2K results carry no genre or type metadata, so
+    // as with movies and TV we claim the whole tree rather than guess a subcat.
+    const allAudioCategories = ['3000', '3010', '3020', '3030', '3040', '3050', '3060'];
 
     if (requestedCats.length === 0) {
-      // No categories requested - return both TV and Movies with all subcategories
+      // No categories requested - return every tree we advertise
       allMovieCategories.forEach(cat => categoriesToAdd.add(cat));
       allTVCategories.forEach(cat => categoriesToAdd.add(cat));
+      allAudioCategories.forEach(cat => categoriesToAdd.add(cat));
     } else {
       // Add requested categories AND their parent categories
       requestedCats.forEach(cat => {
@@ -87,6 +123,8 @@ function convertToTorznabFeed(amuleResults, query, requestedCategories = '') {
         // Add parent category if this is a child category
         if (cat.startsWith('2') && cat !== '2000') {
           categoriesToAdd.add('2000'); // Movies parent
+        } else if (cat.startsWith('3') && cat !== '3000') {
+          categoriesToAdd.add('3000'); // Audio parent
         } else if (cat.startsWith('5') && cat !== '5000') {
           categoriesToAdd.add('5000'); // TV parent
         }

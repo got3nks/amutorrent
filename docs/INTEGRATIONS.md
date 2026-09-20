@@ -279,9 +279,11 @@ ED2K servers have flood protection that can temporarily ban clients making too m
 
 ### Rate Limiting
 
-- **Default:** 10 seconds between consecutive ED2K searches
+- **Default:** 5 seconds between consecutive ED2K searches
 - **Configurable via:** `ED2K_SEARCH_DELAY_MS` environment variable
 - **Recommendation:** 5000-10000ms (5-10 seconds)
+- **Kad searches are not delayed.** The gap exists for ED2K server flood
+  protection; Kad is a DHT and has no such limit.
 
 ---
 
