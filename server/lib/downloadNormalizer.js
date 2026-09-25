@@ -645,6 +645,39 @@ function normalizeTransmissionDownload(torrent) {
 // sourceCount/sourceCountXfer, ed2kLink, state for the status map).
 
 /**
+ * Reconstruct the "copy link" / re-add value for a Rucio download list item.
+ *
+ * GET /api/v1/downloads (the list) omits the `link` field that the per-download
+ * detail endpoint (GET /downloads/{id}) carries, and the poll loop never fetches
+ * detail (that would be one request per download, every cycle). We rebuild it
+ * here from fields the list does provide, matching the daemon's own link format
+ * so the value round-trips through POST /downloads (rucio:) and POST
+ * /downloads/ed2k. The network is told apart by the signed id: eMule rows use
+ * negative ids, libp2p rows positive.
+ *
+ * @param {Object} d - raw Rucio download (list item)
+ * @returns {string|null} the link, or null when required fields are missing
+ */
+function buildRucioDownloadLink(d) {
+  const hash = d.root_hash;
+  if (!hash) return null;
+  if (d.id < 0) {
+    // eMule: ed2k://|file|<name>|<size>|<md4>|/ — root_hash IS the MD4 hex here.
+    // The name is literal (not URL-encoded), exactly as the daemon emits it.
+    if (!d.name || d.size == null) return null;
+    return `ed2k://|file|${d.name}|${d.size}|${hash}|/`;
+  }
+  // Rucio: rucio:<blake3>?name=<enc>&size=<n>. Providers are intentionally
+  // omitted (the list item has none); the daemon rediscovers them via the DHT
+  // on re-add. The magnet parser is order-independent and tolerates missing
+  // params, so name/size are added only when present.
+  const params = [];
+  if (d.name) params.push(`name=${encodeURIComponent(d.name)}`);
+  if (d.size != null) params.push(`size=${d.size}`);
+  return params.length ? `rucio:${hash}?${params.join('&')}` : `rucio:${hash}`;
+}
+
+/**
  * Normalize a Rucio download (GET /api/v1/downloads item) to unified format.
  * @param {Object} d - raw Rucio download
  * @param {Function} resolveCategoryName - (categoryId) => category name string
@@ -671,9 +704,11 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
     category: d.category_id ?? null,
     categoryName: resolveCategoryName(d.category_id),
 
-    // Sources
+    // Sources. Only the total is on the list item; the count we're actively
+    // transferring from lives on the per-download detail endpoint (sources_active)
+    // and isn't worth a request per download each poll, so xfer stays 0.
     sourceCount: d.sources_total || 0,
-    sourceCountXfer: d.sources_active || 0,
+    sourceCountXfer: 0,
     sourceCountA4AF: 0,
     sourceCountNotCurrent: 0,
 
@@ -683,8 +718,10 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
     gapStatus: null,
     reqStatus: null,
 
-    // The "copy link" value — rucio: or ed2k: depending on the source network
-    ed2kLink: d.link || null,
+    // The "copy link" value — rucio: or ed2k: depending on the source network.
+    // Rebuilt locally: the download list endpoint doesn't carry a link field
+    // (only the per-download detail does), so we reconstruct it from the row.
+    ed2kLink: buildRucioDownloadLink(d),
 
     raw: { clientType: 'rucio', ...d }
   };
