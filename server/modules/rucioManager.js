@@ -365,13 +365,23 @@ class RucioManager extends BaseClientManager {
   }
 
   async _updateCategoryRaw(id, { name, color, path }) {
-    const body = { name, color: toHexColor(color), download_dir: path || undefined };
+    // The daemon's PUT is a full replace, and aMuTorrent doesn't manage Rucio's
+    // keyword auto-filing rules (match_keywords). Read the category's current
+    // value and send it back untouched — otherwise editing name/colour/path here
+    // would wipe rules the user set in Rucio's own panel. Best-effort: if the
+    // read fails we omit it, leaving the pre-existing behaviour.
+    let match_keywords;
+    try {
+      const cats = await this.client.getCategories();
+      match_keywords = cats.find(c => c.id === id)?.match_keywords ?? undefined;
+    } catch { /* can't read it — don't fabricate a value */ }
+    const body = { name, color: toHexColor(color), download_dir: path || undefined, match_keywords };
     try {
       return await this.client.updateCategory(id, body);
     } catch (err) {
       if (body.download_dir && /HTTP 400/.test(err.message)) {
         this.warn(`Rucio rejected download_dir for category "${name}" (${err.message}); updating without it`);
-        return await this.client.updateCategory(id, { name, color: body.color });
+        return await this.client.updateCategory(id, { name, color: body.color, match_keywords });
       }
       throw err;
     }

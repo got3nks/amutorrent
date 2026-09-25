@@ -135,6 +135,8 @@ Rucio's shared files appear in the **Shared Files** view. Unsharing a file in aM
 
 Categories created in aMuTorrent are synced to Rucio, including their **color** and **download directory**. Editing a category in aMuTorrent updates it in Rucio, and downloads can be assigned to a category from the UI.
 
+Rucio can also **auto-file** a download: give a category one or more keyword rules in Rucio's own panel (`match_keywords`, e.g. `1080p|bluray`) and any download you add **without** picking a category — whose name contains one of those keywords — lands in that category automatically. aMuTorrent leaves those rules untouched when it edits a category, so they are safe to set in Rucio.
+
 ## Reverse Proxy / Sub-path
 
 To serve Rucio under a sub-path (e.g., `https://example.com/rucio`), set `RUCIOD_BASE_PATH=/rucio/` on the daemon and enter `/rucio` as the **Base Path** in aMuTorrent. Enable **Use SSL** if the proxy terminates HTTPS.
