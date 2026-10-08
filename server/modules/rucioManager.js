@@ -52,6 +52,12 @@ function toHexColor(color) {
   return undefined;
 }
 
+// Mirrors SEARCH_DOWNLOAD_STATUS (static/utils/searchDownloadStatus.js). The
+// daemon doesn't report whether a result is already known, so we derive it from
+// what this client currently holds. Re-declared rather than imported: that file
+// is a browser ESM module.
+const SEARCH_STATUS = { NEW: 0, DOWNLOADED: 1, QUEUED: 2 };
+
 class RucioManager extends BaseClientManager {
   constructor() {
     super();
@@ -556,6 +562,16 @@ class RucioManager extends BaseClientManager {
   // becomes the parent, and its source count is the group total.
   _mapSearchResults(id, detail) {
     const links = new Map();
+    // Derive the "already downloaded / queued" badge (#77): the daemon doesn't
+    // report it, so key it off what this client currently holds. Sharing a file
+    // means we have it, so it wins over an in-flight download of the same hash.
+    const statusByHash = new Map();
+    for (const d of (this.lastDownloads || [])) {
+      if (d.hash) statusByHash.set(String(d.hash).toLowerCase(), d.isComplete ? SEARCH_STATUS.DOWNLOADED : SEARCH_STATUS.QUEUED);
+    }
+    for (const f of (this.lastSharedFiles || [])) {
+      if (f.hash) statusByHash.set(String(f.hash).toLowerCase(), SEARCH_STATUS.DOWNLOADED);
+    }
     const groups = new Map(); // fileHash → variant rows
     for (const r of (detail.results || [])) {
       const link = r.download_link;
@@ -581,7 +597,12 @@ class RucioManager extends BaseClientManager {
       const [parent, ...children] = rows;
       const totalSources = rows.reduce((n, x) => n + (x.sourceCount || 0), 0);
       links.set(parent.fileHash, parent.ed2kLink); // queue the richest variant
-      results.push({ ...parent, sourceCount: totalSources, children });
+      results.push({
+        ...parent,
+        sourceCount: totalSources,
+        downloadStatus: statusByHash.get(parent.fileHash) ?? SEARCH_STATUS.NEW,
+        children
+      });
     }
 
     this._lastSearch = { id, results, links };
