@@ -278,10 +278,14 @@ faviconAPI.registerRoutes(app);     // Tracker favicon proxy + disk cache
 restAPI.registerRoutes(app);        // REST API (HTTP bridge to WS handlers)
 
 // Item detail API — serves raw/trackersDetailed stripped from broadcasts (Phase 0)
-app.get('/api/item/detail/:hash', (req, res) => {
-  const detail = dataFetchService.getItemDetail(req.params.hash, req.query.instanceId);
-  if (!detail) return res.status(404).json({ error: 'Item not found' });
-  res.json(detail);
+app.get('/api/item/detail/:hash', async (req, res) => {
+  try {
+    const detail = await dataFetchService.getItemDetailWithTrackers(req.params.hash, req.query.instanceId);
+    if (!detail) return res.status(404).json({ error: 'Item not found' });
+    res.json(detail);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 notificationsAPI.registerRoutes(app); // Notifications API
 userAPI.registerRoutes(app);           // User management API (admin only)

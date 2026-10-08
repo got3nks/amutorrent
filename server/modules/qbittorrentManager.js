@@ -165,6 +165,19 @@ class QbittorrentManager extends BaseClientManager {
   }
 
   /**
+   * Under 'active' tracker scope: transferring, connected to peers, or an
+   * unfinished download that is not paused. A stalled download counts, since
+   * that is when tracker status matters most.
+   * @param {Object} t - Raw qBittorrent torrent
+   * @returns {boolean}
+   */
+  _isTrackerRefreshActive(t) {
+    if ((t.dlspeed || 0) > 0 || (t.upspeed || 0) > 0) return true;
+    if ((t.num_seeds || 0) + (t.num_leechs || 0) > 0) return true;
+    return (t.progress ?? 1) < 1 && !/^(paused|stopped)/.test(t.state || '');
+  }
+
+  /**
    * Fetch tracker and peer data for all torrents.
    * qBittorrent API has no batch endpoint — fetches per-torrent in parallel.
    * @param {Array} items - Torrent objects with .hash

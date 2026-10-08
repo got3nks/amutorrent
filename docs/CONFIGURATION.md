@@ -346,6 +346,16 @@ services:
 | `ED2K_SEARCH_DELAY_MS` | `5000` | Delay between ED2K searches (avoid flood protection); Kad is not delayed |
 | `ED2K_CACHE_TTL_MS` | `600000` | Search result cache duration |
 
+#### Refresh Intervals
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_REFRESH_INTERVAL_MS` | `3000` | How often item lists (downloads, shared files, uploads) are fetched. Speeds, charts and connection status still refresh every 3s, and your own actions show on the next cycle. Raise it for large libraries. Minimum `1000` |
+| `TRACKER_REFRESH_INTERVAL_MS` | `10000` | Pause between BitTorrent tracker/peer scans; a scan starts only after the previous one finishes. Minimum `1000` |
+| `TRACKER_REFRESH_SCOPE` | `all` | `all` scans every torrent. `active` scans only torrents that are transferring, connected to peers or downloading, and fetches the rest when you open them |
+
+With no browser open and no recent API request, item lists are not fetched (except for download history) and tracker scans only cover torrents not seen before. An API request to `/api/v1/data/snapshot` refreshes stale data before answering.
+
 #### Advanced
 
 | Variable | Default | Description |

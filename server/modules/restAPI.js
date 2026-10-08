@@ -91,8 +91,6 @@ function createHttpContext(req) {
 
 // Handlers that take only (context), not (data, context)
 const CONTEXT_ONLY = new Set(['handleGetCategories', 'handleRequestFullSnapshot']);
-// Subset of CONTEXT_ONLY that are synchronous (don't need await)
-const SYNC_HANDLERS = new Set(['handleRequestFullSnapshot']);
 
 /**
  * Bridge an HTTP request to a WS handler method.
@@ -119,14 +117,13 @@ async function bridge(method, req, res, extraData = {}) {
     await Promise.race([
       (async () => {
         // Some handlers take only (context), others take (data, context)
-        // Sync handlers (like handleRequestFullSnapshot) don't need await
-        if (SYNC_HANDLERS.has(method)) {
-          webSocketHandlers[method](context);
-        } else if (CONTEXT_ONLY.has(method)) {
+        if (CONTEXT_ONLY.has(method)) {
           await webSocketHandlers[method](context);
         } else {
           await webSocketHandlers[method](data, context);
         }
+
+        webSocketHandlers.afterAction(method);
 
         // Handler completed — if send() was never called, use last broadcast as fallback
         // (e.g., search results arrive via broadcast, not send)

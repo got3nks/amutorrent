@@ -11,6 +11,7 @@
  */
 const BaseModule = require('./BaseModule');
 const logger = require('./logger');
+const { TRACKER_REFRESH_INTERVAL, TRACKER_REFRESH_SCOPE, hasDemand } = require('./refreshPolicy');
 
 class BaseClientManager extends BaseModule {
   constructor() {
@@ -36,7 +37,11 @@ class BaseClientManager extends BaseModule {
     // Tracker/peer cache (used by torrent managers, no-op for aMule)
     this._trackerCache = new Map();
     this._peerCache = new Map();
-    this._trackerRefreshInterval = null;
+    this._trackerRefreshRunning = false;
+    this._trackerRefreshGeneration = 0;   // bumped by stop, so a pass in flight never reschedules
+    this._trackerRefreshTimer = null;
+    this._trackerRefreshIntervalMs = TRACKER_REFRESH_INTERVAL;
+    this._trackerRefreshScope = TRACKER_REFRESH_SCOPE;
   }
 
   // ============================================================================
@@ -184,43 +189,53 @@ class BaseClientManager extends BaseModule {
   // ============================================================================
 
   /**
-   * Start periodic tracker/peer cache refresh.
-   * Subclasses that have tracker data should implement _getItemsForTrackerRefresh()
-   * and _fetchTrackersAndPeers(items).
-   * Callers should NOT await this — initial refresh runs in background.
+   * Start the tracker/peer cache refresh loop.
+   *
+   * Each pass is scheduled only after the previous one settles, so a slow pass
+   * over a large library never overlaps the next. Callers should not await
+   * this: the first pass runs in the background.
    * @returns {Promise<void>}
    */
   async startTrackerRefresh() {
-    if (this._trackerRefreshInterval) {
-      return; // Already running
-    }
+    // Set before the first pass, which can take a while on a large library:
+    // the guard must already hold if a reconnect calls this again meanwhile.
+    if (this._trackerRefreshRunning) return;
+    this._trackerRefreshRunning = true;
+    const generation = ++this._trackerRefreshGeneration;
 
-    this.log('🔄 Starting tracker cache refresh (every 10s)');
+    this.log(`🔄 Starting tracker cache refresh (${this._trackerRefreshIntervalMs / 1000}s between passes, scope: ${this._trackerRefreshScope})`);
 
-    // Do initial refresh (runs in background when caller doesn't await)
-    await this.refreshAllTrackers();
-
-    // Schedule periodic refresh
-    this._trackerRefreshInterval = setInterval(() => {
-      this.refreshAllTrackers();
-    }, 10000);
+    const runPass = async () => {
+      if (generation !== this._trackerRefreshGeneration) return;
+      try {
+        await this.refreshAllTrackers();
+      } finally {
+        if (generation === this._trackerRefreshGeneration) {
+          this._trackerRefreshTimer = setTimeout(runPass, this._trackerRefreshIntervalMs);
+        }
+      }
+    };
+    await runPass();
   }
 
   /**
-   * Stop periodic tracker/peer cache refresh.
+   * Stop the tracker/peer cache refresh loop, including a pass in flight.
    */
   stopTrackerRefresh() {
-    if (this._trackerRefreshInterval) {
-      clearInterval(this._trackerRefreshInterval);
-      this._trackerRefreshInterval = null;
-      this.log('⏹️  Stopped tracker cache refresh');
-    }
+    if (!this._trackerRefreshRunning) return;
+    this._trackerRefreshRunning = false;
+    this._trackerRefreshGeneration++;
+    clearTimeout(this._trackerRefreshTimer);
+    this._trackerRefreshTimer = null;
+    this.log('⏹️  Stopped tracker cache refresh');
   }
 
   /**
-   * Refresh trackers and peers for all known items.
-   * Gets items via _getItemsForTrackerRefresh(), fetches data via _fetchTrackersAndPeers(),
-   * updates caches, and cleans up stale entries.
+   * Refresh tracker and peer data for the items worth scanning this pass.
+   *
+   * Which items those are: see _selectTrackerRefreshItems(). Stale entries are
+   * removed against the full item list, not the scanned subset - a torrent
+   * skipped this pass still exists.
    */
   async refreshAllTrackers() {
     if (!this.client) {
@@ -233,42 +248,124 @@ class BaseClientManager extends BaseModule {
         return;
       }
 
-      const { trackersByHash, peersByHash } = await this._fetchTrackersAndPeers(items);
+      const toScan = this._selectTrackerRefreshItems(items);
+      const scanned = new Set();
 
-      // Update caches
-      const now = Date.now();
-      const currentHashes = new Set();
+      if (toScan.length > 0) {
+        const { trackersByHash, peersByHash } = await this._fetchTrackersAndPeers(toScan);
+        const now = Date.now();
 
-      for (const item of items) {
-        const hash = (item.hash || item.hashString || '')?.toLowerCase();
-        if (!hash) continue;
-        currentHashes.add(hash);
+        for (const item of toScan) {
+          const hash = this._trackerItemHash(item);
+          if (!hash) continue;
+          scanned.add(hash);
 
-        const trackerData = trackersByHash.get(hash);
-        if (trackerData) {
-          this._trackerCache.set(hash, { ...trackerData, lastUpdated: now });
-        }
+          const trackerData = trackersByHash.get(hash);
+          if (trackerData) {
+            this._trackerCache.set(hash, { ...trackerData, lastUpdated: now });
+          }
 
-        const peers = peersByHash.get(hash);
-        if (peers) {
-          this._peerCache.set(hash, { peers, lastUpdated: now });
+          const peers = peersByHash.get(hash);
+          if (peers) {
+            this._peerCache.set(hash, { peers, lastUpdated: now });
+          }
         }
       }
 
-      // Clean up cache for items that no longer exist
+      const currentHashes = new Set(items.map(i => this._trackerItemHash(i)).filter(Boolean));
       for (const hash of this._trackerCache.keys()) {
         if (!currentHashes.has(hash)) {
           this._trackerCache.delete(hash);
         }
       }
+      // Peers are live data: an item not scanned this pass would keep showing
+      // old peers and their upload rates. Tracker lists change slowly, so an
+      // unscanned item keeps its last one.
       for (const hash of this._peerCache.keys()) {
-        if (!currentHashes.has(hash)) {
+        if (!currentHashes.has(hash) || !scanned.has(hash)) {
           this._peerCache.delete(hash);
         }
       }
     } catch (err) {
       this.error('❌ Error refreshing tracker/peer cache:', logger.errorDetail(err));
     }
+  }
+
+  /**
+   * Choose the items to scan this pass.
+   *
+   * - Nobody reading (no browser, no recent API read): only items never
+   *   scanned. History still gets a tracker domain for each new torrent once.
+   * - Scope 'active': items the client reports as active, plus any never
+   *   scanned. The rest are fetched on demand by refreshTrackersFor().
+   * - Otherwise: everything.
+   * @param {Array} items
+   * @returns {Array}
+   */
+  _selectTrackerRefreshItems(items) {
+    const unseen = (item) => {
+      const hash = this._trackerItemHash(item);
+      return hash && !this._trackerCache.has(hash);
+    };
+    if (!hasDemand(this.wss)) {
+      return items.filter(unseen);
+    }
+    if (this._trackerRefreshScope === 'active') {
+      return items.filter(item => unseen(item) || this._isTrackerRefreshActive(item));
+    }
+    return items;
+  }
+
+  /**
+   * Refresh tracker data for one item if its cached copy is older than a pass,
+   * and return the cached tracker list either way. Used when an item is
+   * opened, since 'active' scope does not scan idle items on a schedule.
+   * @param {string} hash
+   * @param {number} [timeoutMs] - Give up waiting and return what is cached
+   * @returns {Promise<Array|null>} trackersDetailed, or null if never fetched
+   */
+  async refreshTrackersFor(hash, timeoutMs = 5000) {
+    const h = String(hash || '').toLowerCase();
+    const cached = () => this._trackerCache.get(h)?.trackersDetailed || null;
+    if (!this.client || !h) return cached();
+
+    const entry = this._trackerCache.get(h);
+    if (entry && Date.now() - entry.lastUpdated < 2 * this._trackerRefreshIntervalMs) {
+      return cached();
+    }
+
+    const fetchOne = (async () => {
+      const items = await this._getItemsForTrackerRefresh();
+      const item = (items || []).find(i => this._trackerItemHash(i) === h);
+      if (!item) return;
+      const { trackersByHash } = await this._fetchTrackersAndPeers([item]);
+      const trackerData = trackersByHash.get(h);
+      if (trackerData) {
+        this._trackerCache.set(h, { ...trackerData, lastUpdated: Date.now() });
+      }
+    })().catch(err => this.warn(`⚠️  On-demand tracker refresh failed for ${h}: ${err.message}`));
+
+    // Caught above, so a fetch that fails after the timeout has nowhere to leak.
+    let timer;
+    const timeout = new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); });
+    await Promise.race([fetchOne, timeout]);
+    clearTimeout(timer);
+    return cached();
+  }
+
+  /**
+   * Override in subclass: is this item worth scanning on every pass under
+   * 'active' scope? Default: yes, which suits clients that fetch every item in
+   * one call anyway.
+   * @param {Object} _item - Item from _getItemsForTrackerRefresh()
+   * @returns {boolean}
+   */
+  _isTrackerRefreshActive(_item) {
+    return true;
+  }
+
+  _trackerItemHash(item) {
+    return (item?.hash || item?.hashString || '').toLowerCase();
   }
 
   /**

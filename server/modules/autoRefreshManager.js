@@ -18,6 +18,7 @@ const HealthTracker = require('../lib/HealthTracker');
 const eventScriptingManager = require('../lib/EventScriptingManager');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
+const { DATA_REFRESH_INTERVAL, DATA_MAX_AGE, hasDemand, markApiRead } = require('../lib/refreshPolicy');
 
 // How often to update download history status (in milliseconds)
 const HISTORY_UPDATE_INTERVAL = 30000; // 30 seconds
@@ -28,7 +29,12 @@ class AutoRefreshManager extends BaseModule {
     this.refreshInterval = null;
     this.cleanupTimeout = null;
     this._cachedBatchUpdate = null;
+    this._cachedAt = 0;
     this._lastHistoryUpdate = 0; // Timestamp of last history update
+    this._lastBatchData = null;  // Item lists reused between data refreshes
+    this._lastDataFetch = 0;
+    this._cycleInFlight = null;
+    this._stopped = true;
     this._deltaEngine = new DeltaEngine();
     this._healthTracker = new HealthTracker();
   }
@@ -42,15 +48,65 @@ class AutoRefreshManager extends BaseModule {
     return this._cachedBatchUpdate;
   }
 
+  /**
+   * The cached batch update for an HTTP API reader, refreshed first if it is
+   * older than one data refresh period.
+   *
+   * With no browser connected the loop only refreshes the cache when history
+   * is due, so an API poller used to get data up to 30s old, or none newer than
+   * the last browser session with history off. Reading also counts as demand,
+   * which keeps the loop refreshing while the poller is active.
+   * @returns {Promise<Object|null>}
+   */
+  async getFreshBatchUpdate() {
+    markApiRead();
+    if (this._cachedBatchUpdate && Date.now() - this._cachedAt <= DATA_MAX_AGE) {
+      return this._cachedBatchUpdate;
+    }
+    const askedAt = Date.now();
+    this.markDataStale();
+    await this._runCycleOnce();
+    // A cycle already in flight may have decided before we asked; run one more.
+    if (this._cachedAt < askedAt) await this._runCycleOnce();
+    return this._cachedBatchUpdate;
+  }
+
+  /**
+   * Fetch item lists on the next cycle instead of waiting out the data
+   * interval: after an action changes something, or a browser connects.
+   */
+  markDataStale() {
+    this._lastDataFetch = 0;
+  }
+
   // Auto-refresh loop
   async autoRefreshLoop() {
-    const connectedManagers = registry.getConnected();
-
-    // If no client is connected, wait and retry
-    if (connectedManagers.length === 0) {
-      this.refreshInterval = setTimeout(() => this.autoRefreshLoop(), config.AUTO_REFRESH_INTERVAL);
-      return;
+    try {
+      await this._runCycleOnce();
+    } finally {
+      // stop() during a cycle must not be undone by its finally.
+      if (!this._stopped) {
+        this.refreshInterval = setTimeout(() => this.autoRefreshLoop(), config.AUTO_REFRESH_INTERVAL);
+      }
     }
+  }
+
+  /** Run one cycle, or join the one in flight. */
+  _runCycleOnce() {
+    if (!this._cycleInFlight) {
+      this._cycleInFlight = this._runCycle().finally(() => { this._cycleInFlight = null; });
+    }
+    return this._cycleInFlight;
+  }
+
+  /**
+   * One refresh cycle. Stats, speed metrics and health run every cycle; the
+   * item lists only when DATA_REFRESH_INTERVAL has passed, someone is reading,
+   * or history needs them.
+   */
+  async _runCycle() {
+    const connectedManagers = registry.getConnected();
+    if (connectedManagers.length === 0) return;
 
     try {
       // Collect stats and metrics from all connected instances
@@ -93,26 +149,42 @@ class AutoRefreshManager extends BaseModule {
       // Health check: detect connection state transitions for all enabled instances
       this._checkClientHealth();
 
-      // Only fetch batch data if there are WebSocket clients or history update is due
+      // Fetch item lists only if someone is reading them or history is due.
+      // History never runs more often than the data refresh: a long interval
+      // is meant to stop the fetching, not move it to the history timer.
       const now = Date.now();
       const historyEnabled = this.downloadHistoryDB && config.getConfig()?.history?.enabled;
-      const historyDue = historyEnabled && now - this._lastHistoryUpdate >= HISTORY_UPDATE_INTERVAL;
+      const historyInterval = Math.max(HISTORY_UPDATE_INTERVAL, DATA_REFRESH_INTERVAL);
+      const historyDue = historyEnabled && now - this._lastHistoryUpdate >= historyInterval;
       const hasWsClients = this.wss.clients.size > 0;
+      const demand = hasDemand(this.wss);
 
-      if (!hasWsClients && !historyDue) {
-        // Nothing to do — skip data fetching entirely
+      if (!demand && !historyDue) {
         return;
       }
 
-      const batchStart = Date.now();
-      const batchData = await dataFetchService.getBatchData();
-      const batchMs = Date.now() - batchStart;
-      if (batchMs > 15000) {
-        this.warn(`⚠️  getBatchData() took ${(batchMs / 1000).toFixed(1)}s — data fetch cycle is slow`);
+      // With someone reading, lists are fetched on their own interval anyway, so
+      // history waits for the next fetch instead of forcing an extra one.
+      const dataDue = !this._lastBatchData || now - this._lastDataFetch >= DATA_REFRESH_INTERVAL;
+      const fetchNow = dataDue || (historyDue && !demand);
+      let batchData;
+      if (fetchNow) {
+        const batchStart = Date.now();
+        batchData = await dataFetchService.getBatchData();
+        const batchMs = Date.now() - batchStart;
+        if (batchMs > 15000) {
+          this.warn(`⚠️  getBatchData() took ${(batchMs / 1000).toFixed(1)}s — data fetch cycle is slow`);
+        }
+        this._lastBatchData = batchData;
+        this._lastDataFetch = now;
+      } else {
+        // Not due: reuse the item lists. The delta below comes out empty, and
+        // the fresh stats still reach the browser this cycle.
+        batchData = this._lastBatchData;
       }
 
       // Update history status from live data (throttled to reduce SQLite writes)
-      if (historyDue) {
+      if (historyDue && fetchNow) {
         this.updateHistoryStatus(batchData);
         this._lastHistoryUpdate = now;
       }
@@ -205,12 +277,11 @@ class AutoRefreshManager extends BaseModule {
 
       // Always update cache (REST API + new WS client initial data)
       this._cachedBatchUpdate = { type: 'batch-update', data: fullData };
+      this._cachedAt = Date.now();
 
     } catch (err) {
       // Client disconnected during stats fetch - will retry on next interval
       this.warn('⚠️  Could not fetch stats:', logger.errorDetail(err));
-    } finally {
-      this.refreshInterval = setTimeout(() => this.autoRefreshLoop(), config.AUTO_REFRESH_INTERVAL);
     }
   }
 
@@ -318,12 +389,17 @@ class AutoRefreshManager extends BaseModule {
 
   // Start auto-refresh and scheduled cleanup
   start() {
+    this._stopped = false;
+    if (DATA_REFRESH_INTERVAL !== config.AUTO_REFRESH_INTERVAL) {
+      this.log(`ℹ️  Item lists refresh every ${DATA_REFRESH_INTERVAL / 1000}s; stats every ${config.AUTO_REFRESH_INTERVAL / 1000}s`);
+    }
     this.autoRefreshLoop();
     this.scheduleCleanup();
   }
 
   // Stop auto-refresh and cleanup
   stop() {
+    this._stopped = true;
     if (this.refreshInterval) {
       clearTimeout(this.refreshInterval);
       this.refreshInterval = null;
