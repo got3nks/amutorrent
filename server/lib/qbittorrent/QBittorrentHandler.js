@@ -339,9 +339,15 @@ class QBittorrentHandler {
         0
       );
 
-      if (result.success && result.categoryId !== null) {
+      // aMule sends no id on a clean create, only when it rejects the path.
+      if (result.success) {
         await this.syncCategories();
-        logger.log(`[qBittorrent] Category created: ${category} (ID: ${result.categoryId}) -> ${savePath || 'default path'}`);
+        const created = this.categoriesCache.find(cat => cat.title === category);
+        if (result.applied === 'partial') {
+          logger.warn(`[qBittorrent] Category created: ${category} (ID: ${created?.id}), but aMule rejected "${savePath}" and uses "${result.keptPath}"`);
+        } else {
+          logger.log(`[qBittorrent] Category created: ${category} (ID: ${created?.id}) -> ${savePath || 'default path'}`);
+        }
         res.send('Ok.');
       } else {
         logger.error(`[qBittorrent] Failed to create category: ${category}`);
