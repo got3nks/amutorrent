@@ -53,9 +53,13 @@ function calculateEta(total, completed, speed) {
  * shared list for peers that ask, with no per-file lifecycle. Reporting
  * `pausedUP` at 100% maps that reality onto the qBit-compat semantics
  * Sonarr/Radarr expect, so the import-then-cleanup loop fires.
+ *
+ * `moving` covers aMule's final hash and move out of temp. Sonarr/Radarr
+ * read it as still downloading, so they don't import a file not yet there.
  */
-function determineState(progress, speed, sourceCount) {
+function determineState(progress, speed, sourceCount, moving) {
   if (progress >= 1.0) return 'pausedUP';
+  if (moving) return 'moving';
   if (speed > 0) return 'downloading';
   if (sourceCount === 0) return 'stalledDL';
   if (sourceCount > 0) return 'queuedDL';
@@ -88,9 +92,11 @@ function convertToQBittorrentInfo(download) {
   const priority = download.EC_TAG_PARTFILE_PRIO || download.priority || 1;
   const sourceCount = download.EC_TAG_PARTFILE_SOURCE_COUNT || download.sourceCount || 0;
 
-  // Calculated values
-  const progress = sizeTotal > 0 ? sizeCompleted / sizeTotal : 0;
-  const state = determineState(progress, speed, sourceCount);
+  // SIZE_DONE can reach sizeTotal before the file is in place (#100), so only
+  // the completion flag may report 100%.
+  const rawProgress = sizeTotal > 0 ? sizeCompleted / sizeTotal : 0;
+  const progress = download.isComplete ? 1 : Math.min(rawProgress, 0.999);
+  const state = determineState(progress, speed, sourceCount, download.status === 'moving');
   const eta = calculateEta(sizeTotal, sizeCompleted, speed);
 
   // Use enriched fields or fall back to raw data

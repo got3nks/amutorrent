@@ -370,8 +370,7 @@ class QBittorrentHandler {
    */
   async enrichDownload(download) {
     const ed2kHash = download.fileHash || download.EC_TAG_PARTFILE_HASH;
-    const categoryId = download.category || download.EC_TAG_PARTFILE_CAT || 0;
-    const categoryObj = await this.getCategoryById(categoryId);
+    const categoryObj = await this._resolveCategory(download);
 
     return {
       ...download,
@@ -379,6 +378,31 @@ class QBittorrentHandler {
       categoryName: categoryObj?.title || '',
       categoryPath: categoryObj?.path || ''
     };
+  }
+
+  /**
+   * A finished file has no aMule category id, only the id our category list
+   * derived from its folder, and our list may lack categories created through
+   * this API. Match its folder against aMule's own categories instead (#100).
+   */
+  async _resolveCategory(download) {
+    if (!download.downloading && download.filePath) {
+      return (await this._getCategoryByDir(download.filePath)) || this.getCategoryById(0);
+    }
+    return this.getCategoryById(download.category || download.EC_TAG_PARTFILE_CAT || 0);
+  }
+
+  async _getCategoryByDir(dir) {
+    await this.waitForCategoryInit();
+    const trim = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+    const fileDir = trim(dir);
+    let best = null;
+    for (const cat of this.categoriesCache) {
+      const catDir = cat.path ? trim(cat.path) : '';
+      if (!catDir || (fileDir !== catDir && !fileDir.startsWith(catDir + '/'))) continue;
+      if (!best || catDir.length > trim(best.path).length) best = cat;
+    }
+    return best;
   }
 
   /**
@@ -403,6 +427,9 @@ class QBittorrentHandler {
       speed: item.downloadSpeed || 0,
       priority: item.downloadPriority ?? 0,
       category: item.categoryId || null,
+      downloading: !!item.downloading,
+      filePath: item.filePath || '',
+      isComplete: !!item.complete,
       status: item.status,
       uploadSpeed: item.uploadSpeed || 0,
       ratio: item.ratio || 0,
@@ -527,7 +554,7 @@ class QBittorrentHandler {
       if (category) {
         const filteredDownloads = [];
         for (const download of downloads) {
-          const categoryObj = await this.getCategoryById(download.category);
+          const categoryObj = await this._resolveCategory(download);
           if (categoryObj && categoryObj.title === category) {
             filteredDownloads.push(download);
           }

@@ -95,6 +95,8 @@ function extractTrackerDomain(trackers) {
 // AMULE NORMALIZERS
 // ============================================================================
 
+const AMULE_PS_COMPLETE = 9;
+
 /**
  * Normalize aMule download to unified format
  * @param {Object} download - aMule download object (from amule-ec-node library)
@@ -115,17 +117,10 @@ function normalizeAmuleDownload(download, resolveCategoryName = () => 'Default')
     rawName: download.rawFileName,
     size: download.fileSize,
     downloaded: download.fileSizeDownloaded,
-    // Use gap status (verified+written bytes) rather than fileSizeDownloaded,
-    // which is EC_TAG_PARTFILE_SIZE_DONE = "Transferred (Raw)" in aMule's UI:
-    // it counts every byte received from peers including corrupted pieces that
-    // failed hash check, so it can transiently meet or exceed fileSize and
-    // fire a false completion. gapStatus is the decoded {start,end} array of
-    // missing-byte ranges; an empty array means every byte is hashed and
-    // written. Checked here on the raw lib field — flattenRangePairs() below
-    // collapses both "empty" and "undefined" to null, losing the distinction.
-    isComplete: download.fileSize > 0
-      && Array.isArray(download.gapStatus)
-      && download.gapStatus.length === 0,
+    // Not fileSizeDownloaded (SIZE_DONE counts raw bytes, corrupt ones too) and
+    // not empty gaps: aMule still hashes and moves the file after that. Only
+    // PS_COMPLETE means the file is in its category folder (#100).
+    isComplete: download.status === AMULE_PS_COMPLETE,
     category: catId,
     categoryName,
     ed2kLink: download.ed2kLink || download.EC_TAG_PARTFILE_ED2K_LINK || download.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
