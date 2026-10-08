@@ -134,15 +134,60 @@ class RucioManager extends BaseClientManager {
   acquireSearchLock() {
     if (this._searchInProgress) return false;
     this._searchInProgress = true;
+    this._broadcastSearchLock(true);
     return true;
   }
 
   releaseSearchLock() {
+    if (!this._searchInProgress) return;
     this._searchInProgress = false;
+    this._broadcastSearchLock(false);
+  }
+
+  // Tell the clients that may search about the slot changing hands. Since
+  // v3.9.3 handleSearch no longer broadcasts this itself, so without it the
+  // search box stays on "Searching…" until a page reload. Mirrors aMule.
+  _broadcastSearchLock(locked) {
+    this.broadcast?.({ type: 'search-lock', locked }, {
+      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
+    });
   }
 
   isSearchInProgress() {
     return this._searchInProgress;
+  }
+
+  // ── History ──────────────────────────────────────────────────────────
+
+  // Shape a unified Rucio item (download or shared file) into the record the
+  // history tracker expects. autoRefreshManager calls this on every item with
+  // no guard, so a manager that lacks it throws and breaks history for ALL
+  // clients. Rucio exposes no per-file uploaded total, so ratio stays 0.
+  extractHistoryMetadata(item) {
+    const size = item.size || 0;
+    // Shared files carry no `progress` field → treat them as fully downloaded.
+    const isSharedFile = item.progress === undefined;
+    const downloaded = isSharedFile ? size : (item.downloaded || 0);
+    const uploaded = item.uploadTotal || 0;
+    const ratio = downloaded > 0 ? uploaded / downloaded : 0;
+    // Only shared files carry a path, and it's the file itself — record its
+    // containing directory, like the other managers. Downloads have no path.
+    const directory = item.path && item.path.startsWith('/')
+      ? item.path.replace(/\/[^/]*$/, '') || '/'
+      : null;
+    return {
+      hash: item.hash?.toLowerCase(),
+      instanceId: item.instanceId,
+      size,
+      name: item.name,
+      downloaded,
+      uploaded,
+      ratio,
+      trackerDomain: null,
+      directory,
+      multiFile: false,
+      category: null // filled from the unified items' categoryByKey lookup
+    };
   }
 
   // ── Data fetch ───────────────────────────────────────────────────────
