@@ -56,7 +56,14 @@ const CLIENT_SOFTWARE_LABELS = {
 function getClientSoftwareName(item) {
   // For rtorrent, use the client string directly
   if (clientMeta.isBittorrent(item.clientType) || item.EC_TAG_CLIENT_SOFTWARE === -1) {
-    return item.EC_TAG_CLIENT_SOFT_VER_STR || 'Unknown';
+    return item.EC_TAG_CLIENT_SOFT_VER_STR || item.software || 'Unknown';
+  }
+  // The CLIENT_SOFTWARE_LABELS map is keyed by aMule's EC_TAG_CLIENT_SOFTWARE.
+  // A source-based client that doesn't carry those tags (e.g. Rucio) supplies a
+  // ready-made `software` string instead — otherwise its peers would all read
+  // "Unknown" off a missing tag.
+  if (item.EC_TAG_CLIENT_SOFTWARE === undefined && item.software) {
+    return item.software;
   }
   const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';
   const version = item.EC_TAG_CLIENT_SOFT_VER_STR;

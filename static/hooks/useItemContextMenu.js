@@ -179,9 +179,10 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Export link (read-only action, not gated on ownership)
+    // Export link (read-only action, not gated on ownership). getExportLink
+    // resolves the neutral `item.link` (ed2k:// or rucio:) or a BitTorrent magnet.
     if (onCopyLink) {
-      const hasExportLink = isBittorrent || !!item.ed2kLink || !!getExportLink(item);
+      const hasExportLink = isBittorrent || !!getExportLink(item);
       const isCopied = copiedHash === item.hash;
       const linkLabel = getExportLinkLabel(item);
 

@@ -640,9 +640,9 @@ function normalizeTransmissionDownload(torrent) {
 // RUCIO NORMALIZERS
 // ============================================================================
 
-// Rucio is modelled under the ed2k networkType, so these emit the field names
-// the ed2k branch of unifiedItemBuilder reads (category id + categoryName,
-// sourceCount/sourceCountXfer, ed2kLink, state for the status map).
+// Rucio has its own networkType. These emit the fields the source-based branch
+// of unifiedItemBuilder reads (category id + categoryName, sourceCount, state
+// for the status map) plus the neutral `link` field, rather than aMule's names.
 
 /**
  * Reconstruct the "copy link" / re-add value for a Rucio download list item.
@@ -721,7 +721,8 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
     // The "copy link" value — rucio: or ed2k: depending on the source network.
     // Rebuilt locally: the download list endpoint doesn't carry a link field
     // (only the per-download detail does), so we reconstruct it from the row.
-    ed2kLink: buildRucioDownloadLink(d),
+    // Emitted under the neutral `link` field (not aMule's `ed2kLink`).
+    link: buildRucioDownloadLink(d),
 
     raw: { clientType: 'rucio', ...d }
   };
@@ -741,8 +742,8 @@ function normalizeRucioSharedFile(s) {
     rawName: s.name || '',
     size: s.size || 0,
     uploadSpeed: 0,
-    // ed2k branch marks shared files complete/seeding and uses these
-    ed2kLink: s.magnet || null,
+    // Neutral copy/export link (the rucio: magnet), under `link` not `ed2kLink`.
+    link: s.magnet || null,
     path: s.path || null,
     raw: { clientType: 'rucio', ...s }
   };

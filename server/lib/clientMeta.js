@@ -38,7 +38,7 @@ const CLIENT_TYPES = {
       gapStatus: null,
       reqStatus: null,
       lastSeenComplete: 0,
-      ed2kLink: null,
+      link: null,                  // neutral "copy/export link" (ed2k:// for aMule)
       addedAt: null
     },
     capabilities: {
@@ -61,7 +61,8 @@ const CLIENT_TYPES = {
       logs: true,                  // has fetchable log output
       renameFile: true,            // can rename downloads and shared files
       fileRatingComment: true,     // can set a per-file rating + comment (shared files only in aMule)
-      customSavePath: false        // ed2k uses category paths only
+      customSavePath: false,       // ed2k uses category paths only
+      seedsCompletedFiles: true    // a completed download is seeded/shared (→ item.seeding), no seedingStatuses
     }
   },
   rucio: {
@@ -98,7 +99,7 @@ const CLIENT_TYPES = {
       gapStatus: null,
       reqStatus: null,
       lastSeenComplete: 0,
-      ed2kLink: null,
+      link: null,                        // neutral "copy/export link" (rucio: or ed2k://)
       addedAt: null
     },
     capabilities: {
@@ -121,9 +122,11 @@ const CLIENT_TYPES = {
       logs: false,
       renameFile: true,                  // can rename a not-yet-complete download
       fileRatingComment: false,
-      customSavePath: false              // path follows the category, not per-download
-    },
-    seedingStatuses: ['completed', 'Completed']
+      customSavePath: false,             // path follows the category, not per-download
+      seedsCompletedFiles: true          // completed downloads are seeded back to the network (→ item.seeding)
+    }
+    // No seedingStatuses: Rucio's seeding is "download complete", expressed via
+    // the seedsCompletedFiles capability, not a status-string whitelist.
   },
   rtorrent: {
     networkType: 'bittorrent',

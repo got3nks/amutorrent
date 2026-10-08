@@ -327,8 +327,9 @@ export const getExportLink = (item) => {
   if (isBittorrentClient(item)) {
     return generateMagnetLink(item);
   }
-  // ED2K: use unified ed2kLink field
-  return item.ed2kLink || null;
+  // Source-based clients: the neutral copy/export link (ed2k:// for aMule,
+  // rucio: magnet for Rucio). `ed2kLink` is read as a fallback for safety.
+  return item.link || item.ed2kLink || null;
 };
 
 /**
