@@ -1,10 +1,11 @@
 /**
  * RucioManager - lifecycle wrapper for a Rucio daemon instance
  *
- * Extends BaseClientManager. Rucio is modelled under the 'ed2k' networkType
- * (its capability profile matches aMule: search + shared files + categories,
- * no trackers, single-file), so the unified pipeline and the search UI light
- * up with no frontend branching. See clientMeta.js → CLIENT_TYPES.rucio.
+ * Extends BaseClientManager. Rucio is its own libp2p P2P network that also
+ * bridges eMule/Kad, with its own 'rucio' networkType. Its capability profile —
+ * search, shared files, categories, seeds completed files, no trackers,
+ * single-file — drives behaviour through clientMeta capabilities rather than
+ * network-type branches. See clientMeta.js → CLIENT_TYPES.rucio.
  *
  * Key structural difference from the other clients: Rucio addresses downloads
  * by a signed integer id (positive = rucio, negative = eMule), while the rest
@@ -338,29 +339,43 @@ class RucioManager extends BaseClientManager {
   }
 
   /**
-   * Delete an item.
-   * Shared file → un-share via the API (the on-disk file is left intact;
-   *   Rucio's removeSharedMustDeleteFiles capability is false).
-   * Active/terminal download → cancel then remove from the daemon's history.
+   * Delete an item. The caller's `isShared`/`filePath` are advisory: a Rucio
+   * completed download is BOTH a download-list row and a shared file, and the
+   * caller's joined filePath is built for directory-based clients, so we decide
+   * from our own state instead.
+   *
+   * Tracked download (in the download list, completed or active) → remove it
+   *   from the list (and cancel first when still active, to discard the partial)
+   *   and un-share it when it's being seeded, so the row can't reappear.
+   * Pure shared file (no download row) → un-share via the API only.
+   *
+   * The on-disk file is left intact unless `deleteFiles` is set; the path comes
+   * from the shared-files list (the download list carries none), so a disk wipe
+   * is only possible for a file this client is sharing.
    */
-  async deleteItem(hash, { deleteFiles, isShared, filePath } = {}) {
+  async deleteItem(hash, { deleteFiles } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
+    const h = String(hash).toLowerCase();
 
-    if (isShared) {
-      await this.client.unshare(String(hash).toLowerCase());
+    const shared = (this.lastSharedFiles || []).find(f => String(f.hash).toLowerCase() === h);
+    const pathsToDelete = deleteFiles && shared?.path ? [shared.path] : [];
+
+    const id = this.hashToId.get(h);
+    if (id !== undefined) {
+      const dl = (this.lastDownloads || []).find(d => String(d.hash).toLowerCase() === h);
+      // Cancel only an active download (cancel discards the partial file); a
+      // completed one is just dropped from the list, never cancelled, so the
+      // finished file is never touched.
+      if (!dl?.isComplete) await this.client.cancelDownload(id).catch(() => {});
+      await this.client.removeDownload(id).catch(() => {});
+      if (shared) await this.client.unshare(h).catch(() => {});
       this.trackDeletion(hash);
-      // Only hand a path back to the caller if the user explicitly asked to
-      // also wipe the file from disk.
-      return { success: true, pathsToDelete: deleteFiles && filePath ? [filePath] : [] };
+      return { success: true, pathsToDelete };
     }
 
-    const id = this._idForHash(hash);
-    // Cancel first (no-op/expected-fail if already terminal), then drop it from
-    // the list. Rucio never deletes the completed file from disk via the API.
-    await this.client.cancelDownload(id).catch(() => {});
-    await this.client.removeDownload(id).catch(() => {});
+    await this.client.unshare(h);
     this.trackDeletion(hash);
-    return { success: true, pathsToDelete: [] };
+    return { success: true, pathsToDelete };
   }
 
   async setCategoryOrLabel(hash, { categoryName } = {}) {
@@ -445,6 +460,22 @@ class RucioManager extends BaseClientManager {
     return categoryId && categoryId > 0 ? categoryId : null;
   }
 
+  // Resolve a daemon category id to its name for history display — aMule records
+  // the name, not the id (so history reads "Movies", not "7"). Cached briefly so
+  // a batch add doesn't refetch the list per item.
+  async _categoryNameById(id) {
+    if (id == null) return null;
+    const now = Date.now();
+    if (!this._catCache || now - this._catCache.at > 3000) {
+      try {
+        this._catCache = { at: now, list: (await this.client.getCategories()) || [] };
+      } catch {
+        this._catCache = { at: now, list: [] };
+      }
+    }
+    return this._catCache.list.find(c => c.id === id)?.name || null;
+  }
+
   /**
    * Queue a previously-found search result by its hash. Routes to the right
    * endpoint by link scheme (rucio: → libp2p, ed2k:// → eMule).
@@ -470,7 +501,8 @@ class RucioManager extends BaseClientManager {
         size = info?.size || null;
       } catch { /* use defaults */ }
     }
-    this.trackDownload(fileHash, filename, size, username, categoryId ? String(categoryId) : null);
+    const categoryName = await this._categoryNameById(category_id);
+    this.trackDownload(fileHash, filename, size, username, categoryName);
     return true;
   }
 
