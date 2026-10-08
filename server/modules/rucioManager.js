@@ -19,6 +19,7 @@ const RucioClient = require('../lib/rucio/RucioClient');
 const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
 const { normalizeRucioDownload, normalizeRucioSharedFile } = require('../lib/downloadNormalizer');
+const { normaliseQueryForm } = require('../lib/searchQuery');
 
 // Pull the BLAKE3 (rucio) or MD4 (ed2k) hash out of a download link so search
 // results can be keyed by hash like aMule's, and looked up again on download.
@@ -507,7 +508,14 @@ class RucioManager extends BaseClientManager {
    */
   async search(query, _type, _extension) {
     if (!this.client) throw new Error('Rucio not connected');
-    const keywords = String(query || '').trim().split(/\s+/).filter(Boolean);
+    // NFC-normalise before splitting: a decomposed accent (common from macOS
+    // and *arr pastes) looks identical on screen but the eMule/Kad bridge
+    // matches nothing with it. Rucio's own network folds accents either way.
+    const composed = normaliseQueryForm(String(query || ''));
+    if (composed !== query) {
+      this.log(`Search query composed to NFC: "${query}" -> "${composed}"`);
+    }
+    const keywords = composed.trim().split(/\s+/).filter(Boolean);
     if (keywords.length === 0) return { results: [], resultsLength: 0 };
 
     const { id } = await this.client.startSearch(keywords, 'both');
@@ -540,15 +548,20 @@ class RucioManager extends BaseClientManager {
   // Map Rucio search detail → the result row shape the frontend renders
   // (fileHash/fileName/fileSize/sourceCount/ed2kLink), and refresh the
   // hash→link map used by addSearchResult().
+  //
+  // Results that share a hash are grouped under one row with the others as
+  // `children` (#82): the eMule/Kad bridge can return one file under several
+  // names, and the results list keys every row by fileHash, so emitting them
+  // flat would collide. The richest variant (most sources, then largest size)
+  // becomes the parent, and its source count is the group total.
   _mapSearchResults(id, detail) {
     const links = new Map();
-    const results = [];
+    const groups = new Map(); // fileHash → variant rows
     for (const r of (detail.results || [])) {
       const link = r.download_link;
       const fileHash = hashFromLink(link);
       if (!fileHash) continue; // can't be queued without a hash; skip
-      links.set(fileHash, link);
-      results.push({
+      const row = {
         fileHash,
         fileName: r.name,
         fileSize: r.size,
@@ -557,8 +570,20 @@ class RucioManager extends BaseClientManager {
         source: r.source,
         rating: 0,
         categories: []
-      });
+      };
+      if (!groups.has(fileHash)) groups.set(fileHash, []);
+      groups.get(fileHash).push(row);
     }
+
+    const results = [];
+    for (const rows of groups.values()) {
+      rows.sort((a, b) => (b.sourceCount - a.sourceCount) || (b.fileSize - a.fileSize));
+      const [parent, ...children] = rows;
+      const totalSources = rows.reduce((n, x) => n + (x.sourceCount || 0), 0);
+      links.set(parent.fileHash, parent.ed2kLink); // queue the richest variant
+      results.push({ ...parent, sourceCount: totalSources, children });
+    }
+
     this._lastSearch = { id, results, links };
     return { results, resultsLength: results.length };
   }
