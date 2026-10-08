@@ -8,8 +8,9 @@
  *
  * The daemon has no built-in auth (access control is delegated to a reverse
  * proxy). We therefore connect with just a base URL; optional username/password
- * are sent as HTTP Basic for setups that put nginx basic-auth in front. A
- * basePath is supported for daemons served under a sub-path (RUCIOD_BASE_PATH).
+ * are sent as HTTP Basic for setups that put nginx basic-auth in front. A URL
+ * `path` is supported for daemons served under a sub-path (the daemon's own
+ * RUCIOD_BASE_PATH).
  *
  * Downloads are addressed by a signed integer id (positive = rucio, negative =
  * eMule); shares and search results are addressed by hash. The manager layer
@@ -26,15 +27,15 @@ class RucioClient {
    * @param {string} opts.host
    * @param {number} opts.port
    * @param {boolean} [opts.useSsl=false]
-   * @param {string} [opts.basePath=''] - sub-path the daemon is served under (e.g. '/rucio')
+   * @param {string} [opts.path=''] - sub-path the daemon is served under (e.g. '/rucio')
    * @param {string} [opts.username] - optional, for reverse-proxy basic auth
    * @param {string} [opts.password] - optional, for reverse-proxy basic auth
    * @param {number} [opts.timeoutMs]
    */
-  constructor({ host, port, useSsl = false, basePath = '', username = '', password = '', timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  constructor({ host, port, useSsl = false, path = '', username = '', password = '', timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     const scheme = useSsl ? 'https' : 'http';
-    // Normalize basePath to '' or '/segment' (no trailing slash).
-    const trimmed = String(basePath || '').trim().replace(/\/+$/, '');
+    // Normalize the sub-path to '' or '/segment' (no trailing slash).
+    const trimmed = String(path || '').trim().replace(/\/+$/, '');
     const normBase = trimmed && !trimmed.startsWith('/') ? `/${trimmed}` : trimmed;
     this.origin = `${scheme}://${host}:${port}${normBase}`;
     this.username = username || '';

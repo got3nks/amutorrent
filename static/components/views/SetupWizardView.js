@@ -827,41 +827,13 @@ const SetupWizardView = ({ onComplete }) => {
       }),
 
       formData.rucio?.enabled && h('div', { className: 'mt-6 space-y-4' },
-        h(ConfigField, {
-          label: 'Host', description: 'Rucio daemon host address',
-          value: formData.rucio.host, onChange: (v) => updateField('rucio', 'host', v),
-          placeholder: '127.0.0.1', required: true, fromEnv: meta?.fromEnv.rucioHost
-        }),
-        h(ConfigField, {
-          label: 'Port', description: 'Rucio daemon API port (default: 3003)',
-          value: formData.rucio.port, onChange: (v) => updateField('rucio', 'port', parseInt(v, 10) || 3003),
-          type: 'number', placeholder: '3003', required: true, fromEnv: meta?.fromEnv.rucioPort
-        }),
-        h(ConfigField, {
-          label: 'Base Path (Optional)',
-          description: 'Base path when the daemon is served under a sub-path behind a reverse proxy (e.g., /rucio)',
-          value: formData.rucio.basePath || '', onChange: (v) => updateField('rucio', 'basePath', v),
-          placeholder: 'Leave empty if not using a reverse proxy'
-        }),
-        h(ConfigField, {
-          label: 'Username (Optional)',
-          description: 'Only if the daemon is behind HTTP basic auth — Rucio itself has no authentication',
-          value: formData.rucio.username || '', onChange: (v) => updateField('rucio', 'username', v),
-          placeholder: 'Leave empty if not required'
-        }),
-        h(ConfigField, {
-          label: 'Password (Optional)', description: 'Only if the daemon is behind HTTP basic auth',
-          value: formData.rucio.password || '', onChange: (v) => updateField('rucio', 'password', v)
-        },
-          h(PasswordField, {
-            value: formData.rucio.password || '', onChange: (v) => updateField('rucio', 'password', v),
-            placeholder: 'Leave empty if not required'
-          })
-        ),
-        h(EnableToggle, {
-          label: 'Use SSL (HTTPS)', description: 'Connect to the Rucio daemon using HTTPS',
-          enabled: formData.rucio?.useSsl || false,
-          onChange: (enabled) => updateField('rucio', 'useSsl', enabled)
+        h(ClientFieldsRenderer, {
+          type: 'rucio',
+          fields: CLIENT_FIELDS.rucio,
+          values: formData.rucio,
+          onFieldChange: (field, value) => updateField('rucio', field, value),
+          isFieldFromEnv: (field) => wizardFromEnv(meta, 'rucio', field),
+          isEnabled: formData.rucio?.enabled === true
         }),
 
         h('div', { className: 'mt-6' },
@@ -1322,7 +1294,7 @@ const SetupWizardView = ({ onComplete }) => {
         h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Rucio Connection'),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.rucio.host}`),
         h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.rucio.port}`),
-        formData.rucio.basePath && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Base path: ${formData.rucio.basePath}`),
+        formData.rucio.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `URL path: ${formData.rucio.path}`),
         formData.rucio.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: enabled')
       ),
 

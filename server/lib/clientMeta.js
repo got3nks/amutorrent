@@ -90,7 +90,7 @@ const CLIENT_TYPES = {
       'cancelled':         'stopped', 'Cancelled':       'stopped'
     },
     connectionDefaults: {
-      host: '', port: 3003, useSsl: false, basePath: '', username: '', password: ''
+      host: '', port: 3003, useSsl: false, path: '', username: '', password: ''
     },
     defaults: {
       downloadPriority: null,

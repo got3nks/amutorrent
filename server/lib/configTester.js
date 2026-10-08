@@ -678,15 +678,15 @@ async function testTransmissionConnection(host, port, username, password, useSsl
  * @param {string} host
  * @param {number} port
  * @param {boolean} [useSsl]
- * @param {string} [basePath] - sub-path behind a reverse proxy
+ * @param {string} [path] - sub-path behind a reverse proxy
  * @param {string} [username] - optional HTTP basic auth
  * @param {string} [password] - optional HTTP basic auth
  * @returns {Promise<{success, connected, version, error, message}>}
  */
-async function testRucioConnection(host, port, useSsl, basePath, username, password) {
+async function testRucioConnection(host, port, useSsl, path, username, password) {
   const result = { success: false, connected: false, version: null, error: null };
   try {
-    const client = new RucioClient({ host, port, useSsl, basePath, username, password, timeoutMs: 10000 });
+    const client = new RucioClient({ host, port, useSsl, path, username, password, timeoutMs: 10000 });
     const r = await client.testConnection();
     if (r.success) {
       result.connected = true;

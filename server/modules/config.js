@@ -101,7 +101,7 @@ const CLIENT_ENV_FIELDS = {
     HOST: { field: 'host', type: 'string' },
     PORT: { field: 'port', type: 'int' },
     USE_SSL: { field: 'useSsl', type: 'boolean' },
-    BASE_PATH: { field: 'basePath', type: 'string' },
+    PATH: { field: 'path', type: 'string' },
     USERNAME: { field: 'username', type: 'string' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
     ID: { field: 'id', type: 'string' },

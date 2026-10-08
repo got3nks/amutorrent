@@ -50,7 +50,7 @@ RUCIO_ENABLED=true
 RUCIO_HOST=localhost
 RUCIO_PORT=3003
 RUCIO_USE_SSL=false
-RUCIO_BASE_PATH=
+RUCIO_PATH=
 RUCIO_USERNAME=
 RUCIO_PASSWORD=
 ```
@@ -139,7 +139,7 @@ Rucio can also **auto-file** a download: give a category one or more keyword rul
 
 ## Reverse Proxy / Sub-path
 
-To serve Rucio under a sub-path (e.g., `https://example.com/rucio`), set `RUCIOD_BASE_PATH=/rucio/` on the daemon and enter `/rucio` as the **Base Path** in aMuTorrent. Enable **Use SSL** if the proxy terminates HTTPS.
+To serve Rucio under a sub-path (e.g., `https://example.com/rucio`), set `RUCIOD_BASE_PATH=/rucio/` on the daemon and enter `/rucio` as the **URL Path** in aMuTorrent. Enable **Use SSL** if the proxy terminates HTTPS.
 
 ## Troubleshooting
 

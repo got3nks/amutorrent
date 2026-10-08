@@ -22,77 +22,9 @@ import {
 
 const { createElement: h, useState, useEffect } = React;
 
-/**
- * Type-specific field definitions (moved from ClientInstanceCard)
- */
-// Field definitions per client type. defaultValue is the source of truth for new instance defaults.
-// Mirrors server/lib/clientMeta.js connectionDefaults.
-const CLIENT_FIELDS = {
-  amule: [
-    { field: 'host', label: 'Host', description: 'aMule External Connection (EC) host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'aMule EC port (default: 4712)', placeholder: '4712', defaultValue: 4712, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 4712 },
-    { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
-    { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). This makes aMule rescan shared directories periodically.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 }
-  ],
-  rucio: [
-    { field: 'host', label: 'Host', description: 'Rucio daemon host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Rucio daemon API port (default: 3003)', placeholder: '3003', defaultValue: 3003, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 3003 },
-    { field: 'basePath', label: 'Base Path (Optional)', description: 'Base path when the daemon is served under a sub-path behind a reverse proxy (e.g., /rucio)', placeholder: 'Leave empty if not using a reverse proxy' },
-    { field: 'username', label: 'Username (Optional)', description: 'Only if the daemon is behind HTTP basic auth — Rucio itself has no authentication', placeholder: 'Leave empty if not required' },
-    { field: 'password', label: 'Password (Optional)', description: 'Only if the daemon is behind HTTP basic auth', placeholder: 'Leave empty if not required', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to the Rucio daemon using HTTPS', toggle: true }
-  ],
-  rtorrent: [
-    { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
-    { field: 'host', label: 'Host', description: 'rTorrent host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
-    { field: 'port', label: 'Port', description: 'rTorrent port (default: 8000)', placeholder: '8000', defaultValue: 8000, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8000, hideWhen: form => (form.mode || 'http') === 'scgi-socket' },
-    { field: 'socketPath', label: 'Socket Path', description: 'Path to rTorrent SCGI Unix socket', placeholder: '/path/to/rtorrent.sock', required: true, hideWhen: form => (form.mode || 'http') !== 'scgi-socket' },
-    { field: 'path', label: 'XML-RPC Path', description: 'Path for XML-RPC endpoint (default: /RPC2)', placeholder: '/RPC2', defaultValue: '/RPC2', hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'username', label: 'Username (Optional)', description: 'Username for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'password', label: 'Password (Optional)', description: 'Password for HTTP basic authentication (if required)', placeholder: 'Leave empty if not required', sensitive: true, hideWhen: form => (form.mode || 'http') !== 'http' },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to rTorrent using HTTPS', toggle: true, hideWhen: form => (form.mode || 'http') !== 'http' }
-  ],
-  qbittorrent: [
-    { field: 'host', label: 'Host', description: 'qBittorrent WebUI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'qBittorrent WebUI port (default: 8080)', placeholder: '8080', defaultValue: 8080, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8080 },
-    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /qbittorrent)', placeholder: 'Leave empty if not using a reverse proxy' },
-    { field: 'username', label: 'Username', description: 'qBittorrent WebUI username (default: admin)', placeholder: 'admin', defaultValue: 'admin' },
-    { field: 'password', label: 'Password', description: 'qBittorrent WebUI password', placeholder: 'Enter qBittorrent password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to qBittorrent using HTTPS', toggle: true }
-  ],
-  deluge: [
-    { field: 'host', label: 'Host', description: 'Deluge Web UI host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Deluge Web UI port (default: 8112)', placeholder: '8112', defaultValue: 8112, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 8112 },
-    { field: 'path', label: 'URL Path (Optional)', description: 'Base path when behind a reverse proxy (e.g., /deluge)', placeholder: 'Leave empty if not using a reverse proxy' },
-    { field: 'password', label: 'Password', description: 'Deluge Web UI password', placeholder: 'Enter Deluge password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Deluge using HTTPS', toggle: true }
-  ],
-  transmission: [
-    { field: 'host', label: 'Host', description: 'Transmission RPC host address', placeholder: '127.0.0.1', defaultValue: '127.0.0.1', required: true },
-    { field: 'port', label: 'Port', description: 'Transmission RPC port (default: 9091)', placeholder: '9091', defaultValue: 9091, type: 'number', required: true, parseValue: v => parseInt(v, 10) || 9091 },
-    { field: 'path', label: 'RPC Path', description: 'Path for RPC endpoint (default: /transmission/rpc)', placeholder: '/transmission/rpc', defaultValue: '/transmission/rpc' },
-    { field: 'username', label: 'Username', description: 'Transmission RPC username', placeholder: 'Enter username' },
-    { field: 'password', label: 'Password', description: 'Transmission RPC password', placeholder: 'Enter Transmission password', sensitive: true },
-    { field: 'useSsl', label: 'Use SSL (HTTPS)', description: 'Connect to Transmission using HTTPS', toggle: true }
-  ]
-};
-
-const TYPE_LABELS = {
-  amule: 'aMule',
-  rucio: 'Rucio',
-  rtorrent: 'rTorrent',
-  qbittorrent: 'qBittorrent',
-  deluge: 'Deluge',
-  transmission: 'Transmission'
-};
-// TYPE_LABELS and CLIENT_FIELDS are re-exported at the bottom of the file
-// so the existing `ClientInstanceCard` import path keeps working without any
-// migration.
-
-const { createElement: h, useState, useEffect } = React;
-
-// (Field schema and factories moved to ./clientFields.js so both this modal
-// and the SetupWizard consume the same source of truth.)
+// Field schema, labels and factories live in ./clientFields.js so this modal
+// and the SetupWizard share one source of truth. Re-exported at the bottom of
+// the file so the existing `ClientInstanceCard` import path keeps working.
 
 const INSTANCE_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#6c5ce7', '#00cec9', '#fd79a8'];
 

@@ -84,13 +84,13 @@ class RucioManager extends BaseClientManager {
       }
 
       const cfg = this._clientConfig;
-      this.log(`Connecting to Rucio (${cfg.host}:${cfg.port}${cfg.basePath || ''})...`);
+      this.log(`Connecting to Rucio (${cfg.host}:${cfg.port}${cfg.path || ''})...`);
 
       const client = new RucioClient({
         host: cfg.host,
         port: cfg.port || 3003,
         useSsl: cfg.useSsl || false,
-        basePath: cfg.basePath || '',
+        path: cfg.path || '',
         username: cfg.username || '',
         password: cfg.password || ''
       });
