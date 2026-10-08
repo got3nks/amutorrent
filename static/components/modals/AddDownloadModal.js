@@ -32,8 +32,8 @@ const AddDownloadModal = ({
   onClose,
   initialTorrentFiles = []
 }) => {
-  // Get aMule connection status from context
-  const { ed2kConnected: amuleConnected } = useClientFilter();
+  // ed2k-link handling is served by aMule and Rucio alike.
+  const { ed2kConnected: amuleConnected, rucioConnected } = useClientFilter();
   // Get BitTorrent client selection state (instance-aware)
   const {
     connectedClients: btClients,
@@ -89,7 +89,9 @@ const AddDownloadModal = ({
     const invalidLinks = [];
 
     lines.forEach(line => {
-      if (line.toLowerCase().startsWith('ed2k://')) {
+      if (line.toLowerCase().startsWith('ed2k://') || line.toLowerCase().startsWith('rucio:')) {
+        // ed2k:// and rucio: both go through the ed2k-capable path, which routes
+        // to the selected aMule/Rucio instance — grouped here, not invalid.
         ed2kLinks.push(line);
       } else if (line.toLowerCase().startsWith('magnet:?')) {
         magnetLinks.push(line);
@@ -105,9 +107,11 @@ const AddDownloadModal = ({
   if (!show) return null;
 
   const { ed2kLinks, magnetLinks, invalidLinks } = parseLinks(links);
+  // aMule and Rucio both accept ed2k:// (and Rucio also rucio:) links.
+  const ed2kCapableConnected = amuleConnected || rucioConnected;
 
   // Check if we can submit
-  const hasEd2kLinks = ed2kLinks.length > 0 && amuleConnected;
+  const hasEd2kLinks = ed2kLinks.length > 0 && ed2kCapableConnected;
   const hasMagnetLinks = magnetLinks.length > 0 && hasBitTorrentClient;
   const hasTorrentFiles = torrentFiles.length > 0 && hasBitTorrentClient;
   const canSubmit = hasEd2kLinks || hasMagnetLinks || hasTorrentFiles;
@@ -136,7 +140,7 @@ const AddDownloadModal = ({
     const effectiveSavePath = (showSavePath && customSavePath && supportsCustomPath) ? customSavePath : null;
 
     // Add ED2K links if any (send category name - backend resolves to per-instance amuleId)
-    if (ed2kLinks.length > 0 && amuleConnected && onAddEd2kLinks) {
+    if (ed2kLinks.length > 0 && ed2kCapableConnected && onAddEd2kLinks) {
       onAddEd2kLinks(ed2kLinks, finalCategory, false, effectiveAmuleInstance);
     }
 
@@ -241,8 +245,8 @@ const AddDownloadModal = ({
 
     if (ed2kLinks.length > 0) {
       let ed2kPart = `${ed2kLinks.length} ED2K link${ed2kLinks.length > 1 ? 's' : ''}`;
-      if (!amuleConnected) {
-        ed2kPart += ' (aMule offline)';
+      if (!ed2kCapableConnected) {
+        ed2kPart += ' (no ed2k client)';
       } else {
         ed2kPart += ` → ${effectiveAmuleName}`;
         if (finalCategory && finalCategory !== 'Default') {
@@ -458,7 +462,7 @@ const AddDownloadModal = ({
           // Category options toggle - only show when content is entered and at least one client is connected
           (() => {
             const hasDownloads = ed2kLinks.length > 0 || magnetLinks.length > 0 || torrentFiles.length > 0;
-            const hasConnectedClient = amuleConnected || hasBitTorrentClient;
+            const hasConnectedClient = ed2kCapableConnected || hasBitTorrentClient;
             const showOptionsSection = hasDownloads && hasConnectedClient;
 
             if (!showOptionsSection) return null;

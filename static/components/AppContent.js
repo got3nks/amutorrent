@@ -339,7 +339,7 @@ const AppContentInner = () => {
       // Add Download Modal (global — opened by button in DownloadsView or global drag-and-drop)
       hasCap('add_downloads') && h(AddDownloadModal, {
         show: showAddDownload,
-        onAddEd2kLinks: (links, categoryName) => actions.search.addEd2kLinks(links.join('\n'), categoryName, false),
+        onAddEd2kLinks: (links, categoryName, isServerList = false, instanceId = null) => actions.search.addEd2kLinks(links.join('\n'), categoryName, isServerList, instanceId),
         onAddMagnetLinks: (links, label, instanceId, clientType, savePath) =>
           actions.search.addMagnetLinks(links, label, instanceId, clientType, savePath),
         onAddTorrentFile: (file, label, instanceId, clientType, savePath) =>

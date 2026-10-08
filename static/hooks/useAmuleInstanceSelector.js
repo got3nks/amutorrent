@@ -21,14 +21,17 @@ import { useStaticData } from '../contexts/StaticDataContext.js';
 export function useAmuleInstanceSelector(options = {}) {
   const { instances } = useStaticData();
 
-  // Build list of connected ED2K instances (sorted by config order)
+  // Build list of connected ED2K-capable instances (sorted by config order).
+  // Rucio handles ed2k links and search too (its own + the eMule/Kad bridge),
+  // so it belongs here alongside aMule — otherwise a Rucio instance can never
+  // be chosen for an ed2k add or search.
   const connectedInstances = useMemo(() => {
     return Object.entries(instances || {})
-      .filter(([, inst]) => inst.connected && inst.networkType === 'ed2k')
+      .filter(([, inst]) => inst.connected && (inst.networkType === 'ed2k' || inst.networkType === 'rucio'))
       .map(([id, inst]) => ({
         id,
         type: inst.type,
-        name: inst.name || 'aMule',
+        name: inst.name || (inst.networkType === 'rucio' ? 'Rucio' : 'aMule'),
         color: inst.color,
         order: inst.order
       }))

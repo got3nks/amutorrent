@@ -511,9 +511,16 @@ class RucioManager extends BaseClientManager {
    */
   async addEd2kLink(link, categoryId = 0, username = null) {
     if (!this.client) throw new Error('Rucio not connected');
-    await this.client.addEd2k(link, { category_id: this._normalizeCategoryId(categoryId) });
-    const md4 = (link.match(/\|([a-fA-F0-9]{32})\|/) || [])[1];
-    if (md4) this.trackDownload(md4.toLowerCase(), 'Unknown', null, username, null);
+    const category_id = this._normalizeCategoryId(categoryId);
+    // The ed2k-links path can carry a rucio: magnet too (the Add Download modal
+    // groups both under it) — route by scheme.
+    if (String(link).toLowerCase().startsWith('rucio:')) {
+      await this.client.addMagnet(link, { category_id });
+    } else {
+      await this.client.addEd2k(link, { category_id });
+    }
+    const hash = hashFromLink(link);
+    if (hash) this.trackDownload(hash, 'Unknown', null, username, null);
     return true;
   }
 
