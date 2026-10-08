@@ -56,6 +56,7 @@ export const useViewFilters = ({
     filterCategoryId,
     hasBittorrent,
     hasAmule,
+    hasRucio,
     isEd2kEnabled,
     isBittorrentEnabled,
     isRucioEnabled,
@@ -194,6 +195,7 @@ export const useViewFilters = ({
     filterCategoryId,
     hasBittorrent,
     hasAmule,
+    hasRucio,
     isEd2kEnabled,
     isBittorrentEnabled,
 

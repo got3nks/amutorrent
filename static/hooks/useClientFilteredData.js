@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import { useClientFilter } from '../contexts/ClientFilterContext.js';
-import { filterByUnifiedFilter, hasBittorrentItems, hasAmuleItems } from '../utils/index.js';
+import { filterByUnifiedFilter, hasBittorrentItems, hasAmuleItems, hasRucioItems } from '../utils/index.js';
 
 /**
  * Hook for filtering data by client type and category/label
@@ -35,6 +35,7 @@ export const useClientFilteredData = ({ data }) => {
   // Check if bittorrent/amule items exist (for showing/hiding filters)
   const hasBittorrent = useMemo(() => hasBittorrentItems(data), [data]);
   const hasAmule = useMemo(() => hasAmuleItems(data), [data]);
+  const hasRucio = useMemo(() => hasRucioItems(data), [data]);
 
   // Parse category name from unified filter (for views that need it)
   const filterCategoryName = useMemo(() => {
@@ -55,6 +56,7 @@ export const useClientFilteredData = ({ data }) => {
     // Data presence flags
     hasBittorrent,
     hasAmule,
+    hasRucio,
     // Client filter state (for conditional rendering and page reset)
     isEd2kEnabled,
     isBittorrentEnabled,

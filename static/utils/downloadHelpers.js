@@ -265,6 +265,15 @@ export const hasAmuleItems = (downloads) => {
 };
 
 /**
+ * Check if downloads include Rucio items
+ * @param {Array} downloads - Array of download items
+ * @returns {boolean} True if any Rucio downloads exist
+ */
+export const hasRucioItems = (downloads) => {
+  return downloads.some(d => d.networkType === 'rucio');
+};
+
+/**
  * Filter downloads by client type
  * @param {Array} downloads - Array of download items
  * @param {string} clientFilter - 'all', 'amule', or 'rtorrent'
