@@ -638,6 +638,70 @@ class RucioManager extends BaseClientManager {
     return out;
   }
 
+  // ── Category sync on (re)connect ─────────────────────────────────────
+
+  // Two-way category reconciliation, run once per connection. server.js skips
+  // any manager without this method, so without it Rucio's categories are
+  // never imported and the per-instance sync toggle has nothing to act on.
+  // The second argument ({ qbittorrentAPI }) is unused here. Mirrors the other
+  // managers (delugeManager is the closest template).
+  async onConnectSync(categoryManager) {
+    if (!this.client) return;
+
+    let rucioCats;
+    try {
+      rucioCats = await this.client.getCategories();
+    } catch (err) {
+      this.error(`Failed to fetch categories for sync: ${logger.errorDetail(err)}`);
+      return;
+    }
+
+    // Phase 1 — import the daemon's categories into the app (gated by sync-out).
+    // Only name + colour cross over; Rucio's download dirs live on the daemon
+    // host (a different filesystem), so paths are deliberately not imported.
+    let createdInApp = 0;
+    if (this.isCategorySyncOut()) {
+      for (const cat of (rucioCats || [])) {
+        const name = cat?.name;
+        if (!name || name === 'Default') continue;
+        if (categoryManager.getByName(name)) {
+          // Already known — record this instance as another contributor so the
+          // category stays live (and isn't propagated as app-owned; see #85).
+          categoryManager.addSource(name, this.instanceId);
+          continue;
+        }
+        categoryManager.importCategory({
+          source: this.instanceId,
+          name,
+          color: cat.color || undefined,
+          comment: 'Auto-created from Rucio'
+        });
+        createdInApp++;
+      }
+      if (createdInApp > 0) await categoryManager.save();
+    }
+
+    // Phase 2 — push the app's categories to the daemon (gated by sync-in).
+    if (this.isCategorySyncIn()) {
+      const existing = new Set((rucioCats || []).map(c => c.name?.toLowerCase()));
+      for (const [name, cat] of categoryManager.getCategoriesSnapshot().entries()) {
+        if (name === 'Default' || existing.has(name.toLowerCase())) continue;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await this._createCategoryRaw({ name, color: cat.color, path: cat.path });
+          this.log(`Pushed category "${name}" to Rucio`);
+        } catch (err) {
+          this.error(`Failed to push category "${name}" to Rucio: ${logger.errorDetail(err)}`);
+        }
+      }
+    }
+
+    // Propagate any newly imported categories to the other clients (sync-out).
+    if (this.isCategorySyncOut()) {
+      await categoryManager.propagateToOtherClients(this.instanceId);
+    }
+  }
+
   // ── Shutdown ─────────────────────────────────────────────────────────
 
   async shutdown() {
