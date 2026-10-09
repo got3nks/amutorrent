@@ -53,6 +53,10 @@ class RucioManager extends BaseClientManager {
     super();
     this.lastDownloads = [];
     this.lastSharedFiles = [];
+    // Shared files refresh on their own slower cadence (paging a big library is
+    // expensive); reused between refreshes. See fetchData.
+    this._lastSharesFetch = 0;
+    this._sharesRefreshIntervalMs = 30000;
     // Daemon category list kept by fetchData and reused by the category helpers
     // (null = not fetched / invalidated after a create/update/delete).
     this.lastCategories = null;
@@ -145,11 +149,9 @@ class RucioManager extends BaseClientManager {
     const downloaded = isSharedFile ? size : (item.downloaded || 0);
     const uploaded = item.uploadTotal || 0;
     const ratio = downloaded > 0 ? uploaded / downloaded : 0;
-    // Only shared files carry a path, and it's the file itself — record its
-    // containing directory, like the other managers. Downloads have no path.
-    const directory = item.path && item.path.startsWith('/')
-      ? item.path.replace(/\/[^/]*$/, '') || '/'
-      : null;
+    // Only shared files carry a path, and it's already the containing folder
+    // (normalizeRucioSharedFile emits the directory). Downloads have no path.
+    const directory = item.path && item.path.startsWith('/') ? item.path : null;
     return {
       hash: item.hash?.toLowerCase(),
       instanceId: item.instanceId,
@@ -174,8 +176,11 @@ class RucioManager extends BaseClientManager {
   // offset), and reaching `total` stops an offset-ignoring daemon too.
   async _getAllShares() {
     const limit = 1000; // what we request; the daemon may serve fewer per page
+    const maxPages = 1000; // hard cap (~1M shares): a daemon that ignores offset
+                           // and reports no total would otherwise loop forever.
     let offset = 0;
     let total = null;
+    let pages = 0;
     const shares = [];
     for (;;) {
       // eslint-disable-next-line no-await-in-loop
@@ -184,7 +189,8 @@ class RucioManager extends BaseClientManager {
       if (Number.isFinite(page?.total)) total = page.total;
       shares.push(...batch);
       offset += batch.length;
-      if (batch.length === 0 || (total !== null && shares.length >= total)) break;
+      pages++;
+      if (batch.length === 0 || (total !== null && shares.length >= total) || pages >= maxPages) break;
     }
     return { shares };
   }
@@ -205,11 +211,17 @@ class RucioManager extends BaseClientManager {
       this.scheduleReconnect(5000);
     };
 
+    // Shared files change slowly and paging a large library is expensive (it
+    // can be ~20 sequential requests for 20k shares, which every client's
+    // refresh waits on), so refresh them on their own slower interval and reuse
+    // the cached list between — like aMule's shared-files reload.
+    const refreshShares = (Date.now() - this._lastSharesFetch) >= this._sharesRefreshIntervalMs;
+
     let rawDownloads, sharesResult, rucioCategories;
     try {
       [rawDownloads, sharesResult, rucioCategories] = await Promise.all([
         this.client.getDownloads(),
-        this._getAllShares(),
+        refreshShares ? this._getAllShares() : Promise.resolve(null),
         // null (not []) on failure, so we can tell a real empty list from a
         // failed fetch and keep the last known one instead.
         this.client.getCategories().catch(() => null)
@@ -241,19 +253,25 @@ class RucioManager extends BaseClientManager {
       downloads.push(normalizeRucioDownload(d, resolveCategoryName));
     }
 
-    // ── Shared files ────────────────────────────────────────────────────
-    const sharedFiles = (sharesResult.shares || []).map(normalizeRucioSharedFile);
-
     // Stamp instanceId on every item so the unified pipeline and batch
     // operations (pause/resume/cancel/delete/category) can resolve this
     // manager from the registry. Without it the UI reports "Client instance
     // not found" on any action.
     const instanceId = this.instanceId;
     downloads.forEach(d => { d.instanceId = instanceId; });
-    sharedFiles.forEach(f => { f.instanceId = instanceId; });
+
+    // ── Shared files (refreshed on the slower interval; reused otherwise) ──
+    let sharedFiles;
+    if (sharesResult) {
+      sharedFiles = (sharesResult.shares || []).map(normalizeRucioSharedFile);
+      sharedFiles.forEach(f => { f.instanceId = instanceId; });
+      this.lastSharedFiles = sharedFiles;
+      this._lastSharesFetch = Date.now();
+    } else {
+      sharedFiles = this.lastSharedFiles; // already normalised + stamped
+    }
 
     this.lastDownloads = downloads;
-    this.lastSharedFiles = sharedFiles;
     return { downloads, sharedFiles };
   }
 
@@ -408,8 +426,9 @@ class RucioManager extends BaseClientManager {
    * Resolve an aMuTorrent category name to a Rucio category id, creating the
    * category in the daemon if it doesn't exist yet. Returns null for the
    * default/global category. Named to match the contract the search/add
-   * handlers call (they were written for aMule). Only the name is synced —
-   * category download paths live in different filesystems on each side.
+   * handlers call (they were written for aMule). A category created on demand
+   * carries over the app category's name, colour and download dir, so it isn't
+   * name-only.
    */
   async ensureAmuleCategoryId(categoryName) {
     if (!this.client) throw new Error('Rucio not connected');
@@ -617,7 +636,9 @@ class RucioManager extends BaseClientManager {
     do {
       await new Promise(r => setTimeout(r, 2000));
       detail = await this.client.getSearch(id);
-    } while (detail.state === 'running' && Date.now() < deadline);
+      // Accept both casings, like the download states: a daemon without the
+      // serde rename sends 'Running', which must not end the poll after 2s.
+    } while (String(detail.state).toLowerCase() === 'running' && Date.now() < deadline);
     /* eslint-enable no-await-in-loop */
 
     return this._mapSearchResults(id, detail);
