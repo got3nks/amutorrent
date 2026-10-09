@@ -27,6 +27,17 @@ const prowlarrAPI = require('./prowlarrAPI');
 const eventScriptingManager = require('../lib/EventScriptingManager');
 
 // Capability requirements per WS action (actions not listed require no specific capability)
+// Handlers that change nothing in the item lists. Every other action marks the
+// data stale, so its effect shows on the next 3s cycle even when the item lists
+// refresh less often (DATA_REFRESH_INTERVAL_MS).
+const READ_ONLY_HANDLERS = new Set([
+  'handleSearch', 'handleGetPreviousSearchResults', 'handleGetServersList',
+  'handleGetStatsTree', 'handleGetServerInfo', 'handleGetLog', 'handleGetAppLog',
+  'handleGetQbittorrentLog', 'handleGetCategories', 'handleCheckDeletePermissions',
+  'handleCheckMovePermissions', 'handleCheckMoveToPermissions',
+  'handleRequestFullSnapshot', 'handleSubscribe', 'handleUnsubscribe'
+]);
+
 const ACTION_CAPABILITIES = {
   search: ['search'],
   getPreviousSearchResults: ['search'],
@@ -261,6 +272,8 @@ class WebSocketHandlers extends BaseModule {
       context.send({ type: 'batch-update', data: filtered });
       context.debug('Sent cached batch update to new client');
     }
+    // The cache may be a data interval old; fetch current lists next cycle.
+    autoRefreshManager.markDataStale();
 
     // Periodic session re-validation (every 5 minutes)
     let sessionHeartbeat = null;
@@ -341,15 +354,28 @@ class WebSocketHandlers extends BaseModule {
         case 'checkDeletePermissions': await this.handleCheckDeletePermissions(data, context); break;
         case 'checkMovePermissions': await this.handleCheckMovePermissions(data, context); break;
         case 'checkMoveToPermissions': await this.handleCheckMoveToPermissions(data, context); break;
-        case 'requestFullSnapshot': this.handleRequestFullSnapshot(context); break;
+        case 'requestFullSnapshot': await this.handleRequestFullSnapshot(context); break;
         case 'subscribe': this.handleSubscribe(data, context); break;
         case 'unsubscribe': this.handleUnsubscribe(data, context); break;
         default:
           context.send({ type: 'error', message: `Unknown action: ${data.action}` });
+          return;
       }
+      this.afterAction(`handle${data.action.charAt(0).toUpperCase()}${data.action.slice(1)}`);
     } catch (err) {
       context.error('Error processing message:', err);
       context.send({ type: 'error', message: err.message });
+    }
+  }
+
+  /**
+   * After a handler ran, from WebSocket or the REST bridge: if it may have
+   * changed the item lists, fetch them on the next cycle.
+   * @param {string} method - Handler name, e.g. 'handleBatchPause'
+   */
+  afterAction(method) {
+    if (!READ_ONLY_HANDLERS.has(method)) {
+      autoRefreshManager.markDataStale();
     }
   }
 
@@ -1121,8 +1147,10 @@ class WebSocketHandlers extends BaseModule {
   /**
    * Send full snapshot to a single client (e.g. after seq gap)
    */
-  handleRequestFullSnapshot(context) {
-    const cached = autoRefreshManager.getCachedBatchUpdate();
+  async handleRequestFullSnapshot(context) {
+    // Refreshed first if stale: with no browser connected, the REST API
+    // snapshot is the only thing keeping it current.
+    const cached = await autoRefreshManager.getFreshBatchUpdate();
     if (!cached) return;
     const batchData = cached.data || cached;
     const filtered = this._filterBatchUpdateForUser(batchData, context.clientInfo, context.ws?.user);

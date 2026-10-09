@@ -225,6 +225,18 @@ class TransmissionManager extends BaseClientManager {
   }
 
   /**
+   * Under 'active' tracker scope: transferring, connected to peers, or
+   * downloading or queued to (status 4 and 3).
+   * @param {Object} t - Raw Transmission torrent
+   * @returns {boolean}
+   */
+  _isTrackerRefreshActive(t) {
+    if ((t.rateDownload || 0) > 0 || (t.rateUpload || 0) > 0) return true;
+    if ((t.peersConnected || 0) > 0) return true;
+    return t.status === 4 || t.status === 3;
+  }
+
+  /**
    * Fetch tracker and peer data for all torrents.
    * @param {Array} items - Torrent objects with .hashString
    * @returns {Promise<{ trackersByHash: Map, peersByHash: Map }>}

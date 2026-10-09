@@ -20,6 +20,7 @@ const registry = require('./ClientRegistry');
 const geoIPManager = require('../modules/geoIPManager');
 const categoryManager = require('./CategoryManager');
 const hostnameResolver = require('./hostnameResolver');
+const { DATA_MAX_AGE } = require('./refreshPolicy');
 
 // Demo mode generator (lazy-loaded)
 let demoGenerator = null;
@@ -37,10 +38,12 @@ class DataFetchService extends BaseModule {
 
   /**
    * Get cached batch data if available and fresh
-   * @param {number} maxAge - Maximum cache age in ms (default 5000ms)
+   * @param {number} [maxAge] - Maximum cache age in ms. Defaults to one data
+   *   refresh period plus margin (5s with the default interval), so readers
+   *   still find data when DATA_REFRESH_INTERVAL_MS is raised.
    * @returns {Object|null} Cached data or null if stale/missing
    */
-  getCachedBatchData(maxAge = 5000) {
+  getCachedBatchData(maxAge = DATA_MAX_AGE) {
     if (!this._cachedBatchData) return null;
     if (Date.now() - this._cacheTimestamp > maxAge) return null;
     return this._cachedBatchData;
@@ -53,7 +56,7 @@ class DataFetchService extends BaseModule {
    * @param {number} maxAge - Cache freshness window in ms
    * @returns {Promise<Object>}
    */
-  async getOrFetchBatchData(maxAge = 5000) {
+  async getOrFetchBatchData(maxAge = DATA_MAX_AGE) {
     const cached = this.getCachedBatchData(maxAge);
     if (cached) return cached;
     return this.getBatchData();
@@ -225,9 +228,29 @@ class DataFetchService extends BaseModule {
     );
     if (!item) return null;
     return {
+      instanceId: item.instanceId,
       raw: item.raw || {},
       trackersDetailed: item.trackersDetailed || []
     };
+  }
+
+  /**
+   * getItemDetail(), with the tracker list fetched now if the cached one is
+   * older than a scan pass. Under 'active' tracker scope idle torrents are not
+   * scanned on a schedule, so this is when their tracker list gets refreshed.
+   * @param {string} hash - Item hash
+   * @param {string} instanceId - Instance ID
+   * @returns {Promise<{ instanceId: string, raw: Object, trackersDetailed: Array }|null>}
+   */
+  async getItemDetailWithTrackers(hash, instanceId) {
+    const detail = this.getItemDetail(hash, instanceId);
+    if (!detail) return null;
+    const manager = registry.get(detail.instanceId);
+    if (manager && clientMeta.hasCapability(manager.clientType, 'trackers')) {
+      const fresh = await manager.refreshTrackersFor(hash);
+      if (fresh) detail.trackersDetailed = fresh;
+    }
+    return detail;
   }
 
   /**

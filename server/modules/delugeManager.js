@@ -208,6 +208,18 @@ class DelugeManager extends BaseClientManager {
   }
 
   /**
+   * Under 'active' tracker scope: transferring, connected to peers, or
+   * downloading (stalled included).
+   * @param {Object} t - Raw Deluge torrent
+   * @returns {boolean}
+   */
+  _isTrackerRefreshActive(t) {
+    if ((t.download_payload_rate || 0) > 0 || (t.upload_payload_rate || 0) > 0) return true;
+    if ((t.num_seeds || 0) + (t.num_peers || 0) > 0) return true;
+    return t.state === 'Downloading';
+  }
+
+  /**
    * Fetch tracker and peer data for all torrents.
    * Deluge: fetches per-torrent status with tracker/peer fields.
    * @param {Array} items - Torrent objects with .hash

@@ -22,7 +22,8 @@ const CLIENT_TYPES = {
     hashLength: 32,
     statusField: 'status',        // resolveStatus reads numeric `status`
     statusMap: {
-      7: 'paused'
+      7: 'paused',
+      8: 'moving'   // PS_COMPLETING: final hash, then move out of temp
       // all other codes → 'active'
     },
     connectionDefaults: {

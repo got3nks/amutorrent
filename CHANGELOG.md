@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.8] - Imports That Wait for the File, Configurable Refresh
+
+### 🐛 Fixed
+
+- **Sonarr and Radarr tried to import aMule downloads before the file was there.** aMuTorrent reported a download as complete as soon as aMule had all the data. But aMule still has to check the file and move it from its temp folder to the category folder. When those two folders are on different disks or Docker mounts, that move is a full copy, and Sonarr and Radarr tried to import during it, failing with "path does not exist". A download now shows as "moving" until aMule has finished, which Sonarr and Radarr treat as still downloading. In testing with a 2 GB file, 3.9.7 reported it complete 13 seconds before it existed; now it is reported complete only once it is in place. Completion notifications and download history wait for this moment too (#100).
+- **Sonarr and Radarr never retried a failed aMule import.** When aMule finished a download, it could drop out of its category and show aMule's Incoming folder as its location. Sonarr and Radarr only look at their own category, so they took the download as removed and never tried again. This mostly hit categories that Sonarr or Radarr had created themselves. Finished downloads now stay in their category, with the correct path (#100).
+- **Sonarr and Radarr got an error when creating a category, even though it worked.** aMule created the category, but aMuTorrent answered with an error, and the new category stayed invisible to Sonarr and Radarr for up to 5 minutes. It now answers correctly and the category can be used at once. If aMule refuses the folder you asked for and uses its default folder instead, a warning in the log says so.
+- **BitTorrent tracker and peer scans could pile up.** The scans started every 10 seconds whether or not the previous one had finished, which with qBittorrent meant about 12,000 requests a minute for 1,000 torrents. A reconnect during the first scan could also start a second set of scans, and stopping did not always stop them. A scan now starts only after the previous one has finished, and stopping works (#99).
+- **API clients could get data half a minute old.** With no browser open, `/api/v1/data/snapshot` served whatever the last download history update had left, up to 30 seconds old, or data that never changed when history was turned off. It now refreshes stale data before answering, and a recent API request keeps the data current. In testing, data went from 7 to 28 seconds old to under 3 seconds (#99).
+
+### ✨ Added
+
+- **Control how often aMuTorrent refreshes, useful for large libraries.** Three new settings (#99, contributed by @itlezy):
+  - `DATA_REFRESH_INTERVAL_MS` (default `3000`) sets how often the download, shared and upload lists are fetched. Speeds, charts and connection status still update every 3 seconds, and your own actions still show on the next update.
+  - `TRACKER_REFRESH_INTERVAL_MS` (default `10000`) sets the pause between BitTorrent tracker and peer scans.
+  - `TRACKER_REFRESH_SCOPE` set to `active` scans only torrents that are transferring, connected to peers or downloading; the others get their trackers fetched when you open them. The default, `all`, scans every torrent as before.
+
+  With no browser open and no recent API request, aMuTorrent now only fetches what download history needs, and tracker scans only cover torrents it has not seen before. See the [configuration reference](docs/CONFIGURATION.md) for details.
+
+### 📦 Dependencies
+
+- **proxy-addr upgraded to 2.0.8**, which fixes CVE-2026-90711. aMuTorrent was not affected: the flaw needs a trusted proxy subnet written in a specific notation, and aMuTorrent never sets one (#102).
+
+---
+
 ## [3.9.7] - Searches That Wait in Line
 
 ### 🐛 Fixed
