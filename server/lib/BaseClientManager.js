@@ -12,6 +12,7 @@
 const BaseModule = require('./BaseModule');
 const logger = require('./logger');
 const { TRACKER_REFRESH_INTERVAL, TRACKER_REFRESH_SCOPE, hasDemand } = require('./refreshPolicy');
+const { ed2kHashFromLink } = require('./ed2kLink');
 
 class BaseClientManager extends BaseModule {
   constructor() {
@@ -67,7 +68,7 @@ class BaseClientManager extends BaseModule {
 
   /** Tell the clients that may search about the slot changing hands. */
   _broadcastSearchLock(locked) {
-    this.broadcast?.({ type: 'search-lock', locked }, {
+    this.broadcast?.({ type: 'search-lock', locked, instanceId: this.instanceId }, {
       filter: u => u?.isAdmin || u?.capabilities?.includes('search')
     });
   }
@@ -225,8 +226,7 @@ class BaseClientManager extends BaseModule {
    * @returns {string|null} lower-cased hash, or null
    */
   hashFromLink(link) {
-    const m = (link || '').match(/\|([a-fA-F0-9]{32})\|/);
-    return m ? m[1].toLowerCase() : null;
+    return ed2kHashFromLink(link);
   }
 
   // ============================================================================

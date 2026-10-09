@@ -87,6 +87,7 @@ export const WebSocketProvider = ({ children }) => {
     setSearchPreviousResults,
     setSearchPreviousResultsLoaded,
     setSearchLocked,
+    setSearchLockSnapshot,
     setSearchResults,
     setSearchNoResultsError,
     setSearchInstanceId
@@ -299,7 +300,8 @@ export const WebSocketProvider = ({ children }) => {
         setSearchPreviousResultsLoaded(true);
         if (data.instanceId) setSearchInstanceId(data.instanceId);
       },
-      'search-lock': () => setSearchLocked(data.locked),
+      'search-lock': () => setSearchLocked(data.locked, data.instanceId),
+      'search-lock-snapshot': () => setSearchLockSnapshot(data.lockedInstances),
       'search-results': () => {
         if (data.instanceId) setSearchInstanceId(data.instanceId);
         if (!data.data || data.data.length === 0) {
@@ -487,7 +489,7 @@ export const WebSocketProvider = ({ children }) => {
     setDataStatsTree, setDataServersEd2kLinks,
     markStaticDataLoaded, resetStaticDataLoaded,
     // Search setters
-    setSearchPreviousResults, setSearchPreviousResultsLoaded, setSearchLocked, setSearchResults, setSearchNoResultsError, setSearchInstanceId,
+    setSearchPreviousResults, setSearchPreviousResultsLoaded, setSearchLocked, setSearchLockSnapshot, setSearchResults, setSearchNoResultsError, setSearchInstanceId,
     hasMultiInstance
   ]); // lastEd2kWasServerListRef accessed via ref, no dep needed
 

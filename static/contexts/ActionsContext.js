@@ -137,11 +137,12 @@ const useWebSocketActions = () => {
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     clearSearchError();
-    setSearchLocked(true); // Lock immediately to show "Searching..." state
     setSearchPreviousResults([]); // Clear previous results when starting new search
 
-    // Prowlarr uses REST API instead of WebSocket
+    // Prowlarr uses REST API instead of WebSocket, so it never broadcasts a
+    // search lock — it holds and releases its own key around the fetch.
     if (searchType === 'prowlarr') {
+      setSearchLocked(true, 'prowlarr'); // show "Searching..." state
       try {
         const response = await fetch('/api/prowlarr/search', {
           method: 'POST',
@@ -166,7 +167,7 @@ const useWebSocketActions = () => {
       } catch (err) {
         setSearchError(`Prowlarr search failed: ${err.message}`);
       } finally {
-        setSearchLocked(false);
+        setSearchLocked(false, 'prowlarr');
       }
       return;
     }
@@ -177,6 +178,11 @@ const useWebSocketActions = () => {
     if (targetInstanceId && targetInstanceId !== searchInstanceId) {
       setSearchInstanceId(targetInstanceId);
     }
+    // Lock the serving instance optimistically; the server echoes the lock for
+    // the same instance and clears it when the search finishes. With no resolved
+    // instance, skip the optimistic hold and let the server's broadcast drive it,
+    // so no orphan key can linger.
+    if (targetInstanceId) setSearchLocked(true, targetInstanceId);
     sendMessage({
       action: 'search',
       query: searchQuery,

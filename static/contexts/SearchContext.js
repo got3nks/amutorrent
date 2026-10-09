@@ -18,13 +18,36 @@ const SearchContext = createContext(null);
 const useSearchState = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState('global');
-  const [searchLocked, setSearchLocked] = useState(false);
+  // Which instances currently hold a search lock. A search greys the box while
+  // ANY instance is searching, but each instance locks and unlocks on its own,
+  // so one finishing doesn't re-enable the box while another is still running.
+  // '__local' is an optimistic pre-confirmation hold for an instance-less search
+  // (e.g. Prowlarr) and for the click before the server echoes the lock back.
+  const [lockedInstances, setLockedInstances] = useState(() => new Set());
+  const searchLocked = lockedInstances.size > 0;
   const [searchResults, setSearchResults] = useState([]);
   const [searchPreviousResults, setSearchPreviousResults] = useState([]);
   const [searchPreviousResultsLoaded, setSearchPreviousResultsLoaded] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [searchDownloadCategory, setSearchDownloadCategory] = useState('Default');
   const [searchInstanceId, setSearchInstanceId] = useState(null);
+
+  // Add/remove one instance's search lock. `instanceId` falls back to the
+  // optimistic '__local' hold when the caller has no instance yet.
+  const setSearchLocked = useCallback((locked, instanceId = null) => {
+    const key = instanceId || '__local';
+    setLockedInstances(prev => {
+      if (locked === prev.has(key)) return prev;
+      const next = new Set(prev);
+      if (locked) next.add(key); else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  // Replace the whole locked set (connect-time snapshot from the server).
+  const setSearchLockSnapshot = useCallback((instanceIds) => {
+    setLockedInstances(new Set(instanceIds || []));
+  }, []);
 
   // Clear error
   const clearSearchError = useCallback(() => {
@@ -60,6 +83,7 @@ const useSearchState = () => {
     setSearchQuery,
     setSearchType,
     setSearchLocked,
+    setSearchLockSnapshot,
     setSearchResults: setSearchResultsWithClear,
     setSearchPreviousResults,
     setSearchPreviousResultsLoaded,
@@ -71,6 +95,7 @@ const useSearchState = () => {
   }), [
     searchQuery, searchType, searchLocked, searchResults, searchPreviousResults,
     searchPreviousResultsLoaded, searchError, searchDownloadCategory, searchInstanceId,
+    setSearchLocked, setSearchLockSnapshot,
     setSearchResultsWithClear, clearSearchError, setSearchNoResultsError
     // Note: React useState setters are stable
   ]);
