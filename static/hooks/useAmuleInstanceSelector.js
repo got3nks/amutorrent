@@ -13,11 +13,14 @@ import { useStaticData } from '../contexts/StaticDataContext.js';
 import { TYPE_LABELS } from '../components/settings/clientFields.js';
 
 /**
- * Hook for picking a connected instance that accepts a given link scheme
- * (defaults to ed2k:// — aMule and Rucio). Instance-aware; shows a selector
- * when 2+ accepting instances are connected.
+ * Hook for picking a connected instance for a feature. By default it lists
+ * instances that accept a link scheme (ed2k:// — aMule and Rucio); pass
+ * `capability` instead to list instances whose clientMeta capability is true
+ * (e.g. an aMule-only page asking for `ed2kServers`/`statsTree`). Instance-
+ * aware; shows a selector when 2+ matching instances are connected.
  * @param {Object} [options]
- * @param {string} [options.scheme='ed2k://'] - Link scheme the instance must accept
+ * @param {string} [options.scheme='ed2k://'] - Link scheme the instance must accept (ignored when `capability` is set)
+ * @param {string} [options.capability] - Capability the instance must have (true) — takes precedence over `scheme`
  * @param {string} [options.selectedId] - Externally controlled selected ID (overrides internal state)
  * @param {Function} [options.onSelect] - External selection handler (overrides internal state)
  * @returns {Object} Instance selection state and helpers
@@ -25,13 +28,17 @@ import { TYPE_LABELS } from '../components/settings/clientFields.js';
 export function useAmuleInstanceSelector(options = {}) {
   const { instances } = useStaticData();
   const scheme = options.scheme || 'ed2k://';
+  const capability = options.capability || null;
 
-  // Connected instances that accept this link scheme (clientMeta `linkSchemes`,
-  // shipped via instances[id].capabilities) — a new client that accepts it
-  // appears here with no edit.
+  // Connected instances that match the requested feature (a clientMeta
+  // capability, or accepting a link scheme), shipped via instances[id].
+  // capabilities — a new client that qualifies appears here with no edit.
   const connectedInstances = useMemo(() => {
+    const matches = capability
+      ? (inst) => inst.capabilities?.[capability] === true
+      : (inst) => (inst.capabilities?.linkSchemes || []).includes(scheme);
     return Object.entries(instances || {})
-      .filter(([, inst]) => inst.connected && (inst.capabilities?.linkSchemes || []).includes(scheme))
+      .filter(([, inst]) => inst.connected && matches(inst))
       .map(([id, inst]) => ({
         id,
         type: inst.type,
@@ -40,7 +47,7 @@ export function useAmuleInstanceSelector(options = {}) {
         order: inst.order
       }))
       .sort((a, b) => a.order - b.order);
-  }, [instances, scheme]);
+  }, [instances, scheme, capability]);
 
   // Whether to show instance selector (2+ instances connected)
   const showSelector = connectedInstances.length >= 2;

@@ -65,6 +65,9 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: true, // needs a shared-files rescan after shared file deletion
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
+      ed2kServers: true,           // has an ED2K server list (ServersView)
+      statsTree: true,             // exposes the EC statistics tree (StatsTreeModal)
+      sharedDirsEditor: true,      // can edit shared directories over EC (SharedDirsModal)
       renameFile: true,            // can rename downloads and shared files
       fileRatingComment: true,     // can set a per-file rating + comment (shared files only in aMule)
       customSavePath: false,       // ed2k uses category paths only

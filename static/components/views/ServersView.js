@@ -25,13 +25,13 @@ const ServersView = () => {
   const { fetchServers } = useDataFetch();
   const actions = useActions();
 
-  // Multi-instance: aMule instance selector
+  // Multi-instance: pick among instances that actually have an ED2K server list.
   const {
     connectedInstances: amuleInstances,
     showSelector: showAmuleSelector,
     selectedId: effectiveInstance,
     selectInstance: selectAmuleInstance
-  } = useAmuleInstanceSelector();
+  } = useAmuleInstanceSelector({ capability: 'ed2kServers' });
 
   // Fetch servers on mount (and when selected instance changes)
   useEffect(() => {

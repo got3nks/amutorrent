@@ -90,18 +90,24 @@ const QuickSearchWidget = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchType, searchInstanceId, sourceInstanceIds]);
 
-  const selectedTypeDisabled = searchTypes.find(t => t.value === searchType)?.disabled;
+  // The selected source is unavailable if it's disabled OR missing from the
+  // list entirely (an unserved source is now absent, not a disabled button —
+  // so "missing" must count, or the auto-switch never fires for a stale pick
+  // like 'global' on a BitTorrent-only setup).
+  const selectedType = searchTypes.find(t => t.value === searchType);
+  const selectedUnavailable = !selectedType || selectedType.disabled;
+  const availableTypeKey = searchTypes.map(t => `${t.value}:${t.disabled ? 0 : 1}`).join(',');
 
-  // Auto-select first available search type when current selection is disabled
+  // Auto-select the first available source when the current one is unavailable.
   useEffect(() => {
-    if (selectedTypeDisabled) {
+    if (selectedUnavailable) {
       const firstAvailable = searchTypes.find(t => !t.disabled);
       if (firstAvailable) {
         onSearchTypeChange(firstAvailable.value);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTypeDisabled, bittorrentConnected, prowlarrEnabled]);
+  }, [selectedUnavailable, availableTypeKey]);
 
   return h('div', {
     className: noBorder ? '' : 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700'
@@ -141,7 +147,7 @@ const QuickSearchWidget = ({
           value: searchQuery,
           onChange: (e) => onSearchQueryChange(e.target.value),
           placeholder: 'Enter search query...',
-          disabled: searchLocked || selectedTypeDisabled,
+          disabled: searchLocked || selectedUnavailable,
           className: 'flex-1 min-w-0'
         }),
 
@@ -162,7 +168,7 @@ const QuickSearchWidget = ({
         h(Button, {
           type: 'submit',
           variant: 'primary',
-          disabled: searchLocked || !searchQuery.trim() || selectedTypeDisabled,
+          disabled: searchLocked || !searchQuery.trim() || selectedUnavailable,
           className: 'whitespace-nowrap'
         },
           searchLocked
