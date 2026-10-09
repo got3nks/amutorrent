@@ -244,7 +244,13 @@ class WebSocketHandlers extends BaseModule {
 
     context.log(`New WebSocket connection from ${clientIp}${locationInfo}`);
     context.send({ type: 'connected', message: 'Connected to aMule Controller' });
-    context.send({ type: 'search-lock', locked: registry.getByType('amule').some(m => m.isSearchInProgress()) });
+    // Reflect whether ANY searchable client currently holds the search lock,
+    // not just aMule — a Rucio (or any future) search greys the box the same way.
+    let searchLocked = false;
+    registry.forEach(m => {
+      if (typeof m.isSearchInProgress === 'function' && m.isSearchInProgress()) searchLocked = true;
+    });
+    context.send({ type: 'search-lock', locked: searchLocked });
 
     // Send cached batch update to newly connected client (if available), filtered by ownership
     // Always sends full snapshot (items array), never delta, for new connections
@@ -678,11 +684,15 @@ class WebSocketHandlers extends BaseModule {
         // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
         const success = await manager.addEd2kLink(link, categoryId, username);
         results.push({ link, success });
-        // Record ownership — extract hash from ed2k link format: ed2k://|file|name|size|hash|/
+        // Record ownership — extract the content hash from the link: an ed2k
+        // MD4 (ed2k://|file|name|size|<32-hex>|/) or a rucio: BLAKE3
+        // (rucio:<64-hex>). Lower-cased to match the unified item hashes, so a
+        // Rucio link's owner is tracked too (otherwise, with user management on,
+        // a user without edit_all_downloads can't pause or delete their own).
         if (success && context.clientInfo.userId && this.userManager) {
-          const hashMatch = link.match(/\|([a-fA-F0-9]{32})\|/);
-          if (hashMatch) {
-            this.userManager.recordOwnership(itemKey(manager.instanceId, hashMatch[1]), context.clientInfo.userId);
+          const hash = (link.match(/\|([a-fA-F0-9]{32})\|/) || link.match(/^rucio:([a-fA-F0-9]{64})/i) || [])[1];
+          if (hash) {
+            this.userManager.recordOwnership(itemKey(manager.instanceId, hash.toLowerCase()), context.clientInfo.userId);
           }
         }
       }

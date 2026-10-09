@@ -123,9 +123,10 @@ function applyDownloadData(item, download, categoryManager = null) {
     item.eta = null;
   }
 
-  if (!clientMeta.isBittorrent(download.clientType)) {
-    // Source-based networks (ed2k/aMule and rucio): sources, category id +
-    // name, no trackers, single-file, a copy/export link.
+  if (!clientMeta.hasCapability(download.clientType, 'trackers')) {
+    // Source-based shape (no trackers → aMule, Rucio): sources, category id +
+    // name, single-file, a copy/export link. Keyed off the capability, not the
+    // network type, so a new source-based network needs no edit here.
     // Organization
     item.categoryId = download.category ?? item.categoryId;
     item.category = download.categoryName || item.category;
@@ -172,8 +173,8 @@ function applyDownloadData(item, download, categoryManager = null) {
     // Links — neutral field; the normalizer supplies `link` (ed2k:// or rucio:).
     // `ed2kLink` is still read as a fallback for aMule's normalizer.
     item.link = download.link || download.ed2kLink || item.link;
-  } else if (clientMeta.isBittorrent(download.clientType)) {
-    // BitTorrent clients (rtorrent, qbittorrent) — all items are always shared/seeding
+  } else if (clientMeta.hasCapability(download.clientType, 'trackers')) {
+    // Torrent shape (has trackers → BitTorrent): all items are always shared/seeding
     item.shared = true;
 
     // Determine seeding status from clientMeta

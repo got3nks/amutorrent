@@ -365,10 +365,14 @@ class RucioManager extends BaseClientManager {
       const dl = (this.lastDownloads || []).find(d => String(d.hash).toLowerCase() === h);
       // Cancel only an active download (cancel discards the partial file); a
       // completed one is just dropped from the list, never cancelled, so the
-      // finished file is never touched.
+      // finished file is never touched. Cancel is best-effort — it legitimately
+      // no-ops / errors on an already-terminal download — so it stays caught.
       if (!dl?.isComplete) await this.client.cancelDownload(id).catch(() => {});
-      await this.client.removeDownload(id).catch(() => {});
-      if (shared) await this.client.unshare(h).catch(() => {});
+      // removeDownload / unshare are the operation itself: let a refusal throw
+      // so the caller reports failure instead of a false success + a row that
+      // reappears on the next poll.
+      await this.client.removeDownload(id);
+      if (shared) await this.client.unshare(h);
       this.trackDeletion(hash);
       return { success: true, pathsToDelete };
     }
@@ -634,11 +638,14 @@ class RucioManager extends BaseClientManager {
     for (const rows of groups.values()) {
       rows.sort((a, b) => (b.sourceCount - a.sourceCount) || (b.fileSize - a.fileSize));
       const [parent, ...children] = rows;
-      const totalSources = rows.reduce((n, x) => n + (x.sourceCount || 0), 0);
+      // Use the richest variant's count, not the sum: the same hash under
+      // several eMule/Kad names can be served by overlapping peers, so summing
+      // would double-count and wrongly float those results to the top.
+      const groupSources = Math.max(...rows.map(x => x.sourceCount || 0));
       links.set(parent.fileHash, parent.ed2kLink); // queue the richest variant
       results.push({
         ...parent,
-        sourceCount: totalSources,
+        sourceCount: groupSources,
         downloadStatus: statusByHash.get(parent.fileHash) ?? SEARCH_STATUS.NEW,
         children
       });

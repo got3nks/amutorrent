@@ -4,8 +4,6 @@
  * Common network-related helper functions
  */
 
-const clientMeta = require('./clientMeta');
-
 /**
  * Validate IP address format
  * @param {string} ip - IP to validate
@@ -54,20 +52,24 @@ const CLIENT_SOFTWARE_LABELS = {
  * @returns {string} Client software name with version if available
  */
 function getClientSoftwareName(item) {
-  // For rtorrent, use the client string directly
-  if (clientMeta.isBittorrent(item.clientType) || item.EC_TAG_CLIENT_SOFTWARE === -1) {
-    return item.EC_TAG_CLIENT_SOFT_VER_STR || item.software || 'Unknown';
+  // No network-type branch: the CLIENT_SOFTWARE_LABELS map is keyed by aMule's
+  // EC_TAG_CLIENT_SOFTWARE, so use it only when that tag is present. A client
+  // without the EC tags (BitTorrent via its version string, or Rucio via a
+  // neutral `software` field) is named from what it does supply, so a new
+  // client needs no edit here.
+  // Raw version string with no numeric software code → the string is the name.
+  if (item.EC_TAG_CLIENT_SOFT_VER_STR &&
+      (item.EC_TAG_CLIENT_SOFTWARE === undefined || item.EC_TAG_CLIENT_SOFTWARE === -1)) {
+    return item.EC_TAG_CLIENT_SOFT_VER_STR;
   }
-  // The CLIENT_SOFTWARE_LABELS map is keyed by aMule's EC_TAG_CLIENT_SOFTWARE.
-  // A source-based client that doesn't carry those tags (e.g. Rucio) supplies a
-  // ready-made `software` string instead — otherwise its peers would all read
-  // "Unknown" off a missing tag.
-  if (item.EC_TAG_CLIENT_SOFTWARE === undefined && item.software) {
-    return item.software;
+  // aMule peer with a software code (+ optional version string).
+  if (item.EC_TAG_CLIENT_SOFTWARE !== undefined) {
+    const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';
+    const version = item.EC_TAG_CLIENT_SOFT_VER_STR;
+    return version && version !== 'Unknown' ? `${baseName} ${version}` : baseName;
   }
-  const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';
-  const version = item.EC_TAG_CLIENT_SOFT_VER_STR;
-  return version && version !== 'Unknown' ? `${baseName} ${version}` : baseName;
+  // No EC tags at all (e.g. a Rucio peer): the neutral software field.
+  return item.software || 'Unknown';
 }
 
 module.exports = {
