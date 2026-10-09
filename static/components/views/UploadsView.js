@@ -39,7 +39,7 @@ const UploadsView = () => {
       instanceId: item.instanceId,
       client: item.client,
       tracker: item.tracker,
-      categoryId: (item.networkType === 'ed2k' || item.networkType === 'rucio') ? (item.categoryId ?? 0) : undefined,
+      categoryId: item.categoryId != null ? item.categoryId : undefined,
       category: item.category,
       parentItem: item,
       parentHash: item.hash

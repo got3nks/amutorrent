@@ -94,21 +94,20 @@ const AddDownloadModal = ({
   // every other scheme (ed2k://, rucio:, …) down the ed2k path.
   const isTorrentScheme = (scheme) => allInstances.some(i => (i.capabilities?.linkSchemes || []).includes(scheme) && i.capabilities?.trackers);
 
-  const ed2kLinks = [], magnetLinks = [], invalidLinks = [];
+  const ed2kLinks = [], magnetLinks = [], unroutableLinks = [], invalidLinks = [];
   for (const line of links.split('\n').map(l => l.trim()).filter(Boolean)) {
     const scheme = schemeOf(line);
-    if (!scheme) invalidLinks.push(line);
-    else if (isTorrentScheme(scheme)) magnetLinks.push(line);
-    else ed2kLinks.push(line);
+    if (!scheme) { invalidLinks.push(line); continue; }
+    if (isTorrentScheme(scheme)) { magnetLinks.push(line); continue; } // the magnet / BitTorrent path
+    // ed2k-path link: routable only if a connected instance accepts its scheme;
+    // otherwise it can't be added right now (e.g. a rucio: link with Rucio
+    // offline) and is reported rather than silently dropped on submit.
+    if (connectedAccepting(scheme).length > 0) ed2kLinks.push(line);
+    else unroutableLinks.push(line);
   }
 
-  // Any connected instance that takes an ed2k-path (non-torrent) link.
-  const ed2kCapableConnected = allInstances.some(
-    i => i.connected && (i.capabilities?.linkSchemes || []).some(s => !isTorrentScheme(s))
-  );
-
-  // Check if we can submit
-  const hasEd2kLinks = ed2kLinks.length > 0 && ed2kCapableConnected;
+  // Check if we can submit (ed2kLinks are already filtered to routable ones).
+  const hasEd2kLinks = ed2kLinks.length > 0;
   const hasMagnetLinks = magnetLinks.length > 0 && hasBitTorrentClient;
   const hasTorrentFiles = torrentFiles.length > 0 && hasBitTorrentClient;
   const canSubmit = hasEd2kLinks || hasMagnetLinks || hasTorrentFiles;
@@ -250,14 +249,9 @@ const AddDownloadModal = ({
     const effectiveAmuleName = selectedAmuleObj?.name || 'aMule';
 
     if (ed2kLinks.length > 0) {
-      let ed2kPart = `${ed2kLinks.length} ED2K link${ed2kLinks.length > 1 ? 's' : ''}`;
-      if (!ed2kCapableConnected) {
-        ed2kPart += ' (no ed2k client)';
-      } else {
-        ed2kPart += ` → ${effectiveAmuleName}`;
-        if (finalCategory && finalCategory !== 'Default') {
-          ed2kPart += ` (${finalCategory})`;
-        }
+      let ed2kPart = `${ed2kLinks.length} ED2K link${ed2kLinks.length > 1 ? 's' : ''} → ${effectiveAmuleName}`;
+      if (finalCategory && finalCategory !== 'Default') {
+        ed2kPart += ` (${finalCategory})`;
       }
       parts.push(ed2kPart);
     }
@@ -298,6 +292,9 @@ const AddDownloadModal = ({
           parts.push(prefix);
         }
       }
+    }
+    if (unroutableLinks.length > 0) {
+      parts.push(`${unroutableLinks.length} link${unroutableLinks.length > 1 ? 's' : ''} no connected client accepts`);
     }
     if (invalidLinks.length > 0) {
       parts.push(`${invalidLinks.length} invalid link${invalidLinks.length > 1 ? 's' : ''}`);
@@ -469,7 +466,8 @@ const AddDownloadModal = ({
           // Category options toggle - only show when content is entered and at least one client is connected
           (() => {
             const hasDownloads = ed2kLinks.length > 0 || magnetLinks.length > 0 || torrentFiles.length > 0;
-            const hasConnectedClient = ed2kCapableConnected || hasBitTorrentClient;
+            // Routable ed2k content (hasEd2kLinks is already filtered) or a BT client.
+            const hasConnectedClient = hasEd2kLinks || hasBitTorrentClient;
             const showOptionsSection = hasDownloads && hasConnectedClient;
 
             if (!showOptionsSection) return null;

@@ -243,7 +243,19 @@ export const ICON_SIZES = {
 // Network type display labels
 export const NETWORK_TYPE_LABELS = {
   ed2k: 'ED2K',
+  rucio: 'Rucio',
   bittorrent: 'BitTorrent'
+};
+
+// Client type → network type, so a disabled instance (no runtime status) still
+// gets the right badge. A new client adds its entry here, not a branch in a view.
+export const CLIENT_NETWORK_TYPES = {
+  amule: 'ed2k',
+  rucio: 'rucio',
+  rtorrent: 'bittorrent',
+  qbittorrent: 'bittorrent',
+  deluge: 'bittorrent',
+  transmission: 'bittorrent'
 };
 
 // Client display names (single source of truth for UI labels)
@@ -264,6 +276,13 @@ export const NETWORK_COLORS = {
   bittorrent: '#f97316'
 };
 export const NETWORK_COLOR_DEFAULT = '#3b82f6';
+// Human label for an export/copy link, keyed by its URI scheme. A new network's
+// scheme gets its own label here rather than defaulting to "ED2K Link".
+export const LINK_SCHEME_LABELS = {
+  'ed2k://': 'ED2K Link',
+  'rucio:': 'Rucio Link',
+  'magnet:?': 'Magnet Link'
+};
 
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },

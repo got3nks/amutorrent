@@ -203,7 +203,15 @@ const useWebSocketActions = () => {
   };
 
   const handleAddEd2kLinks = (input, categoryName = 'Default', isServerList = false, instanceId = null) => {
-    const links = extractEd2kLinks(input);
+    // Extract using the schemes the connected ed2k-path (non-tracker) clients
+    // accept, so a new network's scheme isn't dropped here. Fall back to the
+    // defaults when nothing's connected yet.
+    const ed2kSchemes = [...new Set(
+      Object.values(instances || {})
+        .filter(i => i.connected && !i.capabilities?.trackers)
+        .flatMap(i => i.capabilities?.linkSchemes || [])
+    )];
+    const links = extractEd2kLinks(input, ed2kSchemes.length ? ed2kSchemes : undefined);
 
     if (links.length === 0) {
       addAppError('No valid ED2K links found');

@@ -12,7 +12,7 @@ import { Icon } from '../common/index.js';
 import TestResultIndicator from './TestResultIndicator.js';
 import { ToggleSwitch } from './EnableToggle.js';
 import { TYPE_LABELS } from './ClientInstanceModal.js';
-import { NETWORK_TYPE_LABELS } from '../../utils/index.js';
+import { NETWORK_TYPE_LABELS, CLIENT_NETWORK_TYPES } from '../../utils/index.js';
 
 const { createElement: h } = React;
 
@@ -56,7 +56,7 @@ const ClientInstanceCard = ({ client, clientIndex, totalClients, onMove, onEdit,
           h('div', { className: 'flex items-center gap-1.5 -ml-1' },
             h('span', {
               className: 'text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-            }, NETWORK_TYPE_LABELS[instanceStatus?.networkType] || (client.type === 'amule' ? 'ED2K' : 'BitTorrent')),
+            }, NETWORK_TYPE_LABELS[instanceStatus?.networkType || CLIENT_NETWORK_TYPES[client.type]] || client.type),
             client.source === 'env' && h('span', {
               className: 'inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
               title: 'Configured via environment variables'

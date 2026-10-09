@@ -5,7 +5,7 @@
  * Used by DownloadsView, SharedView, UploadsView, and other views
  */
 
-import { CLIENT_SOFTWARE_LABELS } from './constants.js';
+import { CLIENT_SOFTWARE_LABELS, LINK_SCHEME_LABELS } from './constants.js';
 import { generateMagnetLink } from './formatters.js';
 
 /**
@@ -333,7 +333,9 @@ export const getExportLink = (item) => {
  * @returns {string} Label for the export link
  */
 export const getExportLinkLabel = (item) => {
-  return isBittorrentClient(item) ? 'Magnet Link' : 'ED2K Link';
+  const link = (getExportLink(item) || '').toLowerCase();
+  const scheme = Object.keys(LINK_SCHEME_LABELS).find(s => link.startsWith(s));
+  return scheme ? LINK_SCHEME_LABELS[scheme] : 'Link';
 };
 
 /**

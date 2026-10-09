@@ -138,14 +138,17 @@ export const ClientFilterProvider = ({ children }) => {
         // Disable all of this type
         for (const id of typeIds) next.add(id);
 
-        // Safety: never disable ALL connected instances. If this toggle would,
-        // keep this network type enabled (no-op). Works for any number of
-        // network types, not just two.
+        // Never leave nothing visible. If hiding this type would disable every
+        // connected instance, show all the OTHER networks instead (generic over
+        // any number of networks). If this is the only connected network, keep
+        // it (there's nothing else to switch to).
         const allConnectedIds = Object.entries(instances)
           .filter(([, inst]) => inst.connected)
           .map(([id]) => id);
         if (allConnectedIds.every(id => next.has(id))) {
-          return prev;
+          const otherIds = allConnectedIds.filter(id => !typeIds.includes(id));
+          if (otherIds.length === 0) return prev; // only this network — can't hide it
+          for (const id of otherIds) next.delete(id); // reveal the others
         }
       } else {
         // Enable all of this type

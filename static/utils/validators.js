@@ -4,23 +4,31 @@
  * Functions for extracting and validating data
  */
 
+// Schemes the ed2k-add path handles when the caller doesn't pass its own (e.g.
+// a server list of ed2k:// links). The modal/handler normally passes the schemes
+// of the connected clients instead, so a new network's scheme isn't dropped.
+export const DEFAULT_ED2K_SCHEMES = ['ed2k://', 'rucio:'];
+
 /**
- * Extract the links the ed2k-add path handles from text — ed2k:// and rucio:
- * (a Rucio magnet). Allows pasting mixed text containing them.
+ * Extract the links the ed2k-add path handles from text, for the given schemes.
+ * Case-insensitive and anchored to a token boundary, so `Rucio:…` is matched but
+ * `foorucio:x` is not. Allows pasting mixed text containing the links.
  * @param {string} text - Text that may contain such links
+ * @param {string[]} [schemes] - Link schemes to extract (default ed2k://, rucio:)
  * @returns {string[]} Array of unique links
  */
-export const extractEd2kLinks = (text) => {
-  // Any substring starting with ed2k:// or rucio: up to the first whitespace.
-  const matches = text.match(/(?:ed2k:\/\/|rucio:)\S+/g) || [];
+export const extractEd2kLinks = (text, schemes = DEFAULT_ED2K_SCHEMES) => {
+  if (!text || !schemes || schemes.length === 0) return [];
+  const escaped = schemes.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  // (?:^|[^\w]) keeps the scheme from matching inside a word (no lookbehind, for
+  // browser support); the link itself is captured in group 1.
+  const re = new RegExp(`(?:^|[^\\w])((?:${escaped.join('|')})\\S+)`, 'gi');
 
-  // Basic cleanup: trim, remove CR characters, and deduplicate while preserving order
   const seen = new Set();
   const links = [];
-  for (const m of matches) {
-    const link = m.trim().replace(/\r/g, "");
-    if (!link) continue;
-    if (seen.has(link)) continue;
+  for (const m of text.matchAll(re)) {
+    const link = m[1].trim().replace(/\r/g, '');
+    if (!link || seen.has(link)) continue;
     seen.add(link);
     links.push(link);
   }
