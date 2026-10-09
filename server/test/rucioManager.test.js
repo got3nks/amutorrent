@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const { RucioManager } = require('../modules/rucioManager.js');
 const { normalizeRucioSharedFile } = require('../lib/downloadNormalizer.js');
 const RucioClient = require('../lib/rucio/RucioClient.js');
+const clientMeta = require('../lib/clientMeta.js');
+const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion } = require('../lib/sharedFilePolicy.js');
 
 // Build a RucioManager without running the constructor (which would need a
 // client config); we drive the methods under test directly with mocks.
@@ -320,6 +322,58 @@ describe('normalizeRucioSharedFile', () => {
     const n = normalizeRucioSharedFile({ root_hash: 'aa', name: 'f.mkv', size: 10, path: '/data/sub/f.mkv', magnet: 'rucio:aa' });
     assert.equal(n.path, '/data/sub', 'path is the containing folder (resolveItemPath joins the name)');
     assert.equal(n.raw.path, '/data/sub/f.mkv', 'full file path preserved in raw');
+  });
+});
+
+describe('RucioManager.extractHistoryMetadata', () => {
+  it('keeps a shared file\'s folder path without stripping a level', () => {
+    const m = makeManager();
+    // normalizeRucioSharedFile already emits the containing folder, so the
+    // history record must keep it verbatim, not strip to the parent.
+    const meta = m.extractHistoryMetadata({
+      hash: 'AA', name: 'f.mkv', size: 10, instanceId: 'rucio-1', path: '/data/movies'
+    });
+    assert.equal(meta.directory, '/data/movies');
+    assert.equal(meta.hash, 'aa', 'hash is lower-cased');
+    assert.equal(meta.downloaded, 10, 'a share (no progress) counts as fully downloaded');
+  });
+
+  it('reports no directory for a download (no path)', () => {
+    const m = makeManager();
+    const meta = m.extractHistoryMetadata({ hash: 'bb', name: 'g.mkv', size: 20, progress: 0.5, downloaded: 10 });
+    assert.equal(meta.directory, null);
+    assert.equal(meta.downloaded, 10);
+  });
+});
+
+describe('sharedFilePolicy with a Rucio item', () => {
+  const rucioCaps = clientMeta.get('rucio').capabilities;
+  const amuleCaps = clientMeta.get('amule').capabilities;
+  const completedShare = { shared: true, downloading: false };
+  const activeDownload = { shared: false, downloading: true };
+
+  it('recategorises a completed Rucio share via the API, not a disk move (bug 2)', () => {
+    // Rucio declares moveSharedForCategoryChange:false, so the category change
+    // must reach the daemon instead of moving the file behind it.
+    assert.equal(movesSharedForCategoryChange(rucioCaps, completedShare), false);
+    // aMule, which must move the file to recategorise it, still moves.
+    assert.equal(movesSharedForCategoryChange(amuleCaps, completedShare), true);
+  });
+
+  it('checks the path before deleting a completed Rucio share (bug 3)', () => {
+    const shared = isCompletedShare(rucioCaps, completedShare);
+    assert.equal(shared, true);
+    // Rucio hands the on-disk path back, so aMuTorrent must not take the
+    // "managed" shortcut for a completed share.
+    assert.equal(clientManagesDeletion(rucioCaps, shared), false);
+  });
+
+  it('still treats a cancelled active Rucio download as client-managed (bug 3)', () => {
+    const shared = isCompletedShare(rucioCaps, activeDownload);
+    assert.equal(shared, false);
+    // cancelDeletesFiles applies to active downloads: the daemon discards the
+    // partial, so no path check is needed.
+    assert.equal(clientManagesDeletion(rucioCaps, shared), true);
   });
 });
 
