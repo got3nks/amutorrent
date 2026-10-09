@@ -12,7 +12,7 @@ import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
 import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
 
-const { createElement: h, useState, useRef, useCallback, useEffect } = React;
+const { createElement: h, useState, useRef, useEffect } = React;
 
 /**
  * Add download modal
@@ -78,37 +78,33 @@ const AddDownloadModal = ({
     }
   }, [initialTorrentFiles]);
 
-  // Parse links to determine types
-  const parseLinks = useCallback((text) => {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const ed2kLinks = [];
-    const magnetLinks = [];
-    const invalidLinks = [];
-
-    lines.forEach(line => {
-      if (line.toLowerCase().startsWith('ed2k://') || line.toLowerCase().startsWith('rucio:')) {
-        // ed2k:// and rucio: both go through the ed2k-capable path, which routes
-        // to the selected aMule/Rucio instance — grouped here, not invalid.
-        ed2kLinks.push(line);
-      } else if (line.toLowerCase().startsWith('magnet:?')) {
-        magnetLinks.push(line);
-      } else if (line.length > 0) {
-        invalidLinks.push(line);
-      }
-    });
-
-    return { ed2kLinks, magnetLinks, invalidLinks };
-  }, []);
-
   // Early return AFTER all hooks are called (React rules of hooks)
   if (!show) return null;
 
-  const { ed2kLinks, magnetLinks, invalidLinks } = parseLinks(links);
-  // Can any connected instance take the ed2k-path links? Driven by clientMeta
-  // `linkSchemes` (via instances[id].capabilities), so a new client that accepts
-  // ed2k:// or rucio: enables the path with no edit here.
-  const ed2kCapableConnected = Object.values(instances || {}).some(
-    i => i.connected && (i.capabilities?.linkSchemes || []).some(s => s === 'ed2k://' || s === 'rucio:')
+  // Link routing is driven entirely by the instances' `linkSchemes` capability:
+  // classify each pasted line by the scheme it starts with, and in handleSubmit
+  // send each scheme's links to an instance that accepts it. A new scheme needs
+  // no edit here. Schemes an instance's metadata declares are known even while
+  // it is offline, so classification doesn't depend on who is connected.
+  const allInstances = Object.entries(instances || {}).map(([id, i]) => ({ id, ...i }));
+  const knownSchemes = [...new Set(allInstances.flatMap(i => i.capabilities?.linkSchemes || []))];
+  const schemeOf = (line) => knownSchemes.find(s => line.toLowerCase().startsWith(s.toLowerCase())) || null;
+  const connectedAccepting = (scheme) => allInstances.filter(i => i.connected && (i.capabilities?.linkSchemes || []).includes(scheme));
+  // A scheme served by a tracker (BitTorrent) client goes down the magnet path;
+  // every other scheme (ed2k://, rucio:, …) down the ed2k path.
+  const isTorrentScheme = (scheme) => allInstances.some(i => (i.capabilities?.linkSchemes || []).includes(scheme) && i.capabilities?.trackers);
+
+  const ed2kLinks = [], magnetLinks = [], invalidLinks = [];
+  for (const line of links.split('\n').map(l => l.trim()).filter(Boolean)) {
+    const scheme = schemeOf(line);
+    if (!scheme) invalidLinks.push(line);
+    else if (isTorrentScheme(scheme)) magnetLinks.push(line);
+    else ed2kLinks.push(line);
+  }
+
+  // Any connected instance that takes an ed2k-path (non-torrent) link.
+  const ed2kCapableConnected = allInstances.some(
+    i => i.connected && (i.capabilities?.linkSchemes || []).some(s => !isTorrentScheme(s))
   );
 
   // Check if we can submit
@@ -140,9 +136,18 @@ const AddDownloadModal = ({
     // Custom save path: only send if user explicitly set one and client supports it
     const effectiveSavePath = (showSavePath && customSavePath && supportsCustomPath) ? customSavePath : null;
 
-    // Add ED2K links if any (send category name - backend resolves to per-instance amuleId)
-    if (ed2kLinks.length > 0 && ed2kCapableConnected && onAddEd2kLinks) {
-      onAddEd2kLinks(ed2kLinks, finalCategory, false, effectiveAmuleInstance);
+    // Add ed2k-path links: group by scheme and send each group to an instance
+    // that accepts it — the selected one when it does, else the first — so a
+    // rucio: link never lands on an aMule instance.
+    if (ed2kLinks.length > 0 && onAddEd2kLinks) {
+      const groups = {};
+      for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
+      for (const [scheme, groupLinks] of Object.entries(groups)) {
+        const accepting = connectedAccepting(scheme);
+        if (!accepting.length) continue;
+        const target = (accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0]).id;
+        onAddEd2kLinks(groupLinks, finalCategory, false, target);
+      }
     }
 
     // Add magnet links if any (pass instanceId + clientType + optional savePath)
