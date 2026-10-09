@@ -19,6 +19,7 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
+const { hashFromLink } = require('../lib/rucio/links');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -684,15 +685,14 @@ class WebSocketHandlers extends BaseModule {
         // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
         const success = await manager.addEd2kLink(link, categoryId, username);
         results.push({ link, success });
-        // Record ownership — extract the content hash from the link: an ed2k
-        // MD4 (ed2k://|file|name|size|<32-hex>|/) or a rucio: BLAKE3
-        // (rucio:<64-hex>). Lower-cased to match the unified item hashes, so a
-        // Rucio link's owner is tracked too (otherwise, with user management on,
-        // a user without edit_all_downloads can't pause or delete their own).
+        // Record ownership — the shared helper pulls the content hash from the
+        // link (ed2k MD4 or rucio: BLAKE3, lower-cased), so a Rucio link's owner
+        // is tracked too (otherwise, with user management on, a user without
+        // edit_all_downloads can't pause or delete their own).
         if (success && context.clientInfo.userId && this.userManager) {
-          const hash = (link.match(/\|([a-fA-F0-9]{32})\|/) || link.match(/^rucio:([a-fA-F0-9]{64})/i) || [])[1];
+          const hash = hashFromLink(link);
           if (hash) {
-            this.userManager.recordOwnership(itemKey(manager.instanceId, hash.toLowerCase()), context.clientInfo.userId);
+            this.userManager.recordOwnership(itemKey(manager.instanceId, hash), context.clientInfo.userId);
           }
         }
       }

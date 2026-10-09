@@ -135,9 +135,6 @@ export {
   getStatusBarColor,
   isActiveStatus,
   formatSourceDisplay,
-  hasBittorrentItems,
-  hasRtorrentItems, // Legacy alias
-  hasAmuleItems,
   presentNetworkTypes,
   filterByClient,
   filterByUnifiedFilter,

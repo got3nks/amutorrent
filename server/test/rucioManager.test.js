@@ -189,3 +189,48 @@ describe('RucioManager.deleteItem', () => {
     await assert.rejects(() => m.deleteItem('AA', {}), /refused/);
   });
 });
+
+describe('RucioManager._getAllShares', () => {
+  it('pages through the daemon\'s capped share list', async () => {
+    const pages = [
+      Array.from({ length: 1000 }, (_, i) => ({ root_hash: `a${i}` })),
+      Array.from({ length: 1000 }, (_, i) => ({ root_hash: `b${i}` })),
+      Array.from({ length: 10 }, (_, i) => ({ root_hash: `c${i}` }))
+    ];
+    let calls = 0;
+    const m = makeManager({ client: { getShares: async ({ offset }) => { calls++; return { shares: pages[offset / 1000] || [] }; } } });
+
+    const { shares } = await m._getAllShares();
+
+    assert.equal(shares.length, 2010, 'collects every page, not just the first 1000');
+    assert.equal(calls, 3);
+  });
+});
+
+describe('RucioManager.getNetworkStatus', () => {
+  it('reads a reachable node as Connected in either casing', () => {
+    const m = makeManager();
+    assert.equal(m.getNetworkStatus({ status: { connected_peers: 3, class: 'HighId' } }).text, 'Connected');
+    assert.equal(m.getNetworkStatus({ status: { connected_peers: 3, class: 'high_id' } }).text, 'Connected');
+    assert.equal(m.getNetworkStatus({ status: { connected_peers: 3, class: 'LowId' } }).text, 'Limited');
+    assert.equal(m.getNetworkStatus({ status: { connected_peers: 0 } }).connected, false);
+  });
+});
+
+describe('RucioManager.ensureCategoriesBatch', () => {
+  it('resolves a whole set from one category fetch', async () => {
+    let getCount = 0, createCount = 0;
+    const m = makeManager({ client: {
+      getCategories: async () => { getCount++; return [{ id: 1, name: 'Movies' }]; },
+      createCategory: async ({ name }) => { createCount++; return { id: 100 + createCount, name }; }
+    } });
+
+    const out = await m.ensureCategoriesBatch([
+      { name: 'Movies' }, { name: 'TV' }, { name: 'Music' }, { name: 'TV' }
+    ]);
+
+    assert.equal(getCount, 1, 'one list fetch for the whole batch');
+    assert.equal(createCount, 2, 'TV and Music created once each; the second TV reuses the first');
+    assert.deepEqual(out.map(o => o.name), ['Movies', 'TV', 'Music', 'TV']);
+  });
+});

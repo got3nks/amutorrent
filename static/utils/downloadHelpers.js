@@ -243,26 +243,6 @@ export const extractBittorrentLabels = (downloads) => {
 // Legacy alias for backwards compatibility
 export const extractRtorrentLabels = extractBittorrentLabels;
 
-/**
- * Check if downloads include BitTorrent items (rtorrent or qbittorrent)
- * @param {Array} downloads - Array of download items
- * @returns {boolean} True if any BitTorrent downloads exist
- */
-export const hasBittorrentItems = (downloads) => {
-  return downloads.some(d => isBittorrentClient(d));
-};
-
-// Legacy alias for backwards compatibility
-export const hasRtorrentItems = hasBittorrentItems;
-
-/**
- * Check if downloads include aMule items
- * @param {Array} downloads - Array of download items
- * @returns {boolean} True if any aMule downloads exist
- */
-export const hasAmuleItems = (downloads) => {
-  return downloads.some(d => d.networkType === 'ed2k');
-};
 
 /**
  * The distinct network types present in a set of items — the network-agnostic

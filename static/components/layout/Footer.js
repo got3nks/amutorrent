@@ -67,7 +67,7 @@ const renderBadge = (status, text, tooltip) => {
 const Footer = ({ currentView, onOpenAbout }) => {
   const { dataStats: stats } = useLiveData();
   const { updateAvailable, latestVersion } = useVersion();
-  const { ed2kConnected, bittorrentConnected, isNetworkTypeEnabled } = useClientFilter();
+  const { isNetworkTypeEnabled } = useClientFilter();
   const { instances, hasMultiInstance } = useStaticData();
   if (!stats) {
     return h('footer', { className: 'hidden md:block bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4 text-center text-sm text-gray-500 dark:text-gray-400' },

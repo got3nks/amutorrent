@@ -21,17 +21,7 @@ const BaseClientManager = require('../lib/BaseClientManager');
 const logger = require('../lib/logger');
 const { normalizeRucioDownload, normalizeRucioSharedFile } = require('../lib/downloadNormalizer');
 const { normaliseQueryForm } = require('../lib/searchQuery');
-
-// Pull the BLAKE3 (rucio) or MD4 (ed2k) hash out of a download link so search
-// results can be keyed by hash like aMule's, and looked up again on download.
-function hashFromLink(link) {
-  if (!link) return null;
-  const ed2k = link.match(/\|([a-fA-F0-9]{32})\|/); // ed2k://|file|name|size|<md4>|/
-  if (ed2k) return ed2k[1].toLowerCase();
-  const rucio = link.match(/^rucio:([a-fA-F0-9]{64})/i); // rucio:<blake3>?...
-  if (rucio) return rucio[1].toLowerCase();
-  return null;
-}
+const { hashFromLink } = require('../lib/rucio/links');
 
 // Normalize a category colour to the '#rrggbb' hex the daemon expects. The
 // CategoryManager hands the per-client sync an aMule-style BGR integer (see its
@@ -44,11 +34,10 @@ function toHexColor(color) {
     if (!c) return undefined;
     return c.startsWith('#') ? c : `#${c}`;
   }
+  // aMule BGR integer → '#rrggbb' — reuse CategoryManager's converter so the two
+  // don't drift (require inline, matching the on-demand lookup below).
   if (typeof color === 'number') {
-    const r = color & 0xff;
-    const g = (color >> 8) & 0xff;
-    const b = (color >> 16) & 0xff;
-    return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+    return require('../lib/CategoryManager').amuleColorToHex(color);
   }
   return undefined;
 }

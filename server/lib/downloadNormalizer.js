@@ -3,7 +3,7 @@
  * Shared utility functions for normalizing download data from different clients
  */
 
-const { getClientSoftwareName, CLIENT_SOFTWARE_LABELS } = require('./networkUtils');
+const { CLIENT_SOFTWARE_LABELS } = require('./networkUtils');
 
 // ============================================================================
 // HELPERS

@@ -46,34 +46,7 @@ const CLIENT_SOFTWARE_LABELS = {
   0xff: 'eMule Compatible' // SO_COMPAT_UNK
 };
 
-/**
- * Get client software name from upload/peer entry
- * @param {Object} item - Upload or peer item with EC_TAG_CLIENT_SOFTWARE
- * @returns {string} Client software name with version if available
- */
-function getClientSoftwareName(item) {
-  // No network-type branch: the CLIENT_SOFTWARE_LABELS map is keyed by aMule's
-  // EC_TAG_CLIENT_SOFTWARE, so use it only when that tag is present. A client
-  // without the EC tags (BitTorrent via its version string, or Rucio via a
-  // neutral `software` field) is named from what it does supply, so a new
-  // client needs no edit here.
-  // Raw version string with no numeric software code → the string is the name.
-  if (item.EC_TAG_CLIENT_SOFT_VER_STR &&
-      (item.EC_TAG_CLIENT_SOFTWARE === undefined || item.EC_TAG_CLIENT_SOFTWARE === -1)) {
-    return item.EC_TAG_CLIENT_SOFT_VER_STR;
-  }
-  // aMule peer with a software code (+ optional version string).
-  if (item.EC_TAG_CLIENT_SOFTWARE !== undefined) {
-    const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';
-    const version = item.EC_TAG_CLIENT_SOFT_VER_STR;
-    return version && version !== 'Unknown' ? `${baseName} ${version}` : baseName;
-  }
-  // No EC tags at all (e.g. a Rucio peer): the neutral software field.
-  return item.software || 'Unknown';
-}
-
 module.exports = {
   isValidIP,
-  CLIENT_SOFTWARE_LABELS,
-  getClientSoftwareName
+  CLIENT_SOFTWARE_LABELS
 };
