@@ -192,21 +192,24 @@ class RucioManager extends BaseClientManager {
 
   // ── Data fetch ───────────────────────────────────────────────────────
 
-  // Fetch every shared file, paging through the daemon's capped list. The
-  // daemon maxes `limit` at 1000, so a share set larger than that was being
-  // truncated — losing the on-disk path on delete, the "already downloaded"
-  // badge and the history for the rest.
+  // Fetch every shared file, paging through the daemon's list. Driven by the
+  // reported `total`, not by comparing a page to our requested limit: the daemon
+  // may cap a page below 1000, so a short page is not necessarily the last. An
+  // empty page is the backstop (unknown/stale total, or a daemon that ignores
+  // offset), and reaching `total` stops an offset-ignoring daemon too.
   async _getAllShares() {
-    const limit = 1000; // the daemon's maximum page size
+    const limit = 1000; // what we request; the daemon may serve fewer per page
     let offset = 0;
+    let total = null;
     const shares = [];
     for (;;) {
       // eslint-disable-next-line no-await-in-loop
       const page = await this.client.getShares({ limit, offset });
       const batch = page?.shares || [];
+      if (Number.isFinite(page?.total)) total = page.total;
       shares.push(...batch);
-      if (batch.length < limit) break; // a short page is the last one
       offset += batch.length;
+      if (batch.length === 0 || (total !== null && shares.length >= total)) break;
     }
     return { shares };
   }
@@ -232,7 +235,9 @@ class RucioManager extends BaseClientManager {
       [rawDownloads, sharesResult, rucioCategories] = await Promise.all([
         this.client.getDownloads(),
         this._getAllShares(),
-        this.client.getCategories().catch(() => [])
+        // null (not []) on failure, so we can tell a real empty list from a
+        // failed fetch and keep the last known one instead.
+        this.client.getCategories().catch(() => null)
       ]);
     } catch (err) {
       triggerReconnect(err);
@@ -241,11 +246,16 @@ class RucioManager extends BaseClientManager {
     }
 
     // Keep the daemon's category list so the category helpers can reuse it
-    // instead of refetching per call (propagation / batch recategorize).
-    this.lastCategories = rucioCategories || [];
+    // instead of refetching per call (propagation / batch recategorize). On a
+    // failed fetch keep the last known list — caching an empty one would blank
+    // every category name this poll and let the next edit wipe match_keywords.
+    if (Array.isArray(rucioCategories)) {
+      this.lastCategories = rucioCategories;
+    }
+    const categoryList = this.lastCategories || [];
 
     // Resolve category_id → name from the daemon's own category list.
-    const catNameById = new Map((rucioCategories || []).map(c => [c.id, c.name]));
+    const catNameById = new Map(categoryList.map(c => [c.id, c.name]));
     const resolveCategoryName = (id) => (id == null ? 'Default' : (catNameById.get(id) || 'Default'));
 
     // ── Downloads + hash→id map ──────────────────────────────────────────
@@ -376,7 +386,10 @@ class RucioManager extends BaseClientManager {
     const h = String(hash).toLowerCase();
 
     const shared = (this.lastSharedFiles || []).find(f => String(f.hash).toLowerCase() === h);
-    const pathsToDelete = deleteFiles && shared?.path ? [shared.path] : [];
+    // `shared.path` is the containing folder (for resolveItemPath); the real
+    // on-disk file path to wipe is the daemon's full path in raw.
+    const filePath = shared?.raw?.path || null;
+    const pathsToDelete = deleteFiles && filePath ? [filePath] : [];
 
     const id = this.hashToId.get(h);
     if (id !== undefined) {
@@ -476,17 +489,21 @@ class RucioManager extends BaseClientManager {
   }
 
   async _updateCategoryRaw(id, { name, color, path }) {
-    // The daemon's PUT is a full replace, and aMuTorrent doesn't manage Rucio's
-    // keyword auto-filing rules (match_keywords). Read the category's current
-    // value and send it back untouched — otherwise editing name/colour/path here
-    // would wipe rules the user set in Rucio's own panel. Best-effort: if the
-    // read fails we omit it, leaving the pre-existing behaviour.
-    let match_keywords;
+    // The daemon's PUT is a full replace, and aMuTorrent manages neither Rucio's
+    // keyword auto-filing rules (match_keywords) nor its download dir — the latter
+    // lives on the daemon host and onConnectSync imports categories without it.
+    // Read both and send them back untouched when we don't have our own, so
+    // editing a category's name/colour here can't wipe what the user set in
+    // Rucio's own panel. Best-effort: if the read fails we omit them.
+    let match_keywords, currentDownloadDir;
     try {
-      const cats = await this._knownCategories();
-      match_keywords = cats.find(c => c.id === id)?.match_keywords ?? undefined;
+      const cur = (await this._knownCategories()).find(c => c.id === id);
+      match_keywords = cur?.match_keywords ?? undefined;
+      currentDownloadDir = cur?.download_dir ?? undefined;
     } catch { /* can't read it — don't fabricate a value */ }
-    const body = { name, color: toHexColor(color), download_dir: path || undefined, match_keywords };
+    // Keep the daemon's dir when we have no path of our own.
+    const download_dir = path || currentDownloadDir || undefined;
+    const body = { name, color: toHexColor(color), download_dir, match_keywords };
     const update = async (b) => {
       const res = await this.client.updateCategory(id, b);
       this.lastCategories = null; // the daemon's list changed
@@ -496,8 +513,10 @@ class RucioManager extends BaseClientManager {
       return await update(body);
     } catch (err) {
       if (body.download_dir && /HTTP 400/.test(err.message)) {
-        this.warn(`Rucio rejected download_dir for category "${name}" (${err.message}); updating without it`);
-        return await update({ name, color: body.color, match_keywords });
+        this.warn(`Rucio rejected download_dir for category "${name}" (${err.message}); keeping the daemon's`);
+        // Our path was rejected (likely doesn't exist on the daemon host) — fall
+        // back to the daemon's current dir, never wipe it.
+        return await update({ name, color: body.color, download_dir: currentDownloadDir || undefined, match_keywords });
       }
       throw err;
     }

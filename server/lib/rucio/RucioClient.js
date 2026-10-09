@@ -68,36 +68,42 @@ class RucioClient {
    */
   async _request(method, path, body = null) {
     const controller = new AbortController();
+    // The timeout must cover reading the body too, not just the headers: a
+    // daemon or proxy that stalls mid-body would otherwise hang fetchData (and,
+    // since callers share one in-flight fetch, freeze every client's updates).
+    // So the timer lives until the whole response is read (finally), and an
+    // abort during the body read surfaces as the timeout.
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    let res;
     try {
-      res = await fetch(`${this.origin}${path}`, {
+      const res = await fetch(`${this.origin}${path}`, {
         method,
         headers: this._headers(body != null),
         body: body != null ? JSON.stringify(body) : undefined,
         signal: controller.signal
       });
+
+      if (!res.ok) {
+        let detail = '';
+        try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+        throw new Error(`Rucio ${method} ${path} → HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+      }
+
+      if (res.status === 204) return null;
+      const text = await res.text();
+      if (!text) return null;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return JSON.parse(text);
+      return text; // plain-text endpoints (e.g. /shares/{hash}/magnet)
     } catch (err) {
-      clearTimeout(timer);
       if (err.name === 'AbortError') {
         throw new Error(`Rucio request timed out after ${this.timeoutMs}ms: ${method} ${path}`);
       }
+      // Our own HTTP-status error is already descriptive — re-throw it as-is.
+      if (/^Rucio /.test(err.message)) throw err;
       throw new Error(`Rucio request failed: ${method} ${path} — ${err.message}`);
+    } finally {
+      clearTimeout(timer);
     }
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      let detail = '';
-      try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
-      throw new Error(`Rucio ${method} ${path} → HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
-    }
-
-    if (res.status === 204) return null;
-    const text = await res.text();
-    if (!text) return null;
-    const ct = res.headers.get('content-type') || '';
-    if (ct.includes('application/json')) return JSON.parse(text);
-    return text; // plain-text endpoints (e.g. /shares/{hash}/magnet)
   }
 
   // ── Status / health ────────────────────────────────────────────────────

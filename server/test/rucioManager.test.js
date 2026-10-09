@@ -2,6 +2,8 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { RucioManager } = require('../modules/rucioManager.js');
+const { normalizeRucioSharedFile } = require('../lib/downloadNormalizer.js');
+const RucioClient = require('../lib/rucio/RucioClient.js');
 
 // Build a RucioManager without running the constructor (which would need a
 // client config); we drive the methods under test directly with mocks.
@@ -134,7 +136,8 @@ describe('RucioManager.deleteItem', () => {
       client,
       hashToId: new Map([['aa', 5]]),
       lastDownloads: [{ hash: 'aa', isComplete: true }],
-      lastSharedFiles: [{ hash: 'aa', path: '/data/f.mkv' }]
+      // path is the containing folder; the full file path lives in raw.path
+      lastSharedFiles: [{ hash: 'aa', path: '/data', raw: { path: '/data/f.mkv' } }]
     });
 
     const res = await m.deleteItem('AA', { deleteFiles: true });
@@ -142,7 +145,7 @@ describe('RucioManager.deleteItem', () => {
     assert.deepEqual(calls.cancel, [], 'a completed download is never cancelled');
     assert.deepEqual(calls.remove, [5]);
     assert.deepEqual(calls.unshare, ['aa']);
-    assert.deepEqual(res.pathsToDelete, ['/data/f.mkv']);
+    assert.deepEqual(res.pathsToDelete, ['/data/f.mkv'], 'wipes the real file path, not the folder');
   });
 
   it('cancels then removes an active download', async () => {
@@ -198,12 +201,41 @@ describe('RucioManager._getAllShares', () => {
       Array.from({ length: 10 }, (_, i) => ({ root_hash: `c${i}` }))
     ];
     let calls = 0;
-    const m = makeManager({ client: { getShares: async ({ offset }) => { calls++; return { shares: pages[offset / 1000] || [] }; } } });
+    const m = makeManager({ client: { getShares: async ({ offset }) => { calls++; return { shares: pages[offset / 1000] || [], total: 2010 }; } } });
 
     const { shares } = await m._getAllShares();
 
     assert.equal(shares.length, 2010, 'collects every page, not just the first 1000');
-    assert.equal(calls, 3);
+    assert.equal(calls, 3, 'stops once the reported total is reached');
+  });
+
+  it('pages past a server page shorter than the requested limit', async () => {
+    // Daemon caps a page at 500 even though we asked for 1000: a short page is
+    // not the last one — keep going until `total`.
+    let calls = 0;
+    const m = makeManager({ client: { getShares: async ({ offset }) => {
+      calls++;
+      return { shares: Array.from({ length: offset < 500 ? 500 : 10 }, (_, i) => ({ root_hash: `${offset}-${i}` })), total: 510 };
+    } } });
+
+    const { shares } = await m._getAllShares();
+
+    assert.equal(shares.length, 510, 'does not stop on the first short page');
+    assert.equal(calls, 2);
+  });
+
+  it('stops on an empty page when offset is ignored (no infinite loop)', async () => {
+    let calls = 0;
+    const m = makeManager({ client: { getShares: async () => {
+      calls++;
+      // Ignores offset: first call returns 3, then empties (backstop).
+      return calls === 1 ? { shares: [{ root_hash: 'x' }, { root_hash: 'y' }, { root_hash: 'z' }] } : { shares: [] };
+    } } });
+
+    const { shares } = await m._getAllShares();
+
+    assert.equal(shares.length, 3);
+    assert.ok(calls <= 2, 'the empty-page backstop stops it');
   });
 });
 
@@ -232,5 +264,82 @@ describe('RucioManager.ensureCategoriesBatch', () => {
     assert.equal(getCount, 1, 'one list fetch for the whole batch');
     assert.equal(createCount, 2, 'TV and Music created once each; the second TV reuses the first');
     assert.deepEqual(out.map(o => o.name), ['Movies', 'TV', 'Music', 'TV']);
+  });
+});
+
+describe('RucioManager._updateCategoryRaw', () => {
+  it('keeps the daemon download_dir and match_keywords when ours are empty', async () => {
+    const puts = [];
+    const m = makeManager({
+      lastCategories: [{ id: 7, name: 'Movies', color: '#111', download_dir: '/daemon/movies', match_keywords: '1080p|bluray' }],
+      client: { updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; } }
+    });
+
+    await m._updateCategoryRaw(7, { name: 'Films', color: '#00ff00', path: undefined });
+
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0].body.download_dir, '/daemon/movies', 'daemon dir preserved');
+    assert.equal(puts[0].body.match_keywords, '1080p|bluray', 'keyword rules preserved');
+    assert.equal(puts[0].body.name, 'Films');
+  });
+
+  it('uses our path when we have one', async () => {
+    const puts = [];
+    const m = makeManager({
+      lastCategories: [{ id: 7, name: 'Movies', download_dir: '/daemon/movies' }],
+      client: { updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; } }
+    });
+
+    await m._updateCategoryRaw(7, { name: 'Movies', path: '/app/movies' });
+
+    assert.equal(puts[0].body.download_dir, '/app/movies');
+  });
+});
+
+describe('RucioManager.fetchData category list', () => {
+  it('keeps the last category list when the fetch fails (no empty cache)', async () => {
+    const m = makeManager({
+      lastCategories: [{ id: 7, name: 'Movies' }],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [{ id: 1, root_hash: 'aa', name: 'x', size: 10, bytes_done: 10, state: 'completed', category_id: 7 }],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => { throw new Error('boom'); }
+      }
+    });
+
+    const { downloads } = await m.fetchData();
+
+    assert.deepEqual(m.lastCategories, [{ id: 7, name: 'Movies' }], 'kept the previous list');
+    assert.equal(downloads[0].categoryName, 'Movies', 'name resolves from the kept list, not Default');
+  });
+});
+
+describe('normalizeRucioSharedFile', () => {
+  it('emits the containing folder as path and keeps the full path in raw', () => {
+    const n = normalizeRucioSharedFile({ root_hash: 'aa', name: 'f.mkv', size: 10, path: '/data/sub/f.mkv', magnet: 'rucio:aa' });
+    assert.equal(n.path, '/data/sub', 'path is the containing folder (resolveItemPath joins the name)');
+    assert.equal(n.raw.path, '/data/sub/f.mkv', 'full file path preserved in raw');
+  });
+});
+
+describe('RucioClient._request timeout', () => {
+  it('times out when the body stalls after the headers arrive', async () => {
+    const origFetch = global.fetch;
+    global.fetch = (url, opts) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      // Headers arrive, but the body never does — rejects on abort, like fetch.
+      text: () => new Promise((_, reject) => {
+        opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      })
+    });
+    try {
+      const c = new RucioClient({ host: 'h', port: 1, timeoutMs: 20 });
+      await assert.rejects(() => c._request('GET', '/x'), /timed out/);
+    } finally {
+      global.fetch = origFetch;
+    }
   });
 });

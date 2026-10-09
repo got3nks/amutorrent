@@ -744,7 +744,10 @@ function normalizeRucioSharedFile(s) {
     uploadSpeed: 0,
     // Neutral copy/export link (the rucio: magnet), under `link` not `ed2kLink`.
     link: s.magnet || null,
-    path: s.path || null,
+    // `path` is the CONTAINING FOLDER, like aMule — resolveItemPath joins the
+    // file name onto it. The daemon reports the full file path, so strip the
+    // last segment. The full path stays available in `raw.path`.
+    path: s.path ? (s.path.replace(/\/[^/]*$/, '') || '/') : null,
     raw: { clientType: 'rucio', ...s }
   };
 }
