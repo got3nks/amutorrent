@@ -8,7 +8,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { Icon, Tooltip, VersionBadge, ClientIcon, Portal } from '../common/index.js';
-import { NETWORK_ORDER, NETWORK_NAMES, NETWORK_COLORS, NETWORK_COLOR_DEFAULT } from '../../utils/constants.js';
+import { NETWORK_ORDER, NETWORK_NAMES, NETWORK_COLORS, NETWORK_COLOR_DEFAULT, networkTypeIcon } from '../../utils/constants.js';
 import { useFontSize } from '../../contexts/FontSizeContext.js';
 import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
@@ -110,9 +110,6 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
   const { isNetworkTypeEnabled, toggleNetworkType, toggleInstance, isInstanceEnabled } = useClientFilter();
   const { multipleClientsConnected, instances } = useStaticData();
 
-  // Icon key per network type (ed2k → aMule's icon).
-  const netIcon = (nt) => (nt === 'ed2k' ? 'amule' : nt);
-
   // Profile modal state
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -182,7 +179,7 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
                   style: isNetworkTypeEnabled(nt) ? { backgroundColor: NETWORK_COLORS[nt] || NETWORK_COLOR_DEFAULT } : undefined,
                   title: `${NETWORK_NAMES[nt]} ${isNetworkTypeEnabled(nt) ? 'enabled' : 'disabled'}`
                 },
-                  h(ClientIcon, { client: netIcon(nt), size: 14, title: '' }),
+                  h(ClientIcon, { client: networkTypeIcon(nt), size: 14, title: '' }),
                   NETWORK_NAMES[nt]
                 )
               )
@@ -200,7 +197,7 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
                     isNetworkTypeEnabled(nt) ? 'opacity-100' : 'opacity-40 grayscale'
                   }`,
                   title: isNetworkTypeEnabled(nt) ? `Hide all ${NETWORK_NAMES[nt]}` : `Show all ${NETWORK_NAMES[nt]}`
-                }, h(ClientIcon, { client: netIcon(nt), size: 14, title: '' })),
+                }, h(ClientIcon, { client: networkTypeIcon(nt), size: 14, title: '' })),
                 ...instanceGroups[nt].map(inst =>
                   h('button', {
                     key: inst.id,

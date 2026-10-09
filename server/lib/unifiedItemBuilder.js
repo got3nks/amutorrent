@@ -173,7 +173,7 @@ function applyDownloadData(item, download, categoryManager = null) {
     // Links — neutral field; the normalizer supplies `link` (ed2k:// or rucio:).
     // `ed2kLink` is still read as a fallback for aMule's normalizer.
     item.link = download.link || download.ed2kLink || item.link;
-  } else if (clientMeta.hasCapability(download.clientType, 'trackers')) {
+  } else {
     // Torrent shape (has trackers → BitTorrent): all items are always shared/seeding
     item.shared = true;
 

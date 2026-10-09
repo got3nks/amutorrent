@@ -4,17 +4,19 @@
  * Functions for extracting and validating data
  */
 
-// Schemes the ed2k-add path handles when the caller doesn't pass its own (e.g.
-// a server list of ed2k:// links). The modal/handler normally passes the schemes
-// of the connected clients instead, so a new network's scheme isn't dropped.
-export const DEFAULT_ED2K_SCHEMES = ['ed2k://', 'rucio:'];
+// Baseline scheme for the ed2k-add path, used only as a last resort when the
+// caller passes none (e.g. a server list with no ed2k-path client connected).
+// Callers normally pass the connected clients' own linkSchemes, so an added
+// network's scheme (rucio:, …) comes from its capability, not from this generic
+// file — nothing could route it here with no instance connected anyway.
+export const DEFAULT_ED2K_SCHEMES = ['ed2k://'];
 
 /**
  * Extract the links the ed2k-add path handles from text, for the given schemes.
  * Case-insensitive and anchored to a token boundary, so `Rucio:…` is matched but
  * `foorucio:x` is not. Allows pasting mixed text containing the links.
  * @param {string} text - Text that may contain such links
- * @param {string[]} [schemes] - Link schemes to extract (default ed2k://, rucio:)
+ * @param {string[]} [schemes] - Link schemes to extract (default: ed2k:// only)
  * @returns {string[]} Array of unique links
  */
 export const extractEd2kLinks = (text, schemes = DEFAULT_ED2K_SCHEMES) => {

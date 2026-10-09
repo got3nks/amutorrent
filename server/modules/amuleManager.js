@@ -216,15 +216,15 @@ class AmuleManager extends BaseClientManager {
     return !!this.client;
   }
 
-  // Search lock management
+  // Search lock helpers
   //
-  // The lock doubles as the UI's "search busy" signal. It is a mutex, so it has
-  // exactly one holder and its two transitions are the only edges there are -
-  // no separate flag and no owner counting. Every path that starts an aMule
-  // search takes it, so the search box greys for exactly the moments a user
-  // search would be refused.
-  // acquireSearchLock / releaseSearchLock / isSearchInProgress now live in
-  // BaseClientManager; the waiting/withSearchLock helpers below build on them.
+  // The mutex itself (acquire/release/isSearchInProgress) lives in
+  // BaseClientManager, shared by every searchable client. It doubles as the
+  // UI's "search busy" signal: one holder, two transitions, no separate flag or
+  // owner counting. The helpers below build a waiting / scoped acquire on top of
+  // it for aMule's single ed2k search slot, where every path that starts a
+  // search must hold it so the search box greys exactly when a search would be
+  // refused.
 
   /**
    * Acquire the search lock, waiting for it rather than failing immediately.
