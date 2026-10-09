@@ -11,6 +11,7 @@ import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorre
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
 import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { LINK_SCHEME_LABELS, MAGNET_SCHEME } from '../../utils/constants.js';
 
 const { createElement: h, useState, useRef, useEffect } = React;
 
@@ -56,7 +57,6 @@ const AddDownloadModal = ({
     connectedInstances: amuleInstances,
     showSelector: showAmuleSelector,
     selectedId: effectiveAmuleInstance,
-    selectedInstance: selectedAmuleObj,
     selectInstance: selectAmuleInstance
   } = useAmuleInstanceSelector();
 
@@ -87,12 +87,15 @@ const AddDownloadModal = ({
   // no edit here. Schemes an instance's metadata declares are known even while
   // it is offline, so classification doesn't depend on who is connected.
   const allInstances = Object.entries(instances || {}).map(([id, i]) => ({ id, ...i }));
-  const knownSchemes = [...new Set(allInstances.flatMap(i => i.capabilities?.linkSchemes || []))];
+  // magnet: is always known (BitTorrent baseline) so an aMule-only user sees a
+  // magnet line as "(no BitTorrent client)" rather than an invalid link.
+  const knownSchemes = [...new Set([MAGNET_SCHEME, ...allInstances.flatMap(i => i.capabilities?.linkSchemes || [])])];
   const schemeOf = (line) => knownSchemes.find(s => line.toLowerCase().startsWith(s.toLowerCase())) || null;
   const connectedAccepting = (scheme) => allInstances.filter(i => i.connected && (i.capabilities?.linkSchemes || []).includes(scheme));
-  // A scheme served by a tracker (BitTorrent) client goes down the magnet path;
-  // every other scheme (ed2k://, rucio:, …) down the ed2k path.
-  const isTorrentScheme = (scheme) => allInstances.some(i => (i.capabilities?.linkSchemes || []).includes(scheme) && i.capabilities?.trackers);
+  // A magnet link, or any scheme served by a tracker (BitTorrent) client, goes
+  // down the magnet path; every other scheme (ed2k://, rucio:, …) down the ed2k
+  // path. magnet is torrent even when no BitTorrent instance is configured.
+  const isTorrentScheme = (scheme) => scheme === MAGNET_SCHEME || allInstances.some(i => (i.capabilities?.linkSchemes || []).includes(scheme) && i.capabilities?.trackers);
 
   const ed2kLinks = [], magnetLinks = [], unroutableLinks = [], invalidLinks = [];
   for (const line of links.split('\n').map(l => l.trim()).filter(Boolean)) {
@@ -246,14 +249,23 @@ const AddDownloadModal = ({
     const parts = [];
     const finalCategory = getFinalCategory();
     const selectedClientName = selectedClient?.name || 'BitTorrent';
-    const effectiveAmuleName = selectedAmuleObj?.name || 'aMule';
 
+    // Mirror handleSubmit's routing: group ed2k-path links by scheme and name
+    // the instance each group actually goes to (ed2k:// → aMule, rucio: → Rucio),
+    // not just the selected one.
     if (ed2kLinks.length > 0) {
-      let ed2kPart = `${ed2kLinks.length} ED2K link${ed2kLinks.length > 1 ? 's' : ''} → ${effectiveAmuleName}`;
-      if (finalCategory && finalCategory !== 'Default') {
-        ed2kPart += ` (${finalCategory})`;
+      const groups = {};
+      for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
+      for (const [scheme, groupLinks] of Object.entries(groups)) {
+        const accepting = connectedAccepting(scheme);
+        const target = accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0];
+        const noun = LINK_SCHEME_LABELS[scheme] || 'Link';
+        let part = `${groupLinks.length} ${noun}${groupLinks.length > 1 ? 's' : ''} → ${target?.name || target?.id || scheme}`;
+        if (finalCategory && finalCategory !== 'Default') {
+          part += ` (${finalCategory})`;
+        }
+        parts.push(part);
       }
-      parts.push(ed2kPart);
     }
     // Resolve effective save path: custom override → category path → null
     const effectiveCustomPath = (showSavePath && customSavePath) ? customSavePath : null;

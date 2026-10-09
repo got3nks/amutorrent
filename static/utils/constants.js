@@ -276,6 +276,14 @@ export const NETWORK_COLORS = {
   bittorrent: '#f97316'
 };
 export const NETWORK_COLOR_DEFAULT = '#3b82f6';
+// Icon key (a ClientIcon `client` value) per network type. Defaults to the
+// network type's own name; only overrides live here — the ed2k network draws
+// aMule's icon. A new network adds an entry only when its icon differs from its
+// type name, keeping the mapping out of the views.
+export const NETWORK_TYPE_ICONS = {
+  ed2k: 'amule'
+};
+export const networkTypeIcon = (nt) => NETWORK_TYPE_ICONS[nt] || nt;
 // Human label for an export/copy link, keyed by its URI scheme. A new network's
 // scheme gets its own label here rather than defaulting to "ED2K Link".
 export const LINK_SCHEME_LABELS = {
@@ -283,6 +291,12 @@ export const LINK_SCHEME_LABELS = {
   'rucio:': 'Rucio Link',
   'magnet:?': 'Magnet Link'
 };
+
+// BitTorrent is the baseline network: a magnet link is always a BitTorrent link,
+// so it's classified (and reported as "no BitTorrent client" rather than
+// "invalid") even when no BitTorrent instance is configured. Networks layered on
+// top declare their own schemes through the linkSchemes capability instead.
+export const MAGNET_SCHEME = 'magnet:?';
 
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },
