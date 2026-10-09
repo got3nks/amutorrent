@@ -56,7 +56,7 @@ const CLIENT_TYPES = {
       search: true,                // ed2k search supported
       // Search sources this client offers (value = search `type` sent to the
       // backend). The UI builds its search buttons from the union of these.
-      searchSources: [{ value: 'global', label: 'ED2K Server' }, { value: 'kad', label: 'Kad' }],
+      searchSources: [{ value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png' }, { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png' }],
       // Link schemes this client accepts (the Add Download modal groups pasted
       // links by scheme and offers only instances that accept each).
       linkSchemes: ['ed2k://'],
@@ -123,7 +123,7 @@ const CLIENT_TYPES = {
       search: true,                      // unified rucio + eMule/Kad search
       // One search source (the daemon searches its own network + eMule/Kad
       // together, so there is no sub-source to pick).
-      searchSources: [{ value: 'rucio', label: 'Rucio' }],
+      searchSources: [{ value: 'rucio', label: 'Rucio', icon: '/static/logo-rucio.svg' }],
       // Accepts both ed2k:// links and its own rucio: magnets.
       linkSchemes: ['ed2k://', 'rucio:'],
       cancelDeletesFiles: true,          // cancel discards the partial download

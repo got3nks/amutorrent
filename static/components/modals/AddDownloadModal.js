@@ -8,7 +8,6 @@
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
 import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, AmuleInstanceSelector, PathPicker } from '../common/index.js';
-import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
 import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
@@ -32,8 +31,6 @@ const AddDownloadModal = ({
   onClose,
   initialTorrentFiles = []
 }) => {
-  // ed2k-link handling is served by aMule and Rucio alike.
-  const { ed2kConnected: amuleConnected, rucioConnected } = useClientFilter();
   // Get BitTorrent client selection state (instance-aware)
   const {
     connectedClients: btClients,
@@ -107,8 +104,12 @@ const AddDownloadModal = ({
   if (!show) return null;
 
   const { ed2kLinks, magnetLinks, invalidLinks } = parseLinks(links);
-  // aMule and Rucio both accept ed2k:// (and Rucio also rucio:) links.
-  const ed2kCapableConnected = amuleConnected || rucioConnected;
+  // Can any connected instance take the ed2k-path links? Driven by clientMeta
+  // `linkSchemes` (via instances[id].capabilities), so a new client that accepts
+  // ed2k:// or rucio: enables the path with no edit here.
+  const ed2kCapableConnected = Object.values(instances || {}).some(
+    i => i.connected && (i.capabilities?.linkSchemes || []).some(s => s === 'ed2k://' || s === 'rucio:')
+  );
 
   // Check if we can submit
   const hasEd2kLinks = ed2kLinks.length > 0 && ed2kCapableConnected;
@@ -445,10 +446,11 @@ const AddDownloadModal = ({
             );
           })(),
 
-          // aMule instance selector - visible when 2+ aMule instances and ED2K links
+          // Instance selector for the ed2k-path links — visible when 2+
+          // accepting instances (aMule/Rucio) are connected.
           ed2kLinks.length > 0 && h('div', null,
             showAmuleSelector && h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1' },
-              'aMule Instance'
+              'Instance'
             ),
             h(AmuleInstanceSelector, {
               connectedInstances: amuleInstances,

@@ -10,33 +10,37 @@
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
 import { useStaticData } from '../contexts/StaticDataContext.js';
+import { TYPE_LABELS } from '../components/settings/clientFields.js';
 
 /**
- * Hook for aMule instance selection
+ * Hook for picking a connected instance that accepts a given link scheme
+ * (defaults to ed2k:// — aMule and Rucio). Instance-aware; shows a selector
+ * when 2+ accepting instances are connected.
  * @param {Object} [options]
+ * @param {string} [options.scheme='ed2k://'] - Link scheme the instance must accept
  * @param {string} [options.selectedId] - Externally controlled selected ID (overrides internal state)
  * @param {Function} [options.onSelect] - External selection handler (overrides internal state)
  * @returns {Object} Instance selection state and helpers
  */
 export function useAmuleInstanceSelector(options = {}) {
   const { instances } = useStaticData();
+  const scheme = options.scheme || 'ed2k://';
 
-  // Build list of connected ED2K-capable instances (sorted by config order).
-  // Rucio handles ed2k links and search too (its own + the eMule/Kad bridge),
-  // so it belongs here alongside aMule — otherwise a Rucio instance can never
-  // be chosen for an ed2k add or search.
+  // Connected instances that accept this link scheme (clientMeta `linkSchemes`,
+  // shipped via instances[id].capabilities) — a new client that accepts it
+  // appears here with no edit.
   const connectedInstances = useMemo(() => {
     return Object.entries(instances || {})
-      .filter(([, inst]) => inst.connected && (inst.networkType === 'ed2k' || inst.networkType === 'rucio'))
+      .filter(([, inst]) => inst.connected && (inst.capabilities?.linkSchemes || []).includes(scheme))
       .map(([id, inst]) => ({
         id,
         type: inst.type,
-        name: inst.name || (inst.networkType === 'rucio' ? 'Rucio' : 'aMule'),
+        name: inst.name || TYPE_LABELS[inst.type] || inst.type,
         color: inst.color,
         order: inst.order
       }))
       .sort((a, b) => a.order - b.order);
-  }, [instances]);
+  }, [instances, scheme]);
 
   // Whether to show instance selector (2+ instances connected)
   const showSelector = connectedInstances.length >= 2;

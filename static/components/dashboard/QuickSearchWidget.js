@@ -39,18 +39,26 @@ const QuickSearchWidget = ({
 }) => {
   const { isNetworkTypeConnected, prowlarrEnabled, instances } = useStaticData();
 
-  // Connected instances grouped by client type. ED2K Server / Kad are aMule
-  // search methods; Rucio is its own source (a single unified rucio + eMule/Kad
-  // query). Check by client TYPE rather than networkType, since Rucio shares the
-  // 'ed2k' networkType but must not enable the aMule-specific buttons on its own.
-  const byType = (t) => Object.entries(instances || {})
-    .filter(([, i]) => i.connected && i.type === t)
-    .map(([id, i]) => ({ id, type: i.type, name: i.name || t, color: i.color, order: i.order }))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const amuleInsts = byType('amule');
-  const rucioInsts = byType('rucio');
-  const amuleConnected = amuleInsts.length > 0;
-  const rucioConnected = rucioInsts.length > 0;
+  // Connected instances (config order), each carrying the search sources it
+  // serves (clientMeta `searchSources`, shipped via instances[id].capabilities).
+  const connectedInsts = Object.entries(instances || {})
+    .filter(([, i]) => i.connected)
+    .map(([id, i]) => ({ id, type: i.type, name: i.name || i.type, color: i.color, order: i.order ?? 0, searchSources: i.capabilities?.searchSources || [] }))
+    .sort((a, b) => a.order - b.order);
+
+  // Connected instances that serve a given search source value.
+  const instancesForSource = (value) => connectedInsts.filter(i => i.searchSources.some(s => s.value === value));
+
+  // Distinct client search sources across all connected instances, in instance
+  // order — a new searchable network contributes its own, no edit here.
+  const clientSources = [];
+  const seenSource = new Set();
+  for (const inst of connectedInsts) {
+    for (const s of inst.searchSources) {
+      if (!seenSource.has(s.value)) { seenSource.add(s.value); clientSources.push(s); }
+    }
+  }
+
   const bittorrentConnected = isNetworkTypeConnected('bittorrent');
 
   const handleSubmit = (e) => {
@@ -60,37 +68,27 @@ const QuickSearchWidget = ({
     }
   };
 
-  // Search types with availability based on client status
-  // - ED2K and Kad require an aMule instance
-  // - Rucio requires a Rucio instance
-  // - Prowlarr requires prowlarr enabled AND any BitTorrent client connected
+  // One button per client search source (always available — they only appear
+  // while a serving instance is connected), plus Prowlarr: an external indexer
+  // that rides the BitTorrent clients, not a network of its own.
   const searchTypes = [
-    { value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png', disabled: !amuleConnected },
-    // { value: 'local', label: 'Local', icon: '/static/logo-brax.png', disabled: !amuleConnected }, // Hidden temporarily
-    { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png', disabled: !amuleConnected },
-    { value: 'rucio', label: 'Rucio', icon: '/static/logo-rucio.svg', disabled: !rucioConnected },
+    ...clientSources.map(s => ({ value: s.value, label: s.label, icon: s.icon || null, disabled: false })),
     { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !bittorrentConnected }
   ];
 
-  // Keep the targeted instance consistent with the selected source: a Rucio
-  // search must hit a Rucio instance, an ED2K/Kad search an aMule instance.
-  const amuleIds = amuleInsts.map(i => i.id).join(',');
-  const rucioIds = rucioInsts.map(i => i.id).join(',');
+  // Keep the targeted instance consistent with the selected source: if the
+  // current pick doesn't serve it, jump to the first that does.
+  const sourceInstanceIds = instancesForSource(searchType).map(i => i.id).join(',');
   useEffect(() => {
     // Only views that manage instance selection (e.g. SearchView) pass this;
     // the dashboard quick-search omits it and lets the dispatcher resolve it.
     if (typeof onSearchInstanceChange !== 'function') return;
-    if (searchType === 'rucio') {
-      if (rucioInsts.length && !rucioInsts.some(i => i.id === searchInstanceId)) {
-        onSearchInstanceChange(rucioInsts[0].id);
-      }
-    } else if (searchType === 'global' || searchType === 'kad') {
-      if (amuleInsts.length && !amuleInsts.some(i => i.id === searchInstanceId)) {
-        onSearchInstanceChange(amuleInsts[0].id);
-      }
+    const serving = instancesForSource(searchType);
+    if (serving.length && !serving.some(i => i.id === searchInstanceId)) {
+      onSearchInstanceChange(serving[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchType, searchInstanceId, amuleIds, rucioIds]);
+  }, [searchType, searchInstanceId, sourceInstanceIds]);
 
   const selectedTypeDisabled = searchTypes.find(t => t.value === searchType)?.disabled;
 
@@ -102,7 +100,8 @@ const QuickSearchWidget = ({
         onSearchTypeChange(firstAvailable.value);
       }
     }
-  }, [selectedTypeDisabled, amuleConnected, bittorrentConnected, prowlarrEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTypeDisabled, bittorrentConnected, prowlarrEnabled]);
 
   return h('div', {
     className: noBorder ? '' : 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700'
@@ -146,12 +145,9 @@ const QuickSearchWidget = ({
           className: 'flex-1 min-w-0'
         }),
 
-        // Instance selector — only when 2+ instances of the selected source.
-        // ED2K/Kad pick among aMule instances; Rucio among Rucio instances.
+        // Instance selector — only when 2+ instances serve the selected source.
         (() => {
-          const list = searchType === 'rucio'
-            ? rucioInsts
-            : (searchType === 'global' || searchType === 'kad') ? amuleInsts : [];
+          const list = searchType === 'prowlarr' ? [] : instancesForSource(searchType);
           return typeof onSearchInstanceChange === 'function' && list.length > 1 && h(AmuleInstanceSelector, {
             connectedInstances: list,
             selectedId: searchInstanceId,

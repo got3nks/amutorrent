@@ -39,18 +39,19 @@ const useWebSocketActions = () => {
   } = useSearch();
   const { setDataDownloadedFiles, lastEd2kWasServerListRef, instances } = useStaticData();
 
-  // Resolve which instance a search/download should target, by the selected
-  // source's client TYPE: 'rucio' → a Rucio instance, ED2K/Kad → an aMule
-  // instance. Keeps the current selection if it already matches the type,
-  // otherwise falls back to the first connected instance of that type. Returns
-  // null when none is connected (the handler then surfaces a clear error).
+  // Resolve which instance a search should target: the one serving the selected
+  // search source. Keeps the current selection if it still serves the source,
+  // otherwise falls back to the first that does. Returns null when none is
+  // connected (the handler then surfaces a clear error).
   const resolveSearchInstanceId = () => {
-    const wantType = searchType === 'rucio' ? 'rucio' : 'amule';
-    const ofType = Object.entries(instances || {})
-      .filter(([, i]) => i.connected && i.type === wantType)
+    // Serving instances are those whose clientMeta searchSources include the
+    // selected source value (shipped via instances[id].capabilities) — no
+    // per-network branch, so a new searchable network resolves automatically.
+    const serving = Object.entries(instances || {})
+      .filter(([, i]) => i.connected && (i.capabilities?.searchSources || []).some(s => s.value === searchType))
       .map(([id]) => id);
-    if (ofType.includes(searchInstanceId)) return searchInstanceId;
-    return ofType[0] || null;
+    if (serving.includes(searchInstanceId)) return searchInstanceId;
+    return serving[0] || null;
   };
 
   // ============================================================================
