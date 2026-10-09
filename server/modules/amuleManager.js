@@ -28,7 +28,6 @@ class AmuleManager extends BaseClientManager {
   constructor() {
     super();
     this.sharedFilesReloadInterval = null;  // Timer for automatic shared files reload
-    this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
     this._categorySlotCache = null;  // { at, categories } - see _getCategoriesForResolve()
@@ -224,27 +223,8 @@ class AmuleManager extends BaseClientManager {
   // no separate flag and no owner counting. Every path that starts an aMule
   // search takes it, so the search box greys for exactly the moments a user
   // search would be refused.
-  acquireSearchLock() {
-    if (this.searchInProgress) {
-      return false;
-    }
-    this.searchInProgress = true;
-    this._broadcastSearchLock(true);
-    return true;
-  }
-
-  releaseSearchLock() {
-    if (!this.searchInProgress) return;
-    this.searchInProgress = false;
-    this._broadcastSearchLock(false);
-  }
-
-  /** Tell the clients that may search about the slot changing hands. */
-  _broadcastSearchLock(locked) {
-    this.broadcast?.({ type: 'search-lock', locked }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-  }
+  // acquireSearchLock / releaseSearchLock / isSearchInProgress now live in
+  // BaseClientManager; the waiting/withSearchLock helpers below build on them.
 
   /**
    * Acquire the search lock, waiting for it rather than failing immediately.
@@ -295,9 +275,6 @@ class AmuleManager extends BaseClientManager {
     }
   }
 
-  isSearchInProgress() {
-    return this.searchInProgress;
-  }
 
   // ============================================================================
   // SHARED FILES AUTO-RELOAD SCHEDULER

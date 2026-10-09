@@ -60,8 +60,7 @@ class RucioManager extends BaseClientManager {
     this.hashToId = new Map();
     // Search state. Rucio search is async (own id, polled); we mirror aMule's
     // blocking search() surface and keep a hash→download_link map so a result
-    // can be queued by hash later.
-    this._searchInProgress = false;
+    // can be queued by hash later. (_searchInProgress is initialised by the base.)
     this._lastSearch = { id: null, results: [], links: new Map() };
     this._version = null;
   }
@@ -129,33 +128,9 @@ class RucioManager extends BaseClientManager {
     return !!this.client && this.client.isConnected();
   }
 
-  // ── Search lock (mirrors aMule; Rucio runs one search at a time per UI) ──
-
-  acquireSearchLock() {
-    if (this._searchInProgress) return false;
-    this._searchInProgress = true;
-    this._broadcastSearchLock(true);
-    return true;
-  }
-
-  releaseSearchLock() {
-    if (!this._searchInProgress) return;
-    this._searchInProgress = false;
-    this._broadcastSearchLock(false);
-  }
-
-  // Tell the clients that may search about the slot changing hands. Since
-  // v3.9.3 handleSearch no longer broadcasts this itself, so without it the
-  // search box stays on "Searching…" until a page reload. Mirrors aMule.
-  _broadcastSearchLock(locked) {
-    this.broadcast?.({ type: 'search-lock', locked }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-  }
-
-  isSearchInProgress() {
-    return this._searchInProgress;
-  }
+  // Search lock (acquire/release/broadcast/isSearchInProgress) lives in
+  // BaseClientManager — one search at a time per client, the search box greys
+  // while held.
 
   // ── History ──────────────────────────────────────────────────────────
 
@@ -332,6 +307,12 @@ class RucioManager extends BaseClientManager {
       text: highId ? 'Connected' : 'Limited',
       connected: true
     };
+  }
+
+  // Rucio links are ed2k:// (MD4) or rucio: (BLAKE3) — override the base reader.
+  // The unqualified call resolves to the imported helper, not this method.
+  hashFromLink(link) {
+    return hashFromLink(link);
   }
 
   // ── Download control (hash → id translation) ──────────────────────────
@@ -533,15 +514,11 @@ class RucioManager extends BaseClientManager {
   // a batch add doesn't refetch the list per item.
   async _categoryNameById(id) {
     if (id == null) return null;
-    const now = Date.now();
-    if (!this._catCache || now - this._catCache.at > 3000) {
-      try {
-        this._catCache = { at: now, list: (await this.client.getCategories()) || [] };
-      } catch {
-        this._catCache = { at: now, list: [] };
-      }
+    try {
+      return (await this._knownCategories()).find(c => c.id === id)?.name || null;
+    } catch {
+      return null;
     }
-    return this._catCache.list.find(c => c.id === id)?.name || null;
   }
 
   /**

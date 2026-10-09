@@ -37,6 +37,38 @@ class BaseClientManager extends BaseModule {
     this._trackerCache = new Map();
     this._peerCache = new Map();
     this._trackerRefreshInterval = null;
+
+    // One search at a time per client (the search box greys while held).
+    this._searchInProgress = false;
+  }
+
+  // ============================================================================
+  // SEARCH LOCK (one search at a time per client; shared by searchable managers)
+  // ============================================================================
+
+  /** Take the lock, or false if a search is already running. */
+  acquireSearchLock() {
+    if (this._searchInProgress) return false;
+    this._searchInProgress = true;
+    this._broadcastSearchLock(true);
+    return true;
+  }
+
+  releaseSearchLock() {
+    if (!this._searchInProgress) return;
+    this._searchInProgress = false;
+    this._broadcastSearchLock(false);
+  }
+
+  /** Tell the clients that may search about the slot changing hands. */
+  _broadcastSearchLock(locked) {
+    this.broadcast?.({ type: 'search-lock', locked }, {
+      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
+    });
+  }
+
+  isSearchInProgress() {
+    return !!this._searchInProgress;
   }
 
   // ============================================================================
@@ -177,6 +209,19 @@ class BaseClientManager extends BaseModule {
     } catch (err) {
       logger.warn(`[${this.clientType}] Failed to track deletion:`, err.message);
     }
+  }
+
+  /**
+   * Pull the content hash out of a link this client handles, so generic code
+   * (e.g. recording ownership) never has to know a specific network's scheme.
+   * The default reads an ed2k MD4 (ed2k://|file|name|size|<32-hex>|/); a manager
+   * with other link shapes overrides this.
+   * @param {string} link
+   * @returns {string|null} lower-cased hash, or null
+   */
+  hashFromLink(link) {
+    const m = (link || '').match(/\|([a-fA-F0-9]{32})\|/);
+    return m ? m[1].toLowerCase() : null;
   }
 
   // ============================================================================

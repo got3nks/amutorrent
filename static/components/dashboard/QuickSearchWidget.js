@@ -19,10 +19,8 @@ const { createElement: h } = React;
  * @param {function} onSearch - Search submit handler
  * @param {boolean} searchLocked - Whether search is in progress
  * @param {boolean} noBorder - Whether to hide the outer border/padding (default: false)
- * @param {string} searchInstanceId - Selected aMule instance ID for search
+ * @param {string} searchInstanceId - Selected instance ID for search
  * @param {function} onSearchInstanceChange - Instance selection change handler
- * @param {Array} amuleInstances - Connected aMule instances from useAmuleInstanceSelector
- * @param {boolean} showAmuleSelector - Whether to show aMule instance selector
  */
 const QuickSearchWidget = ({
   searchType,
@@ -33,9 +31,7 @@ const QuickSearchWidget = ({
   searchLocked,
   noBorder = false,
   searchInstanceId,
-  onSearchInstanceChange,
-  amuleInstances = [],
-  showAmuleSelector = false
+  onSearchInstanceChange
 }) => {
   const { isNetworkTypeConnected, prowlarrEnabled, instances } = useStaticData();
 

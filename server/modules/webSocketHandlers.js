@@ -19,7 +19,6 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
-const { hashFromLink } = require('../lib/rucio/links');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -603,22 +602,26 @@ class WebSocketHandlers extends BaseModule {
       }
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
 
-      // File info callback for history tracking (resolves hash → filename/size from search results)
+      // File info for history tracking: fetch the search results ONCE and index
+      // them by hash, rather than per download. getSearchResults() hits the
+      // daemon and, for Rucio, rebuilds _lastSearch.links as the batch reads it.
+      const resultsByHash = new Map();
+      try {
+        const searchResults = await manager.getSearchResults();
+        for (const r of (searchResults?.results || [])) {
+          const h = (r.fileHash || r.raw?.EC_TAG_SEARCHFILE_HASH)?.toLowerCase();
+          if (h) resultsByHash.set(h, r);
+        }
+      } catch (err) {
+        // Silently fail — filenames will be 'Unknown'.
+      }
       const fileInfoCallback = async (hash) => {
-        try {
-          const searchResults = await manager.getSearchResults();
-          const results = searchResults?.results || [];
-          const file = results.find(r => {
-            const resultHash = r.fileHash || r.raw?.EC_TAG_SEARCHFILE_HASH;
-            return resultHash?.toLowerCase() === hash.toLowerCase();
-          });
-          if (file) {
-            const filename = file.fileName || file.raw?.EC_TAG_PARTFILE_NAME || 'Unknown';
-            const size = file.fileSize || file.raw?.EC_TAG_PARTFILE_SIZE_FULL || null;
-            return { filename, size };
-          }
-        } catch (err) {
-          // Silently fail - filename will be 'Unknown'
+        const file = resultsByHash.get(hash.toLowerCase());
+        if (file) {
+          return {
+            filename: file.fileName || file.raw?.EC_TAG_PARTFILE_NAME || 'Unknown',
+            size: file.fileSize || file.raw?.EC_TAG_PARTFILE_SIZE_FULL || null
+          };
         }
         return { filename: 'Unknown', size: null };
       };
@@ -685,12 +688,13 @@ class WebSocketHandlers extends BaseModule {
         // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
         const success = await manager.addEd2kLink(link, categoryId, username);
         results.push({ link, success });
-        // Record ownership — the shared helper pulls the content hash from the
-        // link (ed2k MD4 or rucio: BLAKE3, lower-cased), so a Rucio link's owner
-        // is tracked too (otherwise, with user management on, a user without
-        // edit_all_downloads can't pause or delete their own).
+        // Record ownership — ask the manager to parse its own link (ed2k MD4 or
+        // rucio: BLAKE3, lower-cased), so this generic handler needs no per-
+        // network knowledge and a new network's owner is tracked too (otherwise,
+        // with user management on, a user without edit_all_downloads can't pause
+        // or delete their own).
         if (success && context.clientInfo.userId && this.userManager) {
-          const hash = hashFromLink(link);
+          const hash = manager.hashFromLink?.(link);
           if (hash) {
             this.userManager.recordOwnership(itemKey(manager.instanceId, hash), context.clientInfo.userId);
           }
