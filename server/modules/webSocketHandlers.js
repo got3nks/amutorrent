@@ -19,6 +19,7 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
+const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion } = require('../lib/sharedFilePolicy');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -255,13 +256,16 @@ class WebSocketHandlers extends BaseModule {
 
     context.log(`New WebSocket connection from ${clientIp}${locationInfo}`);
     context.send({ type: 'connected', message: 'Connected to aMule Controller' });
-    // Reflect whether ANY searchable client currently holds the search lock,
-    // not just aMule — a Rucio (or any future) search greys the box the same way.
-    let searchLocked = false;
+    // Seed the client with the set of instances currently holding a search
+    // lock, not a single flag — otherwise a search on one instance greys (and
+    // later ungreys) the box while another instance is still searching.
+    const lockedInstances = [];
     registry.forEach(m => {
-      if (typeof m.isSearchInProgress === 'function' && m.isSearchInProgress()) searchLocked = true;
+      if (typeof m.isSearchInProgress === 'function' && m.isSearchInProgress()) {
+        lockedInstances.push(m.instanceId);
+      }
     });
-    context.send({ type: 'search-lock', locked: searchLocked });
+    context.send({ type: 'search-lock-snapshot', lockedInstances });
 
     // Send cached batch update to newly connected client (if available), filtered by ownership
     // Always sends full snapshot (items array), never delta, for new connections
@@ -1671,10 +1675,13 @@ class WebSocketHandlers extends BaseModule {
 
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
-          const isShared = caps.sharedFiles && item?.shared && !item?.downloading;
+          // Only clients that must physically MOVE a shared file to recategorise
+          // it (aMule) skip the API and move; a client that can recategorise in
+          // place (Rucio: moveSharedForCategoryChange false) uses setCategoryOrLabel.
+          const movesSharedInsteadOfApi = movesSharedForCategoryChange(caps, item);
 
-          // Set category/label (skip for shared files — they only need a move, no API call)
-          if (!isShared) {
+          // Set category/label (skipped only when the client moves instead)
+          if (!movesSharedInsteadOfApi) {
             if (!manager.isConnected()) {
               results.push({ fileHash, fileName, success: false, error: `${manager.clientType} not connected`, instanceId, instanceName: manager.displayName });
               continue;
@@ -1694,8 +1701,8 @@ class WebSocketHandlers extends BaseModule {
 
           results.push({ fileHash, success: true, instanceId, instanceName: manager.displayName });
 
-          // Queue move if requested (or always for shared files — they need explicit moving)
-          if (moveFiles || isShared) {
+          // Queue move if requested (or when the client recategorises by moving)
+          if (moveFiles || movesSharedInsteadOfApi) {
             const { localPath: destPathLocal, remotePath: destPathRemote } = resolveCategoryDestPaths(targetCategory, manager.clientType, item?.instanceId);
             const sourcePath = item?.directory || item?.filePath;
 
@@ -1806,13 +1813,15 @@ class WebSocketHandlers extends BaseModule {
 
         const clientType = item.client;
         const caps = clientMeta.get(clientType)?.capabilities || {};
-        const isShared = caps.sharedFiles && item.shared && !item.downloading;
+        const isShared = isCompletedShare(caps, item);
 
-        // Client handles deletion internally (no filesystem permission needed)
-        // cancelDeletesFiles: client auto-deletes temp files on cancel (e.g., aMule active downloads)
-        // apiDeletesFiles: client API handles file deletion (e.g., qBittorrent)
-        // removeSharedMustDeleteFiles: shared files need explicit disk deletion (exempt from cancelDeletesFiles shortcut)
-        if ((caps.cancelDeletesFiles && !(isShared && caps.removeSharedMustDeleteFiles)) || caps.apiDeletesFiles) {
+        // The client deletes the file itself (no filesystem permission needed)
+        // only when its API deletes files (qBittorrent) or it discards a cancelled
+        // ACTIVE download (cancelDeletesFiles). A shared/completed file is never
+        // auto-deleted by cancel — the manager hands its path back for aMuTorrent
+        // to delete (Rucio), so the path must be checked even when
+        // removeSharedMustDeleteFiles is false.
+        if (clientManagesDeletion(caps, isShared)) {
           results.push({
             fileHash,
             clientType,
