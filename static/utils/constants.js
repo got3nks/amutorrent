@@ -255,6 +255,15 @@ export const NETWORK_NAMES = {
   bittorrent: 'BitTorrent'
 };
 export const NETWORK_ORDER = ['ed2k', 'rucio', 'bittorrent'];
+// Default chip/badge colour per network type (an instance's own colour, when
+// set, overrides it). Lives here with the other network registries so a new
+// network declares its colour in one place rather than inside a view.
+export const NETWORK_COLORS = {
+  ed2k: '#3b82f6',
+  rucio: '#4f6ef7',
+  bittorrent: '#f97316'
+};
+export const NETWORK_COLOR_DEFAULT = '#3b82f6';
 
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },

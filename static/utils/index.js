@@ -138,6 +138,7 @@ export {
   hasBittorrentItems,
   hasRtorrentItems, // Legacy alias
   hasAmuleItems,
+  presentNetworkTypes,
   filterByClient,
   filterByUnifiedFilter,
   buildUnifiedFilterOptions,

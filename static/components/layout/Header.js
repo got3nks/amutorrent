@@ -8,7 +8,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { Icon, Tooltip, VersionBadge, ClientIcon, Portal } from '../common/index.js';
-import { NETWORK_ORDER, NETWORK_NAMES } from '../../utils/constants.js';
+import { NETWORK_ORDER, NETWORK_NAMES, NETWORK_COLORS, NETWORK_COLOR_DEFAULT } from '../../utils/constants.js';
 import { useFontSize } from '../../contexts/FontSizeContext.js';
 import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
@@ -110,8 +110,6 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
   const { isNetworkTypeEnabled, toggleNetworkType, toggleInstance, isInstanceEnabled } = useClientFilter();
   const { multipleClientsConnected, instances } = useStaticData();
 
-  // Default chip colour per network type (instance.color overrides it).
-  const NET_COLOR = { ed2k: '#3b82f6', rucio: '#4f6ef7', bittorrent: '#f97316' };
   // Icon key per network type (ed2k → aMule's icon).
   const netIcon = (nt) => (nt === 'ed2k' ? 'amule' : nt);
 
@@ -181,7 +179,7 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
                       ? 'text-white'
                       : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
                   }`,
-                  style: isNetworkTypeEnabled(nt) ? { backgroundColor: NET_COLOR[nt] || '#3b82f6' } : undefined,
+                  style: isNetworkTypeEnabled(nt) ? { backgroundColor: NETWORK_COLORS[nt] || NETWORK_COLOR_DEFAULT } : undefined,
                   title: `${NETWORK_NAMES[nt]} ${isNetworkTypeEnabled(nt) ? 'enabled' : 'disabled'}`
                 },
                   h(ClientIcon, { client: netIcon(nt), size: 14, title: '' }),
@@ -212,7 +210,7 @@ const Header = ({ theme, onToggleTheme, isLandscape, onNavigateHome, onOpenAbout
                         ? 'text-white'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
                     }`,
-                    style: isInstanceEnabled(inst.id) ? { backgroundColor: inst.color || NET_COLOR[nt] || '#3b82f6', textShadow: '0 1px 2px rgba(0,0,0,0.3)' } : undefined,
+                    style: isInstanceEnabled(inst.id) ? { backgroundColor: inst.color || NETWORK_COLORS[nt] || NETWORK_COLOR_DEFAULT, textShadow: '0 1px 2px rgba(0,0,0,0.3)' } : undefined,
                     title: `${inst.name} (${isInstanceEnabled(inst.id) ? 'visible' : 'hidden'})`
                   }, inst.name)
                 )

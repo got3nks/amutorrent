@@ -265,12 +265,18 @@ export const hasAmuleItems = (downloads) => {
 };
 
 /**
- * Check if downloads include Rucio items
+ * The distinct network types present in a set of items — the network-agnostic
+ * replacement for the per-network `has*Items` helpers. A new network shows up
+ * here with no edit.
  * @param {Array} downloads - Array of download items
- * @returns {boolean} True if any Rucio downloads exist
+ * @returns {string[]} e.g. ['ed2k', 'bittorrent']
  */
-export const hasRucioItems = (downloads) => {
-  return downloads.some(d => d.networkType === 'rucio');
+export const presentNetworkTypes = (downloads) => {
+  const seen = new Set();
+  for (const d of (downloads || [])) {
+    if (d.networkType) seen.add(d.networkType);
+  }
+  return Array.from(seen);
 };
 
 /**

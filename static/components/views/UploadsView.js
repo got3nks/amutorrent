@@ -62,9 +62,7 @@ const UploadsView = () => {
     // Client/Category filter
     unifiedFilter,
     setUnifiedFilter,
-    hasBittorrent: hasBittorrentUploads,
-    hasAmule: hasAmuleUploads,
-    hasRucio: hasRucioUploads,
+    presentNetworks: uploadNetworks,
     // Tracker filter (array)
     trackerFilters,
     toggleTrackerFilter,
@@ -310,7 +308,7 @@ const UploadsView = () => {
         mobileHeaderContent
       ),
       // Filter row (filter button + inline pills)
-      (showTrackerFilter || hasAmuleUploads || hasBittorrentUploads || hasRucioUploads) && h('div', {
+      (showTrackerFilter || uploadNetworks.length > 0) && h('div', {
         className: 'flex items-center gap-1.5 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto',
         style: { scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }
       },
@@ -411,7 +409,7 @@ const UploadsView = () => {
     // ========================================================================
     FileInfoElement,
 
-    (showTrackerFilter || hasAmuleUploads || hasBittorrentUploads || hasRucioUploads) && h(MobileFilterSheet, {
+    (showTrackerFilter || uploadNetworks.length > 0) && h(MobileFilterSheet, {
       show: mobileFilters.showFilterSheet,
       onClose: () => mobileFilters.setShowFilterSheet(false),
       onApply: mobileFilters.handleFilterSheetApply,

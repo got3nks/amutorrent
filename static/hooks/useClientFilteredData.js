@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from 'https://esm.sh/react@18.2.0';
 import { useClientFilter } from '../contexts/ClientFilterContext.js';
-import { filterByUnifiedFilter, hasBittorrentItems, hasAmuleItems, hasRucioItems } from '../utils/index.js';
+import { filterByUnifiedFilter, presentNetworkTypes } from '../utils/index.js';
 
 /**
  * Hook for filtering data by client type and category/label
@@ -17,7 +17,12 @@ import { filterByUnifiedFilter, hasBittorrentItems, hasAmuleItems, hasRucioItems
  */
 export const useClientFilteredData = ({ data }) => {
   // Global client filter from context (toggle in header)
-  const { filterByEnabledClients, isEd2kEnabled, isBittorrentEnabled, isRucioEnabled, disabledInstances } = useClientFilter();
+  const {
+    filterByEnabledClients, disabledInstances,
+    connectedNetworks, isNetworkTypeEnabled,
+    // ed2k/bittorrent-specific UI still reads these two
+    isEd2kEnabled, isBittorrentEnabled
+  } = useClientFilter();
 
   // Local category/label filter state (view-specific)
   const [unifiedFilter, setUnifiedFilter] = useState('all');
@@ -32,10 +37,16 @@ export const useClientFilteredData = ({ data }) => {
     return filterByUnifiedFilter(clientFilteredData, unifiedFilter);
   }, [clientFilteredData, unifiedFilter]);
 
-  // Check if bittorrent/amule items exist (for showing/hiding filters)
-  const hasBittorrent = useMemo(() => hasBittorrentItems(data), [data]);
-  const hasAmule = useMemo(() => hasAmuleItems(data), [data]);
-  const hasRucio = useMemo(() => hasRucioItems(data), [data]);
+  // The network types present in the data (network-agnostic — for showing/hiding
+  // filters without naming each network).
+  const presentNetworks = useMemo(() => presentNetworkTypes(data), [data]);
+
+  // A stable key of the enabled connected networks, for the page-reset effect:
+  // changes whenever a network filter toggles, with no per-network argument.
+  const enabledNetworksKey = useMemo(
+    () => connectedNetworks.filter(nt => isNetworkTypeEnabled(nt)).sort().join(','),
+    [connectedNetworks, isNetworkTypeEnabled]
+  );
 
   // Parse category name from unified filter (for views that need it)
   const filterCategoryName = useMemo(() => {
@@ -53,14 +64,12 @@ export const useClientFilteredData = ({ data }) => {
     unifiedFilter,
     setUnifiedFilter,
     filterCategoryName,
-    // Data presence flags
-    hasBittorrent,
-    hasAmule,
-    hasRucio,
+    // Network types present in the data (generic)
+    presentNetworks,
     // Client filter state (for conditional rendering and page reset)
+    enabledNetworksKey,
     isEd2kEnabled,
     isBittorrentEnabled,
-    isRucioEnabled,
     disabledInstances
   };
 };

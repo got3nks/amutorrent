@@ -103,12 +103,11 @@ const CompactCombinedValue = ({ entries, showClientIcons }) => {
  * @param {string} timeRange - Time range label to display (default: '24h')
  */
 const StatsWidget = ({ stats, showPeakSpeeds = true, compact = false, timeRange = '24h' }) => {
-  const { isNetworkTypeEnabled, ed2kConnected, bittorrentConnected, rucioConnected } = useClientFilter();
+  const { isNetworkTypeEnabled, connectedNetworks } = useClientFilter();
   const { dataStats: liveStats } = useLiveData();
 
   // Show per-network icons/breakdown when more than one network is connected.
-  const connectedCount = [ed2kConnected, rucioConnected, bittorrentConnected].filter(Boolean).length;
-  const showClientIcons = connectedCount > 1;
+  const showClientIcons = connectedNetworks.length > 1;
 
   // Network types to include (connected AND enabled in the filter), in order.
   const enabledNetworks = NETWORK_ORDER.filter(nt => isNetworkTypeEnabled(nt));

@@ -48,6 +48,18 @@ export const DAEMON_LABELS = {
   transmission: 'Transmission RPC'
 };
 
+// One-line description of each client type, shown under its name in the
+// add-client type picker. Here with the other per-type registries so a new
+// client declares it once rather than inside a view.
+export const TYPE_DESCRIPTIONS = {
+  amule: 'ED2K / Kademlia downloads',
+  rucio: 'P2P (libp2p + eMule/Kad)',
+  rtorrent: 'BitTorrent via XML-RPC / SCGI',
+  qbittorrent: 'BitTorrent via WebUI API',
+  deluge: 'BitTorrent via WebUI JSON-RPC',
+  transmission: 'BitTorrent via HTTP RPC'
+};
+
 /**
  * Field factories — parameterized by client type + (optional) overrides.
  *

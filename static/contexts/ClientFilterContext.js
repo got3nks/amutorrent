@@ -202,11 +202,21 @@ export const ClientFilterProvider = ({ children }) => {
     );
   }, [instances, disabledInstances]);
 
-  // Back-compat convenience booleans (still consumed across the UI).
+  // All network types that currently have a connected instance. The generic
+  // list the UI should branch on — a new network appears here automatically.
+  const connectedNetworks = useMemo(() => {
+    const seen = new Set();
+    for (const inst of Object.values(instances)) {
+      if (inst.connected) seen.add(inst.networkType);
+    }
+    return Array.from(seen);
+  }, [instances]);
+
+  // Back-compat convenience booleans for ed2k/bittorrent (still consumed by
+  // aMule/BitTorrent-specific UI — the stats tree, the tracker filter). New,
+  // network-agnostic code uses connectedNetworks + isNetworkTypeEnabled instead.
   const isEd2kEnabled = useMemo(() => isNetworkTypeEnabled('ed2k'), [isNetworkTypeEnabled]);
   const isBittorrentEnabled = useMemo(() => isNetworkTypeEnabled('bittorrent'), [isNetworkTypeEnabled]);
-  const isRucioEnabled = useMemo(() => isNetworkTypeEnabled('rucio'), [isNetworkTypeEnabled]);
-  const rucioConnected = isNetworkTypeConnected('rucio');
 
   // Memoize context value
   const value = useMemo(() => ({
@@ -222,18 +232,20 @@ export const ClientFilterProvider = ({ children }) => {
     // Connection state (pure, not affected by filter preference)
     ed2kConnected,
     bittorrentConnected,
-    rucioConnected,
 
-    // Convenience booleans: user preference AND connected
-    isEd2kEnabled,
-    isBittorrentEnabled,
-    isRucioEnabled,
+    // Generic, network-agnostic view of enablement
+    connectedNetworks,
     isNetworkTypeEnabled,
-    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled && (rucioConnected ? isRucioEnabled : true)
+    // Every connected network has at least one enabled instance
+    allClientsEnabled: connectedNetworks.every(nt => isNetworkTypeEnabled(nt)),
+
+    // Convenience booleans: user preference AND connected (ed2k/bittorrent only)
+    isEd2kEnabled,
+    isBittorrentEnabled
   }), [toggleNetworkType, filterByEnabledClients,
     disabledInstances, toggleInstance, isInstanceEnabled,
-    ed2kConnected, bittorrentConnected, rucioConnected,
-    isEd2kEnabled, isBittorrentEnabled, isRucioEnabled, isNetworkTypeEnabled]);
+    ed2kConnected, bittorrentConnected, connectedNetworks,
+    isEd2kEnabled, isBittorrentEnabled, isNetworkTypeEnabled]);
 
   return h(ClientFilterContext.Provider, { value }, children);
 };
