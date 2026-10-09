@@ -64,6 +64,9 @@ class RucioManager extends BaseClientManager {
     super();
     this.lastDownloads = [];
     this.lastSharedFiles = [];
+    // Daemon category list kept by fetchData and reused by the category helpers
+    // (null = not fetched / invalidated after a create/update/delete).
+    this.lastCategories = null;
     // hash (lowercase) → signed integer download id, rebuilt each fetchData.
     this.hashToId = new Map();
     // Search state. Rucio search is async (own id, polled); we mirror aMule's
@@ -200,6 +203,25 @@ class RucioManager extends BaseClientManager {
 
   // ── Data fetch ───────────────────────────────────────────────────────
 
+  // Fetch every shared file, paging through the daemon's capped list. The
+  // daemon maxes `limit` at 1000, so a share set larger than that was being
+  // truncated — losing the on-disk path on delete, the "already downloaded"
+  // badge and the history for the rest.
+  async _getAllShares() {
+    const limit = 1000; // the daemon's maximum page size
+    let offset = 0;
+    const shares = [];
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop
+      const page = await this.client.getShares({ limit, offset });
+      const batch = page?.shares || [];
+      shares.push(...batch);
+      if (batch.length < limit) break; // a short page is the last one
+      offset += batch.length;
+    }
+    return { shares };
+  }
+
   async fetchData(_categories = []) {
     if (!this.client) {
       return { downloads: [], sharedFiles: [] };
@@ -220,7 +242,7 @@ class RucioManager extends BaseClientManager {
     try {
       [rawDownloads, sharesResult, rucioCategories] = await Promise.all([
         this.client.getDownloads(),
-        this.client.getShares({ limit: 1000 }),
+        this._getAllShares(),
         this.client.getCategories().catch(() => [])
       ]);
     } catch (err) {
@@ -228,6 +250,10 @@ class RucioManager extends BaseClientManager {
       // Reuse the last-known frame so the UI doesn't flash empty during reconnect.
       return { downloads: this.lastDownloads, sharedFiles: this.lastSharedFiles };
     }
+
+    // Keep the daemon's category list so the category helpers can reuse it
+    // instead of refetching per call (propagation / batch recategorize).
+    this.lastCategories = rucioCategories || [];
 
     // Resolve category_id → name from the daemon's own category list.
     const catNameById = new Map((rucioCategories || []).map(c => [c.id, c.name]));
@@ -298,7 +324,10 @@ class RucioManager extends BaseClientManager {
     if (peers === 0) {
       return { status: 'red', text: 'Disconnected', connected: false };
     }
-    const highId = status.class === 'HighId';
+    // Accept both casings: the daemon serializes most of its API in snake_case
+    // ('high_id') but NodeClass currently has no serde rename (→ 'HighId').
+    // Matching both keeps this working whichever the connected daemon sends.
+    const highId = status.class === 'HighId' || status.class === 'high_id';
     return {
       status: highId ? 'green' : 'yellow',
       text: highId ? 'Connected' : 'Limited',
@@ -408,14 +437,32 @@ class RucioManager extends BaseClientManager {
     return this._resolveOrCreateCategoryId(categoryName, { color: appCat?.color, path: appCat?.path });
   }
 
+  // The daemon's category list — reuse the one fetchData keeps (refreshed every
+  // poll) instead of refetching per call. `fresh` forces a fetch; mutations
+  // invalidate it (set to null) so the next read is fresh.
+  async _knownCategories({ fresh = false } = {}) {
+    if (!fresh && Array.isArray(this.lastCategories)) return this.lastCategories;
+    this.lastCategories = (await this.client.getCategories()) || [];
+    return this.lastCategories;
+  }
+
   // Find a daemon category by name (case-insensitive), creating it with the
   // given colour/dir if missing. Returns its id, or null for Default/none.
-  async _resolveOrCreateCategoryId(name, { color, path } = {}) {
+  // `cats` (optional) is a caller-owned list to resolve against and extend —
+  // used by ensureCategoriesBatch to resolve a whole set from one fetch.
+  async _resolveOrCreateCategoryId(name, { color, path } = {}, cats = null) {
     if (!name || name === 'Default') return null;
-    const cats = await this.client.getCategories();
-    const found = cats.find(c => c.name.toLowerCase() === String(name).toLowerCase());
+    const lower = String(name).toLowerCase();
+    const list = cats || await this._knownCategories();
+    let found = list.find(c => c.name.toLowerCase() === lower);
+    if (!found && !cats) {
+      // Missed in the reused list — confirm against a fresh fetch before
+      // creating, so a stale cache can't produce a duplicate category.
+      found = (await this._knownCategories({ fresh: true })).find(c => c.name.toLowerCase() === lower);
+    }
     if (found) return found.id;
     const created = await this._createCategoryRaw({ name, color, path });
+    if (created && Array.isArray(cats)) cats.push(created); // keep the batch list current
     return created?.id ?? null;
   }
 
@@ -424,15 +471,19 @@ class RucioManager extends BaseClientManager {
   // is still created rather than failing outright.
   async _createCategoryRaw({ name, color, path }) {
     const body = { name, color: toHexColor(color), download_dir: path || undefined };
+    let created;
     try {
-      return await this.client.createCategory(body);
+      created = await this.client.createCategory(body);
     } catch (err) {
       if (body.download_dir && /HTTP 400/.test(err.message)) {
         this.warn(`Rucio rejected download_dir for category "${name}" (${err.message}); creating without it`);
-        return await this.client.createCategory({ name, color: body.color });
+        created = await this.client.createCategory({ name, color: body.color });
+      } else {
+        throw err;
       }
-      throw err;
     }
+    this.lastCategories = null; // the daemon's list changed
+    return created;
   }
 
   async _updateCategoryRaw(id, { name, color, path }) {
@@ -443,16 +494,21 @@ class RucioManager extends BaseClientManager {
     // read fails we omit it, leaving the pre-existing behaviour.
     let match_keywords;
     try {
-      const cats = await this.client.getCategories();
+      const cats = await this._knownCategories();
       match_keywords = cats.find(c => c.id === id)?.match_keywords ?? undefined;
     } catch { /* can't read it — don't fabricate a value */ }
     const body = { name, color: toHexColor(color), download_dir: path || undefined, match_keywords };
+    const update = async (b) => {
+      const res = await this.client.updateCategory(id, b);
+      this.lastCategories = null; // the daemon's list changed
+      return res;
+    };
     try {
-      return await this.client.updateCategory(id, body);
+      return await update(body);
     } catch (err) {
       if (body.download_dir && /HTTP 400/.test(err.message)) {
         this.warn(`Rucio rejected download_dir for category "${name}" (${err.message}); updating without it`);
-        return await this.client.updateCategory(id, { name, color: body.color, match_keywords });
+        return await update({ name, color: body.color, match_keywords });
       }
       throw err;
     }
@@ -602,7 +658,7 @@ class RucioManager extends BaseClientManager {
   // `children` (#82): the eMule/Kad bridge can return one file under several
   // names, and the results list keys every row by fileHash, so emitting them
   // flat would collide. The richest variant (most sources, then largest size)
-  // becomes the parent, and its source count is the group total.
+  // becomes the parent, and the group's source count is that richest variant's.
   _mapSearchResults(id, detail) {
     const links = new Map();
     // Derive the "already downloaded / queued" badge (#77): the daemon doesn't
@@ -673,10 +729,13 @@ class RucioManager extends BaseClientManager {
     if (!this.client) return;
     let catId = id;
     if (catId == null && name) {
-      const cats = await this.client.getCategories();
+      const cats = await this._knownCategories();
       catId = cats.find(c => c.name.toLowerCase() === String(name).toLowerCase())?.id;
     }
-    if (catId != null) await this.client.deleteCategory(catId);
+    if (catId != null) {
+      await this.client.deleteCategory(catId);
+      this.lastCategories = null; // the daemon's list changed
+    }
   }
 
   // Update colour/dir (and name) of an existing category. `id` is the daemon
@@ -686,7 +745,7 @@ class RucioManager extends BaseClientManager {
     if (!this.client || !name) return null;
     let catId = id;
     if (catId == null) {
-      const cats = await this.client.getCategories();
+      const cats = await this._knownCategories();
       catId = cats.find(c => c.name.toLowerCase() === String(name).toLowerCase())?.id;
     }
     if (catId == null) {
@@ -701,7 +760,7 @@ class RucioManager extends BaseClientManager {
     if (!this.client || !newName) return null;
     let catId = id;
     if (catId == null && oldName) {
-      const cats = await this.client.getCategories();
+      const cats = await this._knownCategories();
       catId = cats.find(c => c.name.toLowerCase() === String(oldName).toLowerCase())?.id;
     }
     if (catId == null) return null;
@@ -718,10 +777,14 @@ class RucioManager extends BaseClientManager {
 
   async ensureCategoriesBatch(categories = []) {
     const out = [];
+    // One fetch for the whole batch; _resolveOrCreateCategoryId resolves against
+    // this list and appends the categories it creates, so 30 categories cost one
+    // request plus the actual creates, not 30 list fetches.
+    const cats = await this._knownCategories({ fresh: true });
     for (const cat of categories) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const id = await this._resolveOrCreateCategoryId(cat.name, { color: cat.color, path: cat.path });
+        const id = await this._resolveOrCreateCategoryId(cat.name, { color: cat.color, path: cat.path }, cats);
         if (id != null) out.push({ name: cat.name, amuleId: id });
       } catch (err) {
         this.warn(`Failed to ensure category "${cat.name}": ${err.message}`);
