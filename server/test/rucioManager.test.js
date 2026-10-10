@@ -6,6 +6,7 @@ const { normalizeRucioSharedFile } = require('../lib/downloadNormalizer.js');
 const RucioClient = require('../lib/rucio/RucioClient.js');
 const clientMeta = require('../lib/clientMeta.js');
 const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion } = require('../lib/sharedFilePolicy.js');
+const { hashFromLink } = require('../lib/rucio/links.js');
 
 // Build a RucioManager without running the constructor (which would need a
 // client config); we drive the methods under test directly with mocks.
@@ -253,6 +254,23 @@ describe('RucioManager._getAllShares', () => {
     assert.equal(shares.length, 1000, 'the repeated page is added once, not duplicated');
     assert.equal(calls, 2, 'detected the repeat on the second request');
   });
+
+  it('pages past the first page when total is reported as 0 (B)', async () => {
+    // The daemon doesn't report a grand total (RucioClient leaves it undefined, or
+    // a version reports 0); a non-positive total must mean "unknown", not "stop
+    // after page 1" — the empty-page / repeat guards drive termination instead.
+    const pages = [
+      Array.from({ length: 1000 }, (_, i) => ({ root_hash: `a${i}` })),
+      Array.from({ length: 5 }, (_, i) => ({ root_hash: `b${i}` }))
+    ];
+    let calls = 0;
+    const m = makeManager({ client: { getShares: async ({ offset }) => { calls++; return { shares: pages[offset / 1000] || [], total: 0 }; } } });
+
+    const { shares } = await m._getAllShares();
+
+    assert.equal(shares.length, 1005, 'did not truncate to the first page on total:0');
+    assert.equal(calls, 3, 'paged until a short/empty page, not stopped by total:0');
+  });
 });
 
 describe('RucioManager.getNetworkStatus', () => {
@@ -425,6 +443,24 @@ describe('RucioManager.deleteItem', () => {
     await m.deleteItem('bb', { deleteFiles: false });
     assert.equal(m._lastSharesFetch, 0, 'share cache invalidated after delete');
   });
+
+  it('un-shares a completed download that is not in the share cache yet', async () => {
+    let unshared = null, cancelled = false;
+    const m = makeManager({
+      lastSharedFiles: [], // completion share refresh failed / large paged library
+      lastDownloads: [{ hash: 'cc', isComplete: true }],
+      hashToId: new Map([['cc', 7]]),
+      client: {
+        getDownload: async () => ({ dest_path: '/data/done/f.mkv' }),
+        cancelDownload: async () => { cancelled = true; },
+        removeDownload: async () => {},
+        unshare: async (h) => { unshared = h; }
+      }
+    });
+    await m.deleteItem('cc', { deleteFiles: true });
+    assert.equal(unshared, 'cc', 'stopped seeding even though the share row was absent');
+    assert.equal(cancelled, false, 'a completed download is never cancelled');
+  });
 });
 
 describe('RucioManager.search cancellation', () => {
@@ -446,6 +482,285 @@ describe('RucioManager.search cancellation', () => {
     } finally {
       global.setTimeout = realSetTimeout;
     }
+  });
+
+  it('handles an empty (null) search detail without a TypeError (E)', async () => {
+    const realSetTimeout = global.setTimeout;
+    global.setTimeout = (fn) => realSetTimeout(fn, 0);
+    const m = makeManager({
+      _lastSearch: { id: null, results: [], links: new Map() },
+      lastDownloads: [],
+      lastSharedFiles: [],
+      client: {
+        startSearch: async () => ({ id: 7 }),
+        getSearch: async () => null, // 204 / empty body
+        cancelSearch: async () => {}
+      }
+    });
+    try {
+      const out = await m.search('matrix');
+      assert.deepEqual(out, { results: [], resultsLength: 0 }, 'ends cleanly with no results');
+    } finally {
+      global.setTimeout = realSetTimeout;
+    }
+  });
+});
+
+describe('RucioManager._updateCategoryRaw guards (3)', () => {
+  it('refetches on a cache miss and preserves the keyword rules', async () => {
+    const puts = [];
+    let fetched = 0;
+    const m = makeManager({
+      lastCategories: [{ id: 1, name: 'Other' }], // stale: missing id 7
+      client: {
+        getCategories: async () => { fetched++; return [{ id: 7, name: 'Movies', download_dir: '/d/m', match_keywords: '1080p|bluray' }]; },
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
+    });
+    await m._updateCategoryRaw(7, { name: 'Films' });
+    assert.equal(fetched, 1, 'refetched because id 7 was missing from the cached list');
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0].body.match_keywords, '1080p|bluray', 'keyword rules preserved via the refetch');
+    assert.equal(puts[0].body.download_dir, '/d/m', 'daemon dir preserved');
+  });
+
+  it('refuses to update (no PUT) when the current values cannot be read', async () => {
+    let put = false;
+    const m = makeManager({
+      lastCategories: null, // nothing cached
+      client: {
+        getCategories: async () => { throw new Error('down'); },
+        updateCategory: async () => { put = true; }
+      }
+    });
+    await assert.rejects(() => m._updateCategoryRaw(7, { name: 'Films' }), /Cannot read Rucio category 7/);
+    assert.equal(put, false, 'never sent a full-replace PUT that would wipe match_keywords');
+  });
+
+  it('refuses to update (no PUT) when the category is absent from the daemon', async () => {
+    let put = false;
+    const m = makeManager({
+      lastCategories: [{ id: 1, name: 'Other' }],
+      client: {
+        getCategories: async () => [{ id: 1, name: 'Other' }], // id 7 still absent
+        updateCategory: async () => { put = true; }
+      }
+    });
+    await assert.rejects(() => m._updateCategoryRaw(7, { name: 'Films' }), /category 7 not found/);
+    assert.equal(put, false);
+  });
+});
+
+describe('RucioManager.addEd2kLink history (10)', () => {
+  it('records the name and size parsed from the ed2k link', async () => {
+    let tracked = null;
+    const m = makeManager({
+      client: { addEd2k: async () => {}, addMagnet: async () => {} },
+      trackDownload: (hash, name, size) => { tracked = { hash, name, size }; }
+    });
+    await m.addEd2kLink('ed2k://|file|Big%20Buck%20Bunny.mkv|12345|aabbccddeeff00112233445566778899|/');
+    assert.equal(tracked.name, 'Big Buck Bunny.mkv', 'name decoded from the link, not "Unknown"');
+    assert.equal(tracked.size, 12345, 'size parsed from the link');
+    assert.equal(tracked.hash, 'aabbccddeeff00112233445566778899');
+  });
+});
+
+describe('hashFromLink field-based ed2k parse (11)', () => {
+  it('reads the ed2k hash by field, not the first 32-hex token', () => {
+    // A 32-hex FILE NAME must not be mistaken for the hash; the field-based
+    // parser keys off the position after the numeric size.
+    const nameIs32Hex = 'ed2k://|file|00112233445566778899aabbccddeeff|999|ffeeddccbbaa99887766554433221100|/';
+    assert.equal(hashFromLink(nameIs32Hex), 'ffeeddccbbaa99887766554433221100');
+  });
+
+  it('reads a rucio: magnet blake3 hash', () => {
+    const h = 'a'.repeat(64);
+    assert.equal(hashFromLink(`rucio:${h}?x=1`), h);
+  });
+
+  it('still reads the hash from an empty-name ed2k link (5)', () => {
+    // The field-based parser must not drop a link just because the name is empty;
+    // the hash is still pinned to its field after the numeric size.
+    assert.equal(hashFromLink('ed2k://|file||123|aabbccddeeff00112233445566778899|/'), 'aabbccddeeff00112233445566778899');
+  });
+});
+
+describe('RucioManager.fetchData shared files (6)', () => {
+  it('keeps the last shared list when a share page fails (no reconnect)', async () => {
+    let reconnected = false;
+    const m = makeManager({
+      _lastSharesFetch: 0, // force a refresh
+      _sharesRefreshIntervalMs: 30000,
+      _completedHashes: null,
+      lastCategories: [],
+      lastDownloads: [],
+      lastSharedFiles: [{ hash: 'keep', instanceId: 'rucio-1' }],
+      hashToId: new Map(),
+      scheduleReconnect: () => { reconnected = true; },
+      _setConnectionError: () => {},
+      client: {
+        getDownloads: async () => [],
+        getShares: async () => { throw new Error('page 2 failed'); },
+        getCategories: async () => []
+      }
+    });
+    const { sharedFiles } = await m.fetchData();
+    assert.equal(reconnected, false, 'a share failure does not drop the client');
+    assert.ok(m.client, 'client still connected');
+    assert.deepEqual(sharedFiles, [{ hash: 'keep', instanceId: 'rucio-1' }], 'kept the previous shared list');
+    assert.notEqual(m._lastSharesFetch, undefined);
+    assert.equal(m._lastSharesFetch, 0, 'did not stamp a successful fetch, so it retries next poll');
+  });
+});
+
+describe('RucioManager.fetchData category caching (13)', () => {
+  function pollManager() {
+    let catFetches = 0;
+    const m = makeManager({
+      _lastSharesFetch: Date.now(), // skip the share refresh
+      _completedHashes: null,
+      lastCategories: null,          // first poll must fetch
+      lastDownloads: [],
+      lastSharedFiles: [],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => { catFetches++; return [{ id: 1, name: 'Movies' }]; }
+      }
+    });
+    return { m, fetches: () => catFetches };
+  }
+
+  it('reuses the cached list across polls, refetching only when invalidated', async () => {
+    const { m, fetches } = pollManager();
+    await m.fetchData();
+    await m.fetchData();
+    await m.fetchData();
+    assert.equal(fetches(), 1, 'categories fetched once, then reused');
+    m.lastCategories = null; // a create/update/delete invalidated it
+    await m.fetchData();
+    assert.equal(fetches(), 2, 'refetched after invalidation');
+  });
+
+  it('seeds the completed set on the first poll without forcing a share refresh', async () => {
+    const m = makeManager({
+      _lastSharesFetch: Date.now(),
+      _completedHashes: null,
+      lastCategories: [],
+      lastDownloads: [],
+      lastSharedFiles: [],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [{ id: 1, root_hash: 'aa', name: 'x', size: 10, bytes_done: 10, state: 'completed' }],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => []
+      }
+    });
+    await m.fetchData();
+    assert.notEqual(m._lastSharesFetch, 0, 'first poll did not force a share refresh for already-complete items');
+    assert.ok(m._completedHashes.has('aa'), 'seeded the completed set');
+  });
+
+  it('invalidates the share cache when a new completion appears', async () => {
+    const m = makeManager({
+      _lastSharesFetch: Date.now(),
+      _completedHashes: new Set(['old']),
+      lastCategories: [],
+      lastDownloads: [],
+      lastSharedFiles: [],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [{ id: 2, root_hash: 'new', name: 'y', size: 5, bytes_done: 5, state: 'completed' }],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => []
+      }
+    });
+    await m.fetchData();
+    assert.equal(m._lastSharesFetch, 0, 'a newly completed download invalidates the share cache');
+  });
+});
+
+describe('RucioManager.search client capture (9)', () => {
+  it('cancels via the captured client even if the client is dropped mid-poll', async () => {
+    const realSetTimeout = global.setTimeout;
+    global.setTimeout = (fn) => realSetTimeout(fn, 0); // don't actually wait 2s
+    let cancelled = null;
+    const client = {
+      startSearch: async () => ({ id: 42 }),
+      getSearch: async () => { throw new Error('refresh dropped me'); },
+      cancelSearch: async (id) => { cancelled = id; }
+    };
+    const m = makeManager({ client, _lastSearch: { id: null, results: [], links: new Map() } });
+    try {
+      const p = m.search('matrix'); // captures this.client synchronously
+      m.client = null;              // a failed refresh drops it mid-search
+      await assert.rejects(() => p, /refresh dropped me/);
+      assert.equal(cancelled, 42, 'cancelled through the captured client, no TypeError');
+    } finally {
+      global.setTimeout = realSetTimeout;
+    }
+  });
+});
+
+describe('Move gating for Rucio (1)', () => {
+  const rucioCaps = clientMeta.get('rucio').capabilities;
+  const amuleCaps = clientMeta.get('amule').capabilities;
+  // Mirrors the context-menu gate (useItemContextMenu): a client that can't
+  // relocate a file never offers Move; others can move completed/shared items.
+  const canMove = (caps, item) => !caps.noFileMove &&
+    (caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading));
+
+  it('declares Rucio unable to move files, and the others able', () => {
+    assert.equal(rucioCaps.noFileMove, true);
+    for (const t of ['amule', 'rtorrent', 'qbittorrent', 'deluge', 'transmission']) {
+      assert.ok(!clientMeta.get(t).capabilities.noFileMove, `${t} should still offer Move`);
+    }
+  });
+
+  it('never offers Move for a completed or shared Rucio item', () => {
+    assert.equal(canMove(rucioCaps, { complete: true }), false);
+    assert.equal(canMove(rucioCaps, { shared: true, downloading: false }), false);
+  });
+
+  it('still offers Move for a completed aMule item', () => {
+    assert.equal(canMove(amuleCaps, { complete: true }), true);
+  });
+});
+
+describe('delete modal classification by completeness (2)', () => {
+  const rucioCaps = clientMeta.get('rucio').capabilities;
+  const amuleCaps = clientMeta.get('amule').capabilities;
+  // Mirrors useViewDeleteModal.classify: a shared-must-delete file → shared; a
+  // cancel only discards an UNFINISHED download's partial → autoDelete; a
+  // completed download needs the explicit "delete files" option → nonAutoDelete.
+  const classify = (caps, item) => {
+    if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) return 'shared';
+    if (caps.cancelDeletesFiles && !item.complete) return 'autoDelete';
+    return 'nonAutoDelete';
+  };
+
+  it('a completed Rucio file needs the explicit delete-files option (reaches the path check)', () => {
+    assert.equal(classify(rucioCaps, { complete: true, shared: true, downloading: false }), 'nonAutoDelete');
+  });
+
+  it('an active Rucio download auto-cleans its partial on cancel', () => {
+    assert.equal(classify(rucioCaps, { complete: false, downloading: true }), 'autoDelete');
+  });
+
+  it('an aMule shared file is still always deleted from disk (unchanged)', () => {
+    assert.equal(classify(amuleCaps, { complete: true, shared: true, downloading: false }), 'shared');
+  });
+
+  it('a completed-but-unshared aMule download is now path-checked (accepted change)', () => {
+    // The brief window after an aMule download finishes but before it is shared:
+    // cancel no longer auto-cleans it, so it needs the explicit delete-files
+    // option + permission check (the maintainer accepted this as more correct).
+    assert.equal(classify(amuleCaps, { complete: true, shared: false }), 'nonAutoDelete');
+  });
+
+  it('an active aMule download still auto-cleans its partial on cancel (unchanged)', () => {
+    assert.equal(classify(amuleCaps, { complete: false, downloading: true }), 'autoDelete');
   });
 });
 
