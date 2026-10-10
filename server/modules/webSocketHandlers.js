@@ -1578,14 +1578,18 @@ class WebSocketHandlers extends BaseModule {
 
           const resolvedClientType = result.clientType || reqItem?.clientType || ci?.client;
           const caps = resolvedClientType ? clientMeta.get(resolvedClientType)?.capabilities : {};
-          const isShared = caps?.sharedFiles && (source === 'shared' || (ci && ci.shared && !ci.downloading));
+          // A cancel only discards an UNFINISHED download's partial, so an item
+          // deleted without `deleteFiles` left the disk alone unless it was still
+          // incomplete — keyed on completeness, like the server's delete decision
+          // (a finished, unshared Rucio download is kept, not reported as wiped).
+          const isComplete = !!ci?.complete;
 
           eventScriptingManager.emit('fileDeleted', {
             hash: result.fileHash?.toLowerCase(),
             instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
             clientType: resolvedClientType,
-            deletedFromDisk: deleteFiles === true || (caps?.cancelDeletesFiles && !isShared),
+            deletedFromDisk: deleteFiles === true || (caps?.cancelDeletesFiles && !isComplete),
             category: ci?.category || null,
             path: fullPath,
             multiFile: ci?.multiFile || false,
@@ -1704,8 +1708,11 @@ class WebSocketHandlers extends BaseModule {
 
           results.push({ fileHash, success: true, instanceId, instanceName: manager.displayName });
 
-          // Queue move if requested (or when the client recategorises by moving)
-          if (moveFiles || movesSharedInsteadOfApi) {
+          // Queue move if requested (or when the client recategorises by moving),
+          // but never for a client that can't relocate a file (Rucio): the category
+          // change above already stands on its own, and a move would throw after the
+          // rename and lose the file.
+          if ((moveFiles || movesSharedInsteadOfApi) && !caps.noFileMove) {
             const { localPath: destPathLocal, remotePath: destPathRemote } = resolveCategoryDestPaths(targetCategory, manager.clientType, item?.instanceId);
             const sourcePath = item?.directory || item?.filePath;
 
@@ -2170,6 +2177,15 @@ class WebSocketHandlers extends BaseModule {
         const manager = registry.get(item.instanceId);
         if (!manager || !manager.isConnected()) {
           results.push({ fileHash, fileName: item.name, success: false, error: 'Client not connected' });
+          continue;
+        }
+
+        // A client that can't relocate a file (Rucio) must never reach the move
+        // queue: the rename step would succeed and the failing updateDirectory
+        // would then unlink the only copy. The UI already hides Move for it; this
+        // is the backstop.
+        if (clientMeta.hasCapability(manager.clientType, 'noFileMove')) {
+          results.push({ fileHash, fileName: item.name, success: false, error: `${manager.displayName} cannot move files` });
           continue;
         }
 
