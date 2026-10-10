@@ -135,7 +135,8 @@ const CLIENT_TYPES = {
       refreshSharedAfterDelete: false,
       categories: true,                  // full category CRUD in the daemon
       logs: false,
-      renameFile: true,                  // can rename a not-yet-complete download
+      renameFile: true,                  // can rename a download…
+      renameRequiresActiveDownload: true, // …but only while it's still in progress
       fileRatingComment: false,
       customSavePath: false,             // path follows the category, not per-download
       seedsCompletedFiles: true          // completed downloads are seeded back to the network (→ item.seeding)

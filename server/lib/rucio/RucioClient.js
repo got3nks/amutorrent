@@ -124,7 +124,6 @@ class RucioClient {
 
   getStatus() { return this._request('GET', '/api/v1/status'); }
   getMetrics() { return this._request('GET', '/api/v1/metrics'); }
-  getUploads() { return this._request('GET', '/api/v1/uploads'); }
   getEmuleStatus() { return this._request('GET', '/api/v1/emule/status'); }
 
   // ── Downloads ─────────────────────────────────────────────────────────
@@ -133,6 +132,10 @@ class RucioClient {
     const data = await this._request('GET', '/api/v1/downloads');
     return data?.downloads || [];
   }
+
+  // Full detail for one download, including `dest_path` — the on-disk path a
+  // completed download landed at (absent until it has somewhere to land).
+  getDownload(id) { return this._request('GET', `/api/v1/downloads/${id}`); }
 
   /**
    * Start a rucio download from a `rucio:` magnet link.
@@ -189,7 +192,6 @@ class RucioClient {
   }
 
   getSearch(id) { return this._request('GET', `/api/v1/searches/${id}`); }
-  listSearches() { return this._request('GET', '/api/v1/searches'); }
   cancelSearch(id) { return this._request('DELETE', `/api/v1/searches/${id}`); }
 
   // ── Categories ───────────────────────────────────────────────────────

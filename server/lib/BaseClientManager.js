@@ -218,6 +218,37 @@ class BaseClientManager extends BaseModule {
   }
 
   /**
+   * Shared `extractHistoryMetadata` default for single-file, source-based clients
+   * (aMule, Rucio): no trackers, one file per item. A shared file (no `progress`
+   * field) counts as fully downloaded; the directory is the item's path when
+   * absolute. The caller passes the uploaded total, which each client names
+   * differently.
+   * @param {Object} item - raw download/shared-file item
+   * @param {number} uploaded - bytes uploaded for this item
+   * @returns {Object} history-DB metadata
+   */
+  sourceBasedHistoryMetadata(item, uploaded = 0) {
+    const size = item.size || 0;
+    const isSharedFile = item.progress === undefined;
+    const downloaded = isSharedFile ? size : (item.downloaded || 0);
+    const ratio = downloaded > 0 ? uploaded / downloaded : 0;
+    const directory = item.path && item.path.startsWith('/') ? item.path : null;
+    return {
+      hash: item.hash?.toLowerCase(),
+      instanceId: item.instanceId,
+      size,
+      name: item.name,
+      downloaded,
+      uploaded,
+      ratio,
+      trackerDomain: null,
+      directory,
+      multiFile: false,
+      category: null // filled from the unified items' categoryByKey lookup
+    };
+  }
+
+  /**
    * Pull the content hash out of a link this client handles, so generic code
    * (e.g. recording ownership) never has to know a specific network's scheme.
    * The default reads an ed2k MD4 (ed2k://|file|name|size|<32-hex>|/); a manager

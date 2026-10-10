@@ -688,29 +688,9 @@ class AmuleManager extends BaseClientManager {
    * @returns {Object} Normalized metadata for history DB
    */
   extractHistoryMetadata(item) {
-    const downloaded = item.downloaded || 0;
-    const uploaded = item.transferredTotal || item.transferred || 0;
-    const size = item.size || 0;
-    // For shared files (no progress field), downloaded = size
-    const isSharedFile = item.progress === undefined;
-    const effectiveDownloaded = isSharedFile ? size : downloaded;
-    const ratio = effectiveDownloaded > 0 ? uploaded / effectiveDownloaded : 0;
-    // aMule's path is the directory containing the file — only useful if absolute
-    const directory = item.path && item.path.startsWith('/') ? item.path : null;
-
-    return {
-      hash: item.hash?.toLowerCase(),
-      instanceId: item.instanceId,
-      size,
-      name: item.name,
-      downloaded: effectiveDownloaded,
-      uploaded,
-      ratio,
-      trackerDomain: null,
-      directory,
-      multiFile: false,
-      category: null // filled from unified items categoryByKey lookup
-    };
+    // Single-file, source-based shape shared with Rucio; aMule's uploaded total
+    // lives on transferredTotal/transferred.
+    return this.sourceBasedHistoryMetadata(item, item.transferredTotal || item.transferred || 0);
   }
 
   // ============================================================================

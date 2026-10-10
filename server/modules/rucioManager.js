@@ -54,9 +54,14 @@ class RucioManager extends BaseClientManager {
     this.lastDownloads = [];
     this.lastSharedFiles = [];
     // Shared files refresh on their own slower cadence (paging a big library is
-    // expensive); reused between refreshes. See fetchData.
+    // expensive); reused between refreshes. See fetchData. `_invalidateShares()`
+    // forces the next poll to refetch after a change (a delete, or a download
+    // just completing into a share).
     this._lastSharesFetch = 0;
     this._sharesRefreshIntervalMs = 30000;
+    // Completed-download hashes seen last poll, to spot a new completion and
+    // refresh shares promptly (a finished download becomes a shared file).
+    this._completedHashes = new Set();
     // Daemon category list kept by fetchData and reused by the category helpers
     // (null = not fetched / invalidated after a create/update/delete).
     this.lastCategories = null;
@@ -143,54 +148,45 @@ class RucioManager extends BaseClientManager {
   // no guard, so a manager that lacks it throws and breaks history for ALL
   // clients. Rucio exposes no per-file uploaded total, so ratio stays 0.
   extractHistoryMetadata(item) {
-    const size = item.size || 0;
-    // Shared files carry no `progress` field → treat them as fully downloaded.
-    const isSharedFile = item.progress === undefined;
-    const downloaded = isSharedFile ? size : (item.downloaded || 0);
-    const uploaded = item.uploadTotal || 0;
-    const ratio = downloaded > 0 ? uploaded / downloaded : 0;
-    // Only shared files carry a path, and it's already the containing folder
-    // (normalizeRucioSharedFile emits the directory). Downloads have no path.
-    const directory = item.path && item.path.startsWith('/') ? item.path : null;
-    return {
-      hash: item.hash?.toLowerCase(),
-      instanceId: item.instanceId,
-      size,
-      name: item.name,
-      downloaded,
-      uploaded,
-      ratio,
-      trackerDomain: null,
-      directory,
-      multiFile: false,
-      category: null // filled from the unified items' categoryByKey lookup
-    };
+    // Same single-file, source-based shape as aMule; only the uploaded-total
+    // field name differs. Rucio exposes no per-file uploaded total, so ratio
+    // stays 0. (Shared files carry no `progress`, so they count as complete;
+    // their path is already the containing folder — see normalizeRucioSharedFile.)
+    return this.sourceBasedHistoryMetadata(item, item.uploadTotal || 0);
   }
 
   // ── Data fetch ───────────────────────────────────────────────────────
 
   // Fetch every shared file, paging through the daemon's list. Driven by the
   // reported `total`, not by comparing a page to our requested limit: the daemon
-  // may cap a page below 1000, so a short page is not necessarily the last. An
-  // empty page is the backstop (unknown/stale total, or a daemon that ignores
-  // offset), and reaching `total` stops an offset-ignoring daemon too.
+  // may cap a page below 1000, so a short page is not necessarily the last.
+  // An empty page ends it; the real guard against a daemon that ignores `offset`
+  // (and reports no `total`) is stopping as soon as a page repeats the previous
+  // one — otherwise the same page would be fetched and duplicated forever.
   async _getAllShares() {
     const limit = 1000; // what we request; the daemon may serve fewer per page
-    const maxPages = 1000; // hard cap (~1M shares): a daemon that ignores offset
-                           // and reports no total would otherwise loop forever.
     let offset = 0;
     let total = null;
-    let pages = 0;
+    let prevSig = null;
     const shares = [];
+    const sigOf = (batch) => {
+      const id = (s) => s?.root_hash || s?.hash || '';
+      return `${batch.length}:${id(batch[0])}:${id(batch[batch.length - 1])}`;
+    };
     for (;;) {
       // eslint-disable-next-line no-await-in-loop
       const page = await this.client.getShares({ limit, offset });
       const batch = page?.shares || [];
       if (Number.isFinite(page?.total)) total = page.total;
+      if (batch.length === 0) break;
+      // Same page as last time → the daemon is ignoring offset; stop before
+      // re-adding it (don't push the repeat).
+      const sig = sigOf(batch);
+      if (sig === prevSig) break;
+      prevSig = sig;
       shares.push(...batch);
       offset += batch.length;
-      pages++;
-      if (batch.length === 0 || (total !== null && shares.length >= total) || pages >= maxPages) break;
+      if (total !== null && shares.length >= total) break;
     }
     return { shares };
   }
@@ -270,6 +266,17 @@ class RucioManager extends BaseClientManager {
     } else {
       sharedFiles = this.lastSharedFiles; // already normalised + stamped
     }
+
+    // A download that just completed becomes a shared file; force the next poll
+    // to refresh shares instead of waiting out the slow interval. Done after the
+    // share section above so it isn't overwritten by this cycle's fetch stamp.
+    const completedNow = new Set(
+      downloads.filter(d => d.isComplete && d.hash).map(d => String(d.hash).toLowerCase())
+    );
+    const prevCompleted = this._completedHashes || new Set();
+    const hasNewCompletion = [...completedNow].some(h => !prevCompleted.has(h));
+    this._completedHashes = completedNow;
+    if (hasNewCompletion) this._invalidateShares();
 
     this.lastDownloads = downloads;
     return { downloads, sharedFiles };
@@ -361,8 +368,23 @@ class RucioManager extends BaseClientManager {
 
   async renameFile(hash, newName) {
     if (!this.client) throw new Error('Rucio not connected');
+    const h = String(hash).toLowerCase();
+    const dl = (this.lastDownloads || []).find(d => String(d.hash).toLowerCase() === h);
+    // The daemon only renames a download that's still in progress; a completed
+    // download, or a file that was only ever shared, has no renameable entry.
+    // The context menu already hides rename for those, but guard here too.
+    if (!dl || dl.isComplete) {
+      throw new Error('Rucio can only rename a download that is still in progress');
+    }
     await this.client.renameDownload(this._idForHash(hash), newName);
     return { success: true };
+  }
+
+  // Force the next fetchData to refetch the share list, so a change the cache
+  // wouldn't otherwise reflect (a delete, or a download completing into a share)
+  // shows up on the next poll instead of after the slow refresh interval.
+  _invalidateShares() {
+    this._lastSharesFetch = 0;
   }
 
   /**
@@ -376,9 +398,10 @@ class RucioManager extends BaseClientManager {
    *   and un-share it when it's being seeded, so the row can't reappear.
    * Pure shared file (no download row) → un-share via the API only.
    *
-   * The on-disk file is left intact unless `deleteFiles` is set; the path comes
-   * from the shared-files list (the download list carries none), so a disk wipe
-   * is only possible for a file this client is sharing.
+   * The on-disk file is left intact unless `deleteFiles` is set. The path comes
+   * from the shared-files list; for a completed download not in that list yet (or
+   * never shared) we fall back to the daemon's download detail (`dest_path`), so
+   * a disk wipe works for any completed item, not only one currently shared.
    */
   async deleteItem(hash, { deleteFiles } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
@@ -387,12 +410,26 @@ class RucioManager extends BaseClientManager {
     const shared = (this.lastSharedFiles || []).find(f => String(f.hash).toLowerCase() === h);
     // `shared.path` is the containing folder (for resolveItemPath); the real
     // on-disk file path to wipe is the daemon's full path in raw.
-    const filePath = shared?.raw?.path || null;
-    const pathsToDelete = deleteFiles && filePath ? [filePath] : [];
+    let filePath = shared?.raw?.path || null;
 
     const id = this.hashToId.get(h);
+    const dl = id !== undefined
+      ? (this.lastDownloads || []).find(d => String(d.hash).toLowerCase() === h)
+      : null;
+
+    // A completed download may not be in the cached share list — ask the daemon
+    // for its destination path so "delete with files" actually wipes it. Only for
+    // a COMPLETE download: an active one's partial is discarded by cancel below,
+    // so there's no separate file for aMuTorrent to delete.
+    if (deleteFiles && !filePath && dl?.isComplete) {
+      try {
+        const detail = await this.client.getDownload(id);
+        filePath = detail?.dest_path || null;
+      } catch { /* best-effort; no path means nothing to wipe */ }
+    }
+    const pathsToDelete = deleteFiles && filePath ? [filePath] : [];
+
     if (id !== undefined) {
-      const dl = (this.lastDownloads || []).find(d => String(d.hash).toLowerCase() === h);
       // Cancel only an active download (cancel discards the partial file); a
       // completed one is just dropped from the list, never cancelled, so the
       // finished file is never touched. Cancel is best-effort — it legitimately
@@ -403,18 +440,22 @@ class RucioManager extends BaseClientManager {
       // reappears on the next poll.
       await this.client.removeDownload(id);
       if (shared) await this.client.unshare(h);
-      this.trackDeletion(hash);
-      return { success: true, pathsToDelete };
+    } else {
+      await this.client.unshare(h);
     }
-
-    await this.client.unshare(h);
+    this._invalidateShares();
     this.trackDeletion(hash);
     return { success: true, pathsToDelete };
   }
 
   async setCategoryOrLabel(hash, { categoryName } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
-    const id = this._idForHash(hash);
+    const id = this.hashToId.get(String(hash).toLowerCase());
+    if (id === undefined) {
+      // A file that was only ever shared (never a download) has no download id;
+      // the daemon files by category on the download, not the share.
+      throw new Error('Rucio can only change the category of a download, not a file that was only ever shared');
+    }
     const categoryId = await this.ensureAmuleCategoryId(categoryName);
     await this.client.setDownloadCategory(id, categoryId);
     return { success: true };
@@ -528,6 +569,17 @@ class RucioManager extends BaseClientManager {
     return categoryId && categoryId > 0 ? categoryId : null;
   }
 
+  // Queue a link with the daemon, routed by scheme: ed2k:// → eMule endpoint,
+  // anything else (rucio: magnet) → libp2p endpoint. The one place the scheme
+  // routing lives, shared by the three add paths.
+  async _addLink(link, { category_id = null } = {}) {
+    if (String(link).toLowerCase().startsWith('ed2k://')) {
+      await this.client.addEd2k(link, { category_id });
+    } else {
+      await this.client.addMagnet(link, { category_id });
+    }
+  }
+
   // Resolve a daemon category id to its name for history display — aMule records
   // the name, not the id (so history reads "Movies", not "7"). Cached briefly so
   // a batch add doesn't refetch the list per item.
@@ -550,11 +602,7 @@ class RucioManager extends BaseClientManager {
     if (!link) throw new Error(`No search result link for hash ${fileHash}`);
 
     const category_id = this._normalizeCategoryId(categoryId);
-    if (link.toLowerCase().startsWith('ed2k://')) {
-      await this.client.addEd2k(link, { category_id });
-    } else {
-      await this.client.addMagnet(link, { category_id });
-    }
+    await this._addLink(link, { category_id });
 
     let filename = 'Unknown';
     let size = null;
@@ -577,12 +625,8 @@ class RucioManager extends BaseClientManager {
     if (!this.client) throw new Error('Rucio not connected');
     const category_id = this._normalizeCategoryId(categoryId);
     // The ed2k-links path can carry a rucio: magnet too (the Add Download modal
-    // groups both under it) — route by scheme.
-    if (String(link).toLowerCase().startsWith('rucio:')) {
-      await this.client.addMagnet(link, { category_id });
-    } else {
-      await this.client.addEd2k(link, { category_id });
-    }
+    // groups both under it) — _addLink routes by scheme.
+    await this._addLink(link, { category_id });
     const hash = hashFromLink(link);
     if (hash) this.trackDownload(hash, 'Unknown', null, username, null);
     return true;
@@ -597,11 +641,7 @@ class RucioManager extends BaseClientManager {
   async addMagnet(link, { categoryName, username } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
     const category_id = await this.ensureAmuleCategoryId(categoryName);
-    if (String(link).toLowerCase().startsWith('ed2k://')) {
-      await this.client.addEd2k(link, { category_id });
-    } else {
-      await this.client.addMagnet(link, { category_id });
-    }
+    await this._addLink(link, { category_id });
     const hash = hashFromLink(link);
     if (hash) this.trackDownload(hash, 'Unknown', null, username, categoryName || null);
     return { success: true };
@@ -632,14 +672,27 @@ class RucioManager extends BaseClientManager {
     // Poll until done or a ~60s budget elapses (Gossipsub ~30s, Kad2 ~60s).
     const deadline = Date.now() + 62000;
     let detail;
-    /* eslint-disable no-await-in-loop */
-    do {
-      await new Promise(r => setTimeout(r, 2000));
-      detail = await this.client.getSearch(id);
-      // Accept both casings, like the download states: a daemon without the
-      // serde rename sends 'Running', which must not end the poll after 2s.
-    } while (String(detail.state).toLowerCase() === 'running' && Date.now() < deadline);
-    /* eslint-enable no-await-in-loop */
+    try {
+      /* eslint-disable no-await-in-loop */
+      do {
+        await new Promise(r => setTimeout(r, 2000));
+        detail = await this.client.getSearch(id);
+        // Accept both casings, like the download states: a daemon without the
+        // serde rename sends 'Running', which must not end the poll after 2s.
+      } while (String(detail.state).toLowerCase() === 'running' && Date.now() < deadline);
+      /* eslint-enable no-await-in-loop */
+    } catch (err) {
+      // A poll failed — cancel the daemon-side search so it doesn't linger.
+      await this.client.cancelSearch(id).catch(() => {});
+      throw err;
+    }
+
+    // Timed out while still running → cancel so abandoned searches don't pile up
+    // on the daemon. (getSearchResults falls back to the cached results map, so
+    // cancelling doesn't break the "previous results" panel or batch download.)
+    if (String(detail.state).toLowerCase() === 'running') {
+      await this.client.cancelSearch(id).catch(() => {});
+    }
 
     return this._mapSearchResults(id, detail);
   }
