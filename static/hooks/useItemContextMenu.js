@@ -153,8 +153,11 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Rename (only for clients with renameFile capability, gated on ownership)
-    if (onRename && caps.renameFile && hasCap('rename_files') && canMutate) {
+    // Rename (only for clients with renameFile capability, gated on ownership).
+    // Some clients (Rucio) can only rename a download that's still in progress,
+    // not a completed/shared file — hide it for those via the capability.
+    if (onRename && caps.renameFile && hasCap('rename_files') && canMutate &&
+        (!caps.renameRequiresActiveDownload || !item.complete)) {
       menuItems.push({
         label: 'Rename',
         icon: 'edit',

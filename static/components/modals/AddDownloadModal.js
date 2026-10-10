@@ -109,6 +109,19 @@ const AddDownloadModal = ({
     else unroutableLinks.push(line);
   }
 
+  // Group the ed2k-path links by scheme and resolve the instance each group goes
+  // to (the selected accepting one, else the first) — shared by the summary and
+  // the submit so the two can't describe/route differently.
+  const ed2kGroupsByScheme = () => {
+    const groups = {};
+    for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
+    return groups;
+  };
+  const ed2kTargetFor = (scheme) => {
+    const accepting = connectedAccepting(scheme);
+    return accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0] || null;
+  };
+
   // Check if we can submit (ed2kLinks are already filtered to routable ones).
   const hasEd2kLinks = ed2kLinks.length > 0;
   const hasMagnetLinks = magnetLinks.length > 0 && hasBitTorrentClient;
@@ -138,17 +151,14 @@ const AddDownloadModal = ({
     // Custom save path: only send if user explicitly set one and client supports it
     const effectiveSavePath = (showSavePath && customSavePath && supportsCustomPath) ? customSavePath : null;
 
-    // Add ed2k-path links: group by scheme and send each group to an instance
-    // that accepts it — the selected one when it does, else the first — so a
-    // rucio: link never lands on an aMule instance.
+    // Add ed2k-path links: send each scheme group to the instance that accepts it
+    // (the selected one when it does, else the first) so a rucio: link never lands
+    // on an aMule instance.
     if (ed2kLinks.length > 0 && onAddEd2kLinks) {
-      const groups = {};
-      for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
-      for (const [scheme, groupLinks] of Object.entries(groups)) {
-        const accepting = connectedAccepting(scheme);
-        if (!accepting.length) continue;
-        const target = (accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0]).id;
-        onAddEd2kLinks(groupLinks, finalCategory, false, target);
+      for (const [scheme, groupLinks] of Object.entries(ed2kGroupsByScheme())) {
+        const target = ed2kTargetFor(scheme);
+        if (!target) continue;
+        onAddEd2kLinks(groupLinks, finalCategory, false, target.id);
       }
     }
 
@@ -250,15 +260,11 @@ const AddDownloadModal = ({
     const finalCategory = getFinalCategory();
     const selectedClientName = selectedClient?.name || 'BitTorrent';
 
-    // Mirror handleSubmit's routing: group ed2k-path links by scheme and name
-    // the instance each group actually goes to (ed2k:// → aMule, rucio: → Rucio),
-    // not just the selected one.
+    // Name the instance each ed2k-path scheme group actually goes to (ed2k:// →
+    // aMule, rucio: → Rucio), via the same grouping/target helpers as submit.
     if (ed2kLinks.length > 0) {
-      const groups = {};
-      for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
-      for (const [scheme, groupLinks] of Object.entries(groups)) {
-        const accepting = connectedAccepting(scheme);
-        const target = accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0];
+      for (const [scheme, groupLinks] of Object.entries(ed2kGroupsByScheme())) {
+        const target = ed2kTargetFor(scheme);
         const noun = LINK_SCHEME_LABELS[scheme] || 'Link';
         let part = `${groupLinks.length} ${noun}${groupLinks.length > 1 ? 's' : ''} → ${target?.name || target?.id || scheme}`;
         if (finalCategory && finalCategory !== 'Default') {

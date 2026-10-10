@@ -10,7 +10,7 @@
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
 import { useStaticData } from '../contexts/StaticDataContext.js';
-import { TYPE_LABELS } from '../components/settings/clientFields.js';
+import { CLIENT_NAMES } from '../utils/constants.js';
 
 /**
  * Hook for picking a connected instance for a feature. By default it lists
@@ -42,7 +42,7 @@ export function useAmuleInstanceSelector(options = {}) {
       .map(([id, inst]) => ({
         id,
         type: inst.type,
-        name: inst.name || TYPE_LABELS[inst.type] || inst.type,
+        name: inst.name || CLIENT_NAMES[inst.type]?.name || inst.type,
         color: inst.color,
         order: inst.order
       }))
