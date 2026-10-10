@@ -175,7 +175,10 @@ class RucioClient {
     params.set('limit', String(limit));
     params.set('offset', String(offset));
     const data = await this._request('GET', `/api/v1/shares/files?${params.toString()}`);
-    return { shares: data?.shares || [], total: data?.total || 0 };
+    // Leave `total` undefined when the daemon doesn't report it (don't coerce to
+    // 0): _getAllShares uses Number.isFinite(total) to decide whether to page by
+    // total, and a coerced 0 would stop it after the first page.
+    return { shares: data?.shares || [], total: data?.total };
   }
 
   unshare(hash) { return this._request('DELETE', `/api/v1/shares/${hash}`); }

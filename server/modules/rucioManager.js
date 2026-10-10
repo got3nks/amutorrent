@@ -22,6 +22,7 @@ const logger = require('../lib/logger');
 const { normalizeRucioDownload, normalizeRucioSharedFile } = require('../lib/downloadNormalizer');
 const { normaliseQueryForm } = require('../lib/searchQuery');
 const { hashFromLink } = require('../lib/rucio/links');
+const { parseEd2kLink } = require('../lib/torrentUtils');
 
 // Normalize a category colour to the '#rrggbb' hex the daemon expects. The
 // CategoryManager hands the per-client sync an aMule-style BGR integer (see its
@@ -61,10 +62,17 @@ class RucioManager extends BaseClientManager {
     this._sharesRefreshIntervalMs = 30000;
     // Completed-download hashes seen last poll, to spot a new completion and
     // refresh shares promptly (a finished download becomes a shared file).
-    this._completedHashes = new Set();
+    // null = not seeded yet: the first poll records the set without forcing a
+    // share refresh, so a restart doesn't re-fetch shares for already-done items.
+    this._completedHashes = null;
     // Daemon category list kept by fetchData and reused by the category helpers
-    // (null = not fetched / invalidated after a create/update/delete).
+    // (null = not fetched / invalidated after a create/update/delete). Refreshed
+    // on a slow cadence like the shared files — not every poll — so a category
+    // created/renamed in Rucio's own panel still shows up within the interval,
+    // while our own edits invalidate it for an immediate refetch.
     this.lastCategories = null;
+    this._lastCategoriesFetch = 0;
+    this._categoriesRefreshIntervalMs = 30000;
     // hash (lowercase) → signed integer download id, rebuilt each fetchData.
     this.hashToId = new Map();
     // Search state. Rucio search is async (own id, polled); we mirror aMule's
@@ -110,6 +118,10 @@ class RucioManager extends BaseClientManager {
 
       this.client = client;
       this._version = result.version;
+      // Drop the cached category list so the first poll after a (re)connect
+      // refetches it immediately — categories may have changed while we were
+      // disconnected, rather than waiting out the slow refresh interval.
+      this.lastCategories = null;
       this._clearConnectionError();
       this.log(`Connected to Rucio ${result.version} successfully`);
       this.clearReconnect();
@@ -143,15 +155,11 @@ class RucioManager extends BaseClientManager {
 
   // ── History ──────────────────────────────────────────────────────────
 
-  // Shape a unified Rucio item (download or shared file) into the record the
-  // history tracker expects. autoRefreshManager calls this on every item with
-  // no guard, so a manager that lacks it throws and breaks history for ALL
-  // clients. Rucio exposes no per-file uploaded total, so ratio stays 0.
+  // Shape a unified Rucio item (download or shared file) into the history record,
+  // using the same single-file, source-based default as aMule. Rucio exposes no
+  // per-file uploaded total, so ratio stays 0. (autoRefreshManager calls this on
+  // every item with no guard — a manager missing it breaks history for ALL clients.)
   extractHistoryMetadata(item) {
-    // Same single-file, source-based shape as aMule; only the uploaded-total
-    // field name differs. Rucio exposes no per-file uploaded total, so ratio
-    // stays 0. (Shared files carry no `progress`, so they count as complete;
-    // their path is already the containing folder — see normalizeRucioSharedFile.)
     return this.sourceBasedHistoryMetadata(item, item.uploadTotal || 0);
   }
 
@@ -177,7 +185,10 @@ class RucioManager extends BaseClientManager {
       // eslint-disable-next-line no-await-in-loop
       const page = await this.client.getShares({ limit, offset });
       const batch = page?.shares || [];
-      if (Number.isFinite(page?.total)) total = page.total;
+      // Only trust a positive reported total; a missing or 0 total means "not
+      // reported", so fall through to the empty-page / repeated-page guards below
+      // instead of stopping after the first page.
+      if (Number.isFinite(page?.total) && page.total > 0) total = page.total;
       if (batch.length === 0) break;
       // Same page as last time → the daemon is ignoring offset; stop before
       // re-adding it (don't push the repeat).
@@ -212,15 +223,29 @@ class RucioManager extends BaseClientManager {
     // refresh waits on), so refresh them on their own slower interval and reuse
     // the cached list between — like aMule's shared-files reload.
     const refreshShares = (Date.now() - this._lastSharesFetch) >= this._sharesRefreshIntervalMs;
+    // Reuse the cached category list across polls, refreshing it on the same slow
+    // cadence as the shared files (not every poll — that was the waste), and
+    // immediately when our own create/update/delete invalidates it to null. The
+    // slow refresh also picks up a category created/renamed in Rucio's own panel.
+    const refreshCategories = !Array.isArray(this.lastCategories) ||
+      (Date.now() - this._lastCategoriesFetch) >= this._categoriesRefreshIntervalMs;
 
     let rawDownloads, sharesResult, rucioCategories;
     try {
       [rawDownloads, sharesResult, rucioCategories] = await Promise.all([
         this.client.getDownloads(),
-        refreshShares ? this._getAllShares() : Promise.resolve(null),
+        // A failing share page is not a lost connection: keep the last list and
+        // retry next poll (via its own catch), rather than dropping the client in
+        // the shared Promise.all and failing every Rucio action until it reconnects.
+        refreshShares
+          ? this._getAllShares().catch((err) => {
+              this.warn(`Shared-files refresh failed (keeping last list): ${err.message}`);
+              return null;
+            })
+          : Promise.resolve(null),
         // null (not []) on failure, so we can tell a real empty list from a
         // failed fetch and keep the last known one instead.
-        this.client.getCategories().catch(() => null)
+        refreshCategories ? this.client.getCategories().catch(() => null) : Promise.resolve(null)
       ]);
     } catch (err) {
       triggerReconnect(err);
@@ -234,6 +259,7 @@ class RucioManager extends BaseClientManager {
     // every category name this poll and let the next edit wipe match_keywords.
     if (Array.isArray(rucioCategories)) {
       this.lastCategories = rucioCategories;
+      this._lastCategoriesFetch = Date.now();
     }
     const categoryList = this.lastCategories || [];
 
@@ -273,8 +299,12 @@ class RucioManager extends BaseClientManager {
     const completedNow = new Set(
       downloads.filter(d => d.isComplete && d.hash).map(d => String(d.hash).toLowerCase())
     );
-    const prevCompleted = this._completedHashes || new Set();
-    const hasNewCompletion = [...completedNow].some(h => !prevCompleted.has(h));
+    // First poll (nothing seeded yet, _completedHashes null) just records the set:
+    // every completed download would otherwise look "new" and force a second full
+    // share fetch right after a restart.
+    const prevCompleted = this._completedHashes;
+    const hasNewCompletion = prevCompleted != null &&
+      [...completedNow].some(h => !prevCompleted.has(h));
     this._completedHashes = completedNow;
     if (hasNewCompletion) this._invalidateShares();
 
@@ -405,6 +435,10 @@ class RucioManager extends BaseClientManager {
    */
   async deleteItem(hash, { deleteFiles } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
+    // Capture the client once: a concurrent fetchData reconnect failure can null
+    // this.client mid-delete, which would turn a later call into a TypeError
+    // (possibly after cancel but before remove, leaving a partial state).
+    const client = this.client;
     const h = String(hash).toLowerCase();
 
     const shared = (this.lastSharedFiles || []).find(f => String(f.hash).toLowerCase() === h);
@@ -423,7 +457,7 @@ class RucioManager extends BaseClientManager {
     // so there's no separate file for aMuTorrent to delete.
     if (deleteFiles && !filePath && dl?.isComplete) {
       try {
-        const detail = await this.client.getDownload(id);
+        const detail = await client.getDownload(id);
         filePath = detail?.dest_path || null;
       } catch { /* best-effort; no path means nothing to wipe */ }
     }
@@ -434,17 +468,28 @@ class RucioManager extends BaseClientManager {
       // completed one is just dropped from the list, never cancelled, so the
       // finished file is never touched. Cancel is best-effort — it legitimately
       // no-ops / errors on an already-terminal download — so it stays caught.
-      if (!dl?.isComplete) await this.client.cancelDownload(id).catch(() => {});
+      if (!dl?.isComplete) await client.cancelDownload(id).catch(() => {});
       // removeDownload / unshare are the operation itself: let a refusal throw
       // so the caller reports failure instead of a false success + a row that
       // reappears on the next poll.
-      await this.client.removeDownload(id);
-      if (shared) await this.client.unshare(h);
+      await client.removeDownload(id);
+      if (shared) {
+        await client.unshare(h);
+      } else if (dl?.isComplete) {
+        // A completed download is seeded (seedsCompletedFiles) even when it isn't
+        // in the cached share list yet — a stale/failed share refresh, or a large
+        // paged library. Un-share it too, or the daemon keeps seeding and the row
+        // reappears pointing at a now-deleted file. Best-effort: it may genuinely
+        // not be shared, in which case unshare is a harmless no-op.
+        await client.unshare(h).catch(() => {});
+      }
     } else {
-      await this.client.unshare(h);
+      await client.unshare(h);
     }
     this._invalidateShares();
-    this.trackDeletion(hash);
+    // Lower-cased, to match the add paths (parseEd2kLink/hashFromLink record
+    // lowercase hashes) so the history deletion lines up with the recorded item.
+    this.trackDeletion(h);
     return { success: true, pathsToDelete };
   }
 
@@ -489,21 +534,29 @@ class RucioManager extends BaseClientManager {
     return this.lastCategories;
   }
 
+  // Case-insensitive name → id lookup in a daemon category list. The one place
+  // that match lives, so the CRUD helpers below can't spell it differently.
+  // Returns the id, or undefined when the name isn't in the list.
+  _findCategoryId(cats, name) {
+    if (!name) return undefined;
+    const lower = String(name).toLowerCase();
+    return (cats || []).find(c => c.name?.toLowerCase() === lower)?.id;
+  }
+
   // Find a daemon category by name (case-insensitive), creating it with the
   // given colour/dir if missing. Returns its id, or null for Default/none.
   // `cats` (optional) is a caller-owned list to resolve against and extend —
   // used by ensureCategoriesBatch to resolve a whole set from one fetch.
   async _resolveOrCreateCategoryId(name, { color, path } = {}, cats = null) {
     if (!name || name === 'Default') return null;
-    const lower = String(name).toLowerCase();
     const list = cats || await this._knownCategories();
-    let found = list.find(c => c.name.toLowerCase() === lower);
-    if (!found && !cats) {
+    let id = this._findCategoryId(list, name);
+    if (id == null && !cats) {
       // Missed in the reused list — confirm against a fresh fetch before
       // creating, so a stale cache can't produce a duplicate category.
-      found = (await this._knownCategories({ fresh: true })).find(c => c.name.toLowerCase() === lower);
+      id = this._findCategoryId(await this._knownCategories({ fresh: true }), name);
     }
-    if (found) return found.id;
+    if (id != null) return id;
     const created = await this._createCategoryRaw({ name, color, path });
     if (created && Array.isArray(cats)) cats.push(created); // keep the batch list current
     return created?.id ?? null;
@@ -535,13 +588,22 @@ class RucioManager extends BaseClientManager {
     // lives on the daemon host and onConnectSync imports categories without it.
     // Read both and send them back untouched when we don't have our own, so
     // editing a category's name/colour here can't wipe what the user set in
-    // Rucio's own panel. Best-effort: if the read fails we omit them.
-    let match_keywords, currentDownloadDir;
+    // Rucio's own panel. We must NOT update when the current values can't be read:
+    // a full-replace PUT without match_keywords would silently wipe the rules.
+    let cur;
     try {
-      const cur = (await this._knownCategories()).find(c => c.id === id);
-      match_keywords = cur?.match_keywords ?? undefined;
-      currentDownloadDir = cur?.download_dir ?? undefined;
-    } catch { /* can't read it — don't fabricate a value */ }
+      cur = (await this._knownCategories()).find(c => c.id === id);
+      // Miss in the reused list — the cache may just be stale; confirm against a
+      // fresh fetch before concluding we can't read it.
+      if (!cur) cur = (await this._knownCategories({ fresh: true })).find(c => c.id === id);
+    } catch (err) {
+      throw new Error(`Cannot read Rucio category ${id} before updating it (would wipe its keyword rules): ${err.message}`);
+    }
+    if (!cur) {
+      throw new Error(`Rucio category ${id} not found; refusing to update and wipe its keyword rules`);
+    }
+    const match_keywords = cur.match_keywords ?? undefined;
+    const currentDownloadDir = cur.download_dir ?? undefined;
     // Keep the daemon's dir when we have no path of our own.
     const download_dir = path || currentDownloadDir || undefined;
     const body = { name, color: toHexColor(color), download_dir, match_keywords };
@@ -627,8 +689,16 @@ class RucioManager extends BaseClientManager {
     // The ed2k-links path can carry a rucio: magnet too (the Add Download modal
     // groups both under it) — _addLink routes by scheme.
     await this._addLink(link, { category_id });
-    const hash = hashFromLink(link);
-    if (hash) this.trackDownload(hash, 'Unknown', null, username, null);
+    // An ed2k link carries the file name and size, like aMule parses — record them
+    // so history isn't "Unknown" with no size. A rucio: magnet carries neither, so
+    // fall back to just the hash.
+    const { hash: ed2kHash, filename, size } = parseEd2kLink(link);
+    if (ed2kHash) {
+      this.trackDownload(ed2kHash, filename || 'Unknown', size || null, username, null);
+    } else {
+      const hash = hashFromLink(link);
+      if (hash) this.trackDownload(hash, 'Unknown', null, username, null);
+    }
     return true;
   }
 
@@ -657,6 +727,10 @@ class RucioManager extends BaseClientManager {
    */
   async search(query, _type, _extension) {
     if (!this.client) throw new Error('Rucio not connected');
+    // Capture the client once: a failed refresh mid-search can null this.client,
+    // and reading it again in the poll loop or the cancel path would throw a
+    // TypeError that hides the real error and leaves the daemon search running.
+    const client = this.client;
     // NFC-normalise before splitting: a decomposed accent (common from macOS
     // and *arr pastes) looks identical on screen but the eMule/Kad bridge
     // matches nothing with it. Rucio's own network folds accents either way.
@@ -667,7 +741,7 @@ class RucioManager extends BaseClientManager {
     const keywords = composed.trim().split(/\s+/).filter(Boolean);
     if (keywords.length === 0) return { results: [], resultsLength: 0 };
 
-    const { id } = await this.client.startSearch(keywords, 'both');
+    const { id } = await client.startSearch(keywords, 'both');
 
     // Poll until done or a ~60s budget elapses (Gossipsub ~30s, Kad2 ~60s).
     const deadline = Date.now() + 62000;
@@ -676,22 +750,24 @@ class RucioManager extends BaseClientManager {
       /* eslint-disable no-await-in-loop */
       do {
         await new Promise(r => setTimeout(r, 2000));
-        detail = await this.client.getSearch(id);
+        detail = await client.getSearch(id);
         // Accept both casings, like the download states: a daemon without the
         // serde rename sends 'Running', which must not end the poll after 2s.
-      } while (String(detail.state).toLowerCase() === 'running' && Date.now() < deadline);
+        // `detail?.` guards an empty body (204/null) so it ends the poll cleanly
+        // instead of throwing a TypeError that would mask the real state.
+      } while (String(detail?.state).toLowerCase() === 'running' && Date.now() < deadline);
       /* eslint-enable no-await-in-loop */
     } catch (err) {
       // A poll failed — cancel the daemon-side search so it doesn't linger.
-      await this.client.cancelSearch(id).catch(() => {});
+      await client.cancelSearch(id).catch(() => {});
       throw err;
     }
 
     // Timed out while still running → cancel so abandoned searches don't pile up
     // on the daemon. (getSearchResults falls back to the cached results map, so
     // cancelling doesn't break the "previous results" panel or batch download.)
-    if (String(detail.state).toLowerCase() === 'running') {
-      await this.client.cancelSearch(id).catch(() => {});
+    if (String(detail?.state).toLowerCase() === 'running') {
+      await client.cancelSearch(id).catch(() => {});
     }
 
     return this._mapSearchResults(id, detail);
@@ -731,7 +807,7 @@ class RucioManager extends BaseClientManager {
       if (f.hash) statusByHash.set(String(f.hash).toLowerCase(), SEARCH_STATUS.DOWNLOADED);
     }
     const groups = new Map(); // fileHash → variant rows
-    for (const r of (detail.results || [])) {
+    for (const r of (detail?.results || [])) {
       const link = r.download_link;
       const fileHash = hashFromLink(link);
       if (!fileHash) continue; // can't be queued without a hash; skip
@@ -788,8 +864,7 @@ class RucioManager extends BaseClientManager {
     if (!this.client) return;
     let catId = id;
     if (catId == null && name) {
-      const cats = await this._knownCategories();
-      catId = cats.find(c => c.name.toLowerCase() === String(name).toLowerCase())?.id;
+      catId = this._findCategoryId(await this._knownCategories(), name);
     }
     if (catId != null) {
       await this.client.deleteCategory(catId);
@@ -804,8 +879,7 @@ class RucioManager extends BaseClientManager {
     if (!this.client || !name) return null;
     let catId = id;
     if (catId == null) {
-      const cats = await this._knownCategories();
-      catId = cats.find(c => c.name.toLowerCase() === String(name).toLowerCase())?.id;
+      catId = this._findCategoryId(await this._knownCategories(), name);
     }
     if (catId == null) {
       const created = await this._createCategoryRaw({ name, color, path });
@@ -819,8 +893,7 @@ class RucioManager extends BaseClientManager {
     if (!this.client || !newName) return null;
     let catId = id;
     if (catId == null && oldName) {
-      const cats = await this._knownCategories();
-      catId = cats.find(c => c.name.toLowerCase() === String(oldName).toLowerCase())?.id;
+      catId = this._findCategoryId(await this._knownCategories(), oldName);
     }
     if (catId == null) return null;
     await this._updateCategoryRaw(catId, { name: newName, color, path });
