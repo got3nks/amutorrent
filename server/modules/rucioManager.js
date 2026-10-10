@@ -525,12 +525,15 @@ class RucioManager extends BaseClientManager {
     return this._resolveOrCreateCategoryId(categoryName, { color: appCat?.color, path: appCat?.path });
   }
 
-  // The daemon's category list — reuse the one fetchData keeps (refreshed every
-  // poll) instead of refetching per call. `fresh` forces a fetch; mutations
-  // invalidate it (set to null) so the next read is fresh.
+  // The daemon's category list — reuse the one fetchData keeps (refreshed on a
+  // slow cadence) instead of refetching per call. `fresh` forces a fetch;
+  // mutations invalidate it (set to null) so the next read is fresh. A fetch here
+  // also stamps the poll's refresh timer, so an on-demand fetch doesn't leave
+  // fetchData thinking the cache is stale and refetching again right after.
   async _knownCategories({ fresh = false } = {}) {
     if (!fresh && Array.isArray(this.lastCategories)) return this.lastCategories;
     this.lastCategories = (await this.client.getCategories()) || [];
+    this._lastCategoriesFetch = Date.now();
     return this.lastCategories;
   }
 
@@ -588,14 +591,14 @@ class RucioManager extends BaseClientManager {
     // lives on the daemon host and onConnectSync imports categories without it.
     // Read both and send them back untouched when we don't have our own, so
     // editing a category's name/colour here can't wipe what the user set in
-    // Rucio's own panel. We must NOT update when the current values can't be read:
-    // a full-replace PUT without match_keywords would silently wipe the rules.
+    // Rucio's own panel. Read FRESH, not from the cache: categories refresh on a
+    // slow interval now, so a cached row's match_keywords could be stale and a
+    // full-replace PUT would overwrite a change made in the panel since. And we
+    // must NOT update at all when the values can't be read — a PUT without
+    // match_keywords would silently wipe the rules.
     let cur;
     try {
-      cur = (await this._knownCategories()).find(c => c.id === id);
-      // Miss in the reused list — the cache may just be stale; confirm against a
-      // fresh fetch before concluding we can't read it.
-      if (!cur) cur = (await this._knownCategories({ fresh: true })).find(c => c.id === id);
+      cur = (await this._knownCategories({ fresh: true })).find(c => c.id === id);
     } catch (err) {
       throw new Error(`Cannot read Rucio category ${id} before updating it (would wipe its keyword rules): ${err.message}`);
     }

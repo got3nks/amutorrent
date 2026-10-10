@@ -174,8 +174,13 @@ function parseEd2kLink(link) {
     // while an empty-name ed2k link still yields its hash instead of null.
     const match = link.match(/ed2k:\/\/\|file\|([^|]*)\|(\d+)\|([a-fA-F0-9]{32})\|/);
     if (match) {
+      // Decode the name best-effort: a stray '%' (e.g. "50%OFF Movie.avi") makes
+      // decodeURIComponent throw, which must NOT drop the hash — keep the raw name
+      // and still return the hash/size (used for ownership, keying and history).
+      let filename = match[1];
+      try { filename = decodeURIComponent(filename); } catch { /* keep the raw name */ }
       return {
-        filename: decodeURIComponent(match[1]),
+        filename,
         size: parseInt(match[2], 10),
         hash: match[3].toLowerCase()
       };

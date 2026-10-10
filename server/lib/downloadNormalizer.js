@@ -683,7 +683,10 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
   const downloaded = d.bytes_done || 0;
   return {
     clientType: 'rucio',
-    hash: d.root_hash,
+    // Lower-cased like the BitTorrent normalizers (and everything that keys off
+    // the hash downstream) so casing is consistent at the source, not only after
+    // createBaseItem / itemKey re-lower-case it.
+    hash: d.root_hash ? String(d.root_hash).toLowerCase() : d.root_hash,
     name: d.name || '',
     rawName: d.name || '',
     size,
@@ -732,7 +735,8 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
 function normalizeRucioSharedFile(s) {
   return {
     clientType: 'rucio',
-    hash: s.root_hash,
+    // Lower-cased for the same reason as normalizeRucioDownload.
+    hash: s.root_hash ? String(s.root_hash).toLowerCase() : s.root_hash,
     name: s.name || '',
     rawName: s.name || '',
     size: s.size || 0,
