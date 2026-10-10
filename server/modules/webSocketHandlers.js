@@ -1451,7 +1451,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleBatchDelete(data, context) {
     try {
-      const { items, deleteFiles, source } = data; // items: Array of { fileHash, clientType, instanceId, fileName }
+      // items: Array of { fileHash, clientType, instanceId, fileName, deleteFiles? }.
+      // A per-item deleteFiles overrides the batch one.
+      const { items, deleteFiles, source } = data;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         throw new Error('No items provided for batch delete');
@@ -1466,6 +1468,7 @@ class WebSocketHandlers extends BaseModule {
 
       const results = [];
       const instanceIdsToRefresh = new Set();
+      const deleteDecisions = new Map();
 
       for (const item of items) {
         // Ownership check: skip items user doesn't own
@@ -1490,10 +1493,16 @@ class WebSocketHandlers extends BaseModule {
 
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
-          const isShared = caps.sharedFiles && (source === 'shared' || (cachedItem && cachedItem.shared && !cachedItem.downloading));
+          // `source` describes the whole batch, so trust it only when the item
+          // isn't cached: a partfile in a batch with shared files is still a download.
+          const isShared = !!caps.sharedFiles && (cachedItem
+            ? !!(cachedItem.shared && !cachedItem.downloading)
+            : source === 'shared');
+          const itemDeleteFiles = typeof item.deleteFiles === 'boolean' ? item.deleteFiles : !!deleteFiles;
+          deleteDecisions.set(itemKey(instanceId, item.fileHash?.toLowerCase()), { isShared, deleteFiles: itemDeleteFiles });
 
           // Build options for deleteItem
-          const opts = { deleteFiles: !!deleteFiles, isShared };
+          const opts = { deleteFiles: itemDeleteFiles, isShared };
           if (isShared && cachedItem?.raw?.path && cachedItem?.name) {
             opts.filePath = path.join(cachedItem.raw.path, cachedItem.rawName || cachedItem.name);
           }
@@ -1557,14 +1566,14 @@ class WebSocketHandlers extends BaseModule {
 
           const resolvedClientType = result.clientType || reqItem?.clientType || ci?.client;
           const caps = resolvedClientType ? clientMeta.get(resolvedClientType)?.capabilities : {};
-          const isShared = caps?.sharedFiles && (source === 'shared' || (ci && ci.shared && !ci.downloading));
+          const decision = deleteDecisions.get(itemKey(result.instanceId || reqItem?.instanceId, result.fileHash?.toLowerCase())) || {};
 
           eventScriptingManager.emit('fileDeleted', {
             hash: result.fileHash?.toLowerCase(),
             instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
             clientType: resolvedClientType,
-            deletedFromDisk: deleteFiles === true || (caps?.cancelDeletesFiles && !isShared),
+            deletedFromDisk: decision.deleteFiles === true || !!(caps?.cancelDeletesFiles && !decision.isShared),
             category: ci?.category || null,
             path: fullPath,
             multiFile: ci?.multiFile || false,

@@ -177,8 +177,8 @@ const DeleteModal = ({
           // Disable when checking permissions, when shared-only files can't be deleted,
           // or when mixed shared has file not found warnings (can't proceed without all files)
           disabled: isCheckingPermissions || (isSharedOnly && !canDeleteFiles) || (isMixedShared && permissionWarnings.length > 0),
-          // For shared files, always pass deleteFiles=true (they can only be deleted, not unshared)
-          onClick: () => onConfirm(hasSharedFiles ? true : deleteFiles)
+          // The caller adds deleteFiles for shared files that can't be unshared
+          onClick: () => onConfirm(deleteFiles)
         },
           // Button label reflects what will happen
           isCheckingPermissions ? [h('span', { key: 's', className: 'w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin' }), 'Checking\u2026'] :

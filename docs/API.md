@@ -274,6 +274,8 @@ Same request/response format as pause. Fully closes the torrent (releases file h
 }
 ```
 
+An item can carry its own `deleteFiles`, which overrides the batch value.
+
 **Response:**
 ```json
 {

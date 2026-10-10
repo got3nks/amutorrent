@@ -166,6 +166,12 @@ export const useViewDeleteModal = ({
     return () => removeMessageHandler(handlePermissions);
   }, [addMessageHandler, removeMessageHandler]);
 
+  // A shared file its client can't unshare is only removed by deleting it.
+  const mustDeleteFiles = useCallback((item) => {
+    const caps = getCapabilities(item.instanceId);
+    return !!(caps.removeSharedMustDeleteFiles && item.shared && !item.downloading);
+  }, [getCapabilities]);
+
   // Capability-driven flags for the items being deleted
   const { hasSharedFiles, hasAutoDeleteItems, hasNonAutoDeleteItems } = useMemo(() => {
     if (!deleteModal.show) return { hasSharedFiles: false, hasAutoDeleteItems: false, hasNonAutoDeleteItems: false };
@@ -178,7 +184,7 @@ export const useViewDeleteModal = ({
       for (const d of dataArray) {
         if (!keySet.has(itemKey(d.instanceId, d.hash))) continue;
         const caps = getCapabilities(d.instanceId);
-        if (caps.removeSharedMustDeleteFiles && d.shared && !d.downloading) shared = true;
+        if (mustDeleteFiles(d)) shared = true;
         if (caps.cancelDeletesFiles) autoDelete = true;
         else nonAutoDelete = true;
       }
@@ -186,13 +192,13 @@ export const useViewDeleteModal = ({
       const item = dataArray.find(d => d.hash === fileHashes[0] && (!deleteModal.instanceId || d.instanceId === deleteModal.instanceId));
       if (item) {
         const caps = getCapabilities(item.instanceId);
-        if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) shared = true;
+        if (mustDeleteFiles(item)) shared = true;
         if (caps.cancelDeletesFiles) autoDelete = true;
         else nonAutoDelete = true;
       }
     }
     return { hasSharedFiles: shared, hasAutoDeleteItems: autoDelete, hasNonAutoDeleteItems: nonAutoDelete };
-  }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities]);
+  }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities, mustDeleteFiles]);
 
   // Determine source type based on items (auto-detect shared vs downloads)
   const sourceType = useMemo(() => {
@@ -281,7 +287,8 @@ export const useViewDeleteModal = ({
       const keySet = new Set(compoundKeys);
       const items = dataArray
         .filter(d => keySet.has(itemKey(d.instanceId, d.hash)))
-        .map(d => ({ fileHash: d.hash, clientType: d.client, instanceId: d.instanceId, fileName: d.name }));
+        // Per item, so the checkbox only applies to items that offer it.
+        .map(d => ({ fileHash: d.hash, clientType: d.client, instanceId: d.instanceId, fileName: d.name, deleteFiles: deleteFiles || mustDeleteFiles(d) }));
       actions.files.deleteFile(items, null, deleteFiles, sourceType);
       // Clear selections after batch delete
       if (typeof clearAllSelections === 'function') {
@@ -290,10 +297,10 @@ export const useViewDeleteModal = ({
     } else {
       const clientType = deleteModal.clientType;
       const fileName = deleteModal.fileName;
-      actions.files.deleteFile(deleteModal.fileHash, clientType, deleteFiles, sourceType, fileName, deleteModal.instanceId);
+      actions.files.deleteFile(deleteModal.fileHash, clientType, deleteFiles || hasSharedFiles, sourceType, fileName, deleteModal.instanceId);
     }
     closeDeleteModal();
-  }, [deleteModal, actions.files, dataArray, sourceType, closeDeleteModal, clearAllSelections]);
+  }, [deleteModal, actions.files, dataArray, sourceType, closeDeleteModal, clearAllSelections, mustDeleteFiles, hasSharedFiles]);
 
   // Navigate to categories view (for "Edit category mappings" link in warnings)
   const onEditMappings = useCallback(() => {
