@@ -18,14 +18,20 @@ const { createElement: h } = React;
  */
 const SearchResultsView = () => {
   // Get data from contexts
-  const { searchResults, searchInstanceId, searchType } = useSearch();
+  const { searchResults, searchResultsInstanceId } = useSearch();
   const { setAppCurrentView } = useAppState();
   const { instances, hasMultiInstance } = useStaticData();
 
-  // Instance badge for multi-instance ED2K/Kad searches
-  const isAmuleSearch = searchType === 'global' || searchType === 'kad';
-  const instanceInfo = isAmuleSearch && hasMultiInstance && searchInstanceId && instances?.[searchInstanceId];
-  const instanceName = instanceInfo ? (instanceInfo.name || searchInstanceId) : null;
+  // Instance badge for multi-instance client searches (aMule or Rucio alike),
+  // keyed on the instance that PRODUCED the results — not the live source
+  // selection, which changes when the source button changes. Derived from the
+  // producer instead of a hardcoded source list, and hidden for Prowlarr results
+  // (which have no producing instance).
+  const isProwlarrResults = !!searchResults[0]?.isProwlarr;
+  const producer = searchResultsInstanceId ? instances?.[searchResultsInstanceId] : null;
+  const instanceName = (!isProwlarrResults && hasMultiInstance && producer)
+    ? (producer.name || searchResultsInstanceId)
+    : null;
 
   // Handler for new search button
   const handleNewSearch = () => {

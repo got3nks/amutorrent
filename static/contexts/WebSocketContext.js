@@ -87,9 +87,11 @@ export const WebSocketProvider = ({ children }) => {
     setSearchPreviousResults,
     setSearchPreviousResultsLoaded,
     setSearchLocked,
+    setSearchLockSnapshot,
     setSearchResults,
     setSearchNoResultsError,
-    setSearchInstanceId
+    setSearchInstanceId,
+    setSearchResultsInstanceId
   } = useSearch();
 
   // Reference-counted subscriptions: multiple components can subscribe to the same channel
@@ -297,11 +299,14 @@ export const WebSocketProvider = ({ children }) => {
       'previous-search-results': () => {
         setSearchPreviousResults(data.data || []);
         setSearchPreviousResultsLoaded(true);
-        if (data.instanceId) setSearchInstanceId(data.instanceId);
+        // Remember which instance produced these so a batch download routes back
+        // to it even after the source selection changes.
+        if (data.instanceId) { setSearchInstanceId(data.instanceId); setSearchResultsInstanceId(data.instanceId); }
       },
-      'search-lock': () => setSearchLocked(data.locked),
+      'search-lock': () => setSearchLocked(data.locked, data.instanceId),
+      'search-lock-snapshot': () => setSearchLockSnapshot(data.lockedInstances),
       'search-results': () => {
-        if (data.instanceId) setSearchInstanceId(data.instanceId);
+        if (data.instanceId) { setSearchInstanceId(data.instanceId); setSearchResultsInstanceId(data.instanceId); }
         if (!data.data || data.data.length === 0) {
           setSearchNoResultsError();
         } else {
@@ -487,7 +492,7 @@ export const WebSocketProvider = ({ children }) => {
     setDataStatsTree, setDataServersEd2kLinks,
     markStaticDataLoaded, resetStaticDataLoaded,
     // Search setters
-    setSearchPreviousResults, setSearchPreviousResultsLoaded, setSearchLocked, setSearchResults, setSearchNoResultsError, setSearchInstanceId,
+    setSearchPreviousResults, setSearchPreviousResultsLoaded, setSearchLocked, setSearchLockSnapshot, setSearchResults, setSearchNoResultsError, setSearchInstanceId, setSearchResultsInstanceId,
     hasMultiInstance
   ]); // lastEd2kWasServerListRef accessed via ref, no dep needed
 

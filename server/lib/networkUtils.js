@@ -4,8 +4,6 @@
  * Common network-related helper functions
  */
 
-const clientMeta = require('./clientMeta');
-
 /**
  * Validate IP address format
  * @param {string} ip - IP to validate
@@ -48,23 +46,7 @@ const CLIENT_SOFTWARE_LABELS = {
   0xff: 'eMule Compatible' // SO_COMPAT_UNK
 };
 
-/**
- * Get client software name from upload/peer entry
- * @param {Object} item - Upload or peer item with EC_TAG_CLIENT_SOFTWARE
- * @returns {string} Client software name with version if available
- */
-function getClientSoftwareName(item) {
-  // For rtorrent, use the client string directly
-  if (clientMeta.isBittorrent(item.clientType) || item.EC_TAG_CLIENT_SOFTWARE === -1) {
-    return item.EC_TAG_CLIENT_SOFT_VER_STR || 'Unknown';
-  }
-  const baseName = CLIENT_SOFTWARE_LABELS[item.EC_TAG_CLIENT_SOFTWARE] || 'Unknown';
-  const version = item.EC_TAG_CLIENT_SOFT_VER_STR;
-  return version && version !== 'Unknown' ? `${baseName} ${version}` : baseName;
-}
-
 module.exports = {
   isValidIP,
-  CLIENT_SOFTWARE_LABELS,
-  getClientSoftwareName
+  CLIENT_SOFTWARE_LABELS
 };

@@ -167,38 +167,47 @@ export const useViewDeleteModal = ({
   }, [addMessageHandler, removeMessageHandler]);
 
   // Capability-driven flags for the items being deleted
-  const { hasSharedFiles, hasAutoDeleteItems, hasNonAutoDeleteItems } = useMemo(() => {
-    if (!deleteModal.show) return { hasSharedFiles: false, hasAutoDeleteItems: false, hasNonAutoDeleteItems: false };
+  const { hasSharedFiles, hasAutoDeleteItems, hasNonAutoDeleteItems, hasCompletedShares } = useMemo(() => {
+    if (!deleteModal.show) return { hasSharedFiles: false, hasAutoDeleteItems: false, hasNonAutoDeleteItems: false, hasCompletedShares: false };
     const fileHashes = Array.isArray(deleteModal.fileHash)
       ? deleteModal.fileHash
       : [deleteModal.fileHash];
-    let shared = false, autoDelete = false, nonAutoDelete = false;
+    let shared = false, autoDelete = false, nonAutoDelete = false, completedShare = false;
+    // Classify each item the way the server now does (see sharedFilePolicy): a
+    // shared file on a client that can't just unshare it is always deleted from
+    // disk; otherwise a cancel only discards an UNFINISHED download's partial, so
+    // a completed download (Rucio, or the brief window before an aMule file is
+    // shared) needs the explicit "delete files" option and a permission check.
+    // `completedShare` is the broader "this is a shared, complete file" set (any
+    // sharedFiles client, Rucio included) used to tag the delete source below.
+    const classify = (item) => {
+      const caps = getCapabilities(item.instanceId);
+      if (caps.sharedFiles && item.shared && !item.downloading) completedShare = true;
+      if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) shared = true;
+      else if (caps.cancelDeletesFiles && !item.complete) autoDelete = true;
+      else nonAutoDelete = true;
+    };
     if (deleteModal.isBatch) {
       const keySet = new Set(fileHashes);
       for (const d of dataArray) {
         if (!keySet.has(itemKey(d.instanceId, d.hash))) continue;
-        const caps = getCapabilities(d.instanceId);
-        if (caps.removeSharedMustDeleteFiles && d.shared && !d.downloading) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
+        classify(d);
       }
     } else {
       const item = dataArray.find(d => d.hash === fileHashes[0] && (!deleteModal.instanceId || d.instanceId === deleteModal.instanceId));
-      if (item) {
-        const caps = getCapabilities(item.instanceId);
-        if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
-      }
+      if (item) classify(item);
     }
-    return { hasSharedFiles: shared, hasAutoDeleteItems: autoDelete, hasNonAutoDeleteItems: nonAutoDelete };
+    return { hasSharedFiles: shared, hasAutoDeleteItems: autoDelete, hasNonAutoDeleteItems: nonAutoDelete, hasCompletedShares: completedShare };
   }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities]);
 
-  // Determine source type based on items (auto-detect shared vs downloads)
+  // Determine source type based on items (auto-detect shared vs downloads). Any
+  // completed share counts as 'shared' — not just the must-delete kind — so the
+  // server takes the unshare path for a Rucio shared file even when its cached
+  // item is missing (it keys the shared decision off `source === 'shared'` then).
   const sourceType = useMemo(() => {
     if (!deleteModal.show) return 'downloads';
-    return hasSharedFiles ? 'shared' : 'downloads';
-  }, [deleteModal.show, hasSharedFiles]);
+    return (hasSharedFiles || hasCompletedShares) ? 'shared' : 'downloads';
+  }, [deleteModal.show, hasSharedFiles, hasCompletedShares]);
 
   // Request permission check when modal opens
   useEffect(() => {

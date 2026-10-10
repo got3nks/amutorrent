@@ -10,30 +10,44 @@
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
 import { useStaticData } from '../contexts/StaticDataContext.js';
+import { CLIENT_NAMES } from '../utils/constants.js';
 
 /**
- * Hook for aMule instance selection
+ * Hook for picking a connected instance for a feature. By default it lists
+ * instances that accept a link scheme (ed2k:// — aMule and Rucio); pass
+ * `capability` instead to list instances whose clientMeta capability is true
+ * (e.g. an aMule-only page asking for `ed2kServers`/`statsTree`). Instance-
+ * aware; shows a selector when 2+ matching instances are connected.
  * @param {Object} [options]
+ * @param {string} [options.scheme='ed2k://'] - Link scheme the instance must accept (ignored when `capability` is set)
+ * @param {string} [options.capability] - Capability the instance must have (true) — takes precedence over `scheme`
  * @param {string} [options.selectedId] - Externally controlled selected ID (overrides internal state)
  * @param {Function} [options.onSelect] - External selection handler (overrides internal state)
  * @returns {Object} Instance selection state and helpers
  */
 export function useAmuleInstanceSelector(options = {}) {
   const { instances } = useStaticData();
+  const scheme = options.scheme || 'ed2k://';
+  const capability = options.capability || null;
 
-  // Build list of connected ED2K instances (sorted by config order)
+  // Connected instances that match the requested feature (a clientMeta
+  // capability, or accepting a link scheme), shipped via instances[id].
+  // capabilities — a new client that qualifies appears here with no edit.
   const connectedInstances = useMemo(() => {
+    const matches = capability
+      ? (inst) => inst.capabilities?.[capability] === true
+      : (inst) => (inst.capabilities?.linkSchemes || []).includes(scheme);
     return Object.entries(instances || {})
-      .filter(([, inst]) => inst.connected && inst.networkType === 'ed2k')
+      .filter(([, inst]) => inst.connected && matches(inst))
       .map(([id, inst]) => ({
         id,
         type: inst.type,
-        name: inst.name || 'aMule',
+        name: inst.name || CLIENT_NAMES[inst.type]?.name || inst.type,
         color: inst.color,
         order: inst.order
       }))
       .sort((a, b) => a.order - b.order);
-  }, [instances]);
+  }, [instances, scheme, capability]);
 
   // Whether to show instance selector (2+ instances connected)
   const showSelector = connectedInstances.length >= 2;

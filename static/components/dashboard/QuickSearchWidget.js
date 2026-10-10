@@ -19,10 +19,8 @@ const { createElement: h } = React;
  * @param {function} onSearch - Search submit handler
  * @param {boolean} searchLocked - Whether search is in progress
  * @param {boolean} noBorder - Whether to hide the outer border/padding (default: false)
- * @param {string} searchInstanceId - Selected aMule instance ID for search
+ * @param {string} searchInstanceId - Selected instance ID for search
  * @param {function} onSearchInstanceChange - Instance selection change handler
- * @param {Array} amuleInstances - Connected aMule instances from useAmuleInstanceSelector
- * @param {boolean} showAmuleSelector - Whether to show aMule instance selector
  */
 const QuickSearchWidget = ({
   searchType,
@@ -33,14 +31,30 @@ const QuickSearchWidget = ({
   searchLocked,
   noBorder = false,
   searchInstanceId,
-  onSearchInstanceChange,
-  amuleInstances = [],
-  showAmuleSelector = false
+  onSearchInstanceChange
 }) => {
-  const { isNetworkTypeConnected, prowlarrEnabled } = useStaticData();
+  const { isNetworkTypeConnected, prowlarrEnabled, instances } = useStaticData();
 
-  // Check client connection and configuration status
-  const amuleConnected = isNetworkTypeConnected('ed2k');
+  // Connected instances (config order), each carrying the search sources it
+  // serves (clientMeta `searchSources`, shipped via instances[id].capabilities).
+  const connectedInsts = Object.entries(instances || {})
+    .filter(([, i]) => i.connected)
+    .map(([id, i]) => ({ id, type: i.type, name: i.name || i.type, color: i.color, order: i.order ?? 0, searchSources: i.capabilities?.searchSources || [] }))
+    .sort((a, b) => a.order - b.order);
+
+  // Connected instances that serve a given search source value.
+  const instancesForSource = (value) => connectedInsts.filter(i => i.searchSources.some(s => s.value === value));
+
+  // Distinct client search sources across all connected instances, in instance
+  // order — a new searchable network contributes its own, no edit here.
+  const clientSources = [];
+  const seenSource = new Set();
+  for (const inst of connectedInsts) {
+    for (const s of inst.searchSources) {
+      if (!seenSource.has(s.value)) { seenSource.add(s.value); clientSources.push(s); }
+    }
+  }
+
   const bittorrentConnected = isNetworkTypeConnected('bittorrent');
 
   const handleSubmit = (e) => {
@@ -50,27 +64,46 @@ const QuickSearchWidget = ({
     }
   };
 
-  // Search types with availability based on client status
-  // - ED2K and Kad require aMule to be connected
-  // - Prowlarr requires prowlarr enabled AND any BitTorrent client connected
+  // One button per client search source (always available — they only appear
+  // while a serving instance is connected), plus Prowlarr: an external indexer
+  // that rides the BitTorrent clients, not a network of its own.
   const searchTypes = [
-    { value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png', disabled: !amuleConnected },
-    // { value: 'local', label: 'Local', icon: '/static/logo-brax.png', disabled: !amuleConnected }, // Hidden temporarily
-    { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png', disabled: !amuleConnected },
+    ...clientSources.map(s => ({ value: s.value, label: s.label, icon: s.icon || null, disabled: false })),
     { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !bittorrentConnected }
   ];
 
-  const selectedTypeDisabled = searchTypes.find(t => t.value === searchType)?.disabled;
-
-  // Auto-select first available search type when current selection is disabled
+  // Keep the targeted instance consistent with the selected source: if the
+  // current pick doesn't serve it, jump to the first that does.
+  const sourceInstanceIds = instancesForSource(searchType).map(i => i.id).join(',');
   useEffect(() => {
-    if (selectedTypeDisabled) {
+    // Only views that manage instance selection (e.g. SearchView) pass this;
+    // the dashboard quick-search omits it and lets the dispatcher resolve it.
+    if (typeof onSearchInstanceChange !== 'function') return;
+    const serving = instancesForSource(searchType);
+    if (serving.length && !serving.some(i => i.id === searchInstanceId)) {
+      onSearchInstanceChange(serving[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchType, searchInstanceId, sourceInstanceIds]);
+
+  // The selected source is unavailable if it's disabled OR missing from the
+  // list entirely (an unserved source is now absent, not a disabled button —
+  // so "missing" must count, or the auto-switch never fires for a stale pick
+  // like 'global' on a BitTorrent-only setup).
+  const selectedType = searchTypes.find(t => t.value === searchType);
+  const selectedUnavailable = !selectedType || selectedType.disabled;
+  const availableTypeKey = searchTypes.map(t => `${t.value}:${t.disabled ? 0 : 1}`).join(',');
+
+  // Auto-select the first available source when the current one is unavailable.
+  useEffect(() => {
+    if (selectedUnavailable) {
       const firstAvailable = searchTypes.find(t => !t.disabled);
       if (firstAvailable) {
         onSearchTypeChange(firstAvailable.value);
       }
     }
-  }, [selectedTypeDisabled, amuleConnected, bittorrentConnected, prowlarrEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUnavailable, availableTypeKey]);
 
   return h('div', {
     className: noBorder ? '' : 'bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700'
@@ -98,7 +131,7 @@ const QuickSearchWidget = ({
                   h('img', { src: type.icon, alt: type.label, className: 'w-4 h-4' }),
                   type.label
                 )
-              : `${type.emoji} ${type.label}`
+              : type.label
           )
         )
       ),
@@ -110,25 +143,28 @@ const QuickSearchWidget = ({
           value: searchQuery,
           onChange: (e) => onSearchQueryChange(e.target.value),
           placeholder: 'Enter search query...',
-          disabled: searchLocked || selectedTypeDisabled,
+          disabled: searchLocked || selectedUnavailable,
           className: 'flex-1 min-w-0'
         }),
 
-        // Instance selector (only when multi-aMule + ED2K/Kad type)
-        (searchType === 'global' || searchType === 'kad') && h(AmuleInstanceSelector, {
-          connectedInstances: amuleInstances,
-          selectedId: searchInstanceId,
-          onSelect: onSearchInstanceChange,
-          showSelector: showAmuleSelector,
-          variant: 'dropdown',
-          disabled: searchLocked
-        }),
+        // Instance selector — only when 2+ instances serve the selected source.
+        (() => {
+          const list = searchType === 'prowlarr' ? [] : instancesForSource(searchType);
+          return typeof onSearchInstanceChange === 'function' && list.length > 1 && h(AmuleInstanceSelector, {
+            connectedInstances: list,
+            selectedId: searchInstanceId,
+            onSelect: onSearchInstanceChange,
+            showSelector: true,
+            variant: 'dropdown',
+            disabled: searchLocked
+          });
+        })(),
 
         // Search button
         h(Button, {
           type: 'submit',
           variant: 'primary',
-          disabled: searchLocked || !searchQuery.trim() || selectedTypeDisabled,
+          disabled: searchLocked || !searchQuery.trim() || selectedUnavailable,
           className: 'whitespace-nowrap'
         },
           searchLocked

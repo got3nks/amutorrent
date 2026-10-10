@@ -72,6 +72,7 @@ const SENSITIVE_ENV_VARS = Object.entries(ENV_VAR_MAP)
  */
 const CLIENT_ENV_PREFIX = {
   amule: 'AMULE',
+  rucio: 'RUCIO',
   rtorrent: 'RTORRENT',
   qbittorrent: 'QBITTORRENT',
   deluge: 'DELUGE',
@@ -92,6 +93,17 @@ const CLIENT_ENV_FIELDS = {
     PORT: { field: 'port', type: 'int' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
     SHARED_FILES_RELOAD_INTERVAL_HOURS: { field: 'sharedFilesReloadIntervalHours', type: 'int' },
+    ID: { field: 'id', type: 'string' },
+    NAME: { field: 'name', type: 'string' }
+  },
+  rucio: {
+    ENABLED: { field: 'enabled', type: 'boolean' },
+    HOST: { field: 'host', type: 'string' },
+    PORT: { field: 'port', type: 'int' },
+    USE_SSL: { field: 'useSsl', type: 'boolean' },
+    PATH: { field: 'path', type: 'string' },
+    USERNAME: { field: 'username', type: 'string' },
+    PASSWORD: { field: 'password', type: 'string', sensitive: true },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }
   },
@@ -705,10 +717,10 @@ class Config extends BaseModule {
       errors.push('Invalid server port (must be between 1 and 65535)');
     }
 
-    // At least one download client must be enabled
+    // At least one download client must be enabled (type-agnostic)
     const hasEnabledClient = Array.isArray(config.clients) && config.clients.some(c => c.enabled !== false);
     if (!hasEnabledClient) {
-      errors.push('At least one download client (aMule, rTorrent, or qBittorrent) must be enabled');
+      errors.push('At least one download client must be enabled');
     }
 
     // Validate clients array entries

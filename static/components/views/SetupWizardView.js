@@ -72,7 +72,7 @@ const SetupWizardView = ({ onComplete }) => {
   const debouncedAuthPassword = useDebouncedValue(formData?.server?.auth?.password || '');
   const debouncedPasswordConfirm = useDebouncedValue(passwordConfirm);
 
-  const steps = ['Welcome', 'Security', 'aMule', 'BitTorrent', 'Directories', 'Integrations', 'Review'];
+  const steps = ['Welcome', 'Security', 'aMule & Rucio', 'BitTorrent', 'Directories', 'Integrations', 'Review'];
 
   // Load defaults on mount
   useEffect(() => {
@@ -97,6 +97,11 @@ const SetupWizardView = ({ onComplete }) => {
           ...defaults.amule,
           // Disabled by default unless explicitly enabled via env var
           enabled: meta?.fromEnv?.amuleEnabled ? defaults.amule.enabled : false
+        },
+        rucio: {
+          ...defaults.rucio,
+          // Disabled by default unless explicitly enabled via env var
+          enabled: meta?.fromEnv?.rucioEnabled ? defaults.rucio.enabled : false
         },
         rtorrent: {
           mode: 'http',
@@ -206,16 +211,19 @@ const SetupWizardView = ({ onComplete }) => {
 
       // Validate aMule step (step 2) - only if enabled
       if (currentStep === 2) {
+        const errors = [];
         if (formData.amule.enabled !== false) {
-          const errors = [];
-          if (!formData.amule.host) errors.push('Host is required');
-          if (!formData.amule.port) errors.push('Port is required');
-          if (!formData.amule.password && !meta?.fromEnv.amulePassword) errors.push('Password is required');
-
-          if (errors.length > 0) {
-            setStepValidationError(errors.join(', '));
-            return;
-          }
+          if (!formData.amule.host) errors.push('aMule host is required');
+          if (!formData.amule.port) errors.push('aMule port is required');
+          if (!formData.amule.password && !meta?.fromEnv.amulePassword) errors.push('aMule password is required');
+        }
+        if (formData.rucio?.enabled) {
+          if (!formData.rucio.host) errors.push('Rucio host is required');
+          if (!formData.rucio.port) errors.push('Rucio port is required');
+        }
+        if (errors.length > 0) {
+          setStepValidationError(errors.join(', '));
+          return;
         }
         setStepValidationError(null);
       }
@@ -258,8 +266,8 @@ const SetupWizardView = ({ onComplete }) => {
         }
 
         // Cross-validation: at least one client must be enabled
-        if (formData.amule.enabled === false && !formData.rtorrent.enabled && !formData.qbittorrent?.enabled && !formData.deluge?.enabled && !formData.transmission?.enabled) {
-          setStepValidationError('At least one download client (aMule, rTorrent, qBittorrent, Deluge, or Transmission) must be enabled');
+        if (formData.amule.enabled === false && !formData.rucio?.enabled && !formData.rtorrent.enabled && !formData.qbittorrent?.enabled && !formData.deluge?.enabled && !formData.transmission?.enabled) {
+          setStepValidationError('At least one download client (aMule, Rucio, rTorrent, qBittorrent, Deluge, or Transmission) must be enabled');
           return;
         }
         setStepValidationError(null);
@@ -326,13 +334,22 @@ const SetupWizardView = ({ onComplete }) => {
     setIsTesting(true);
     try {
       if (currentStep === 2) {
-        // Test aMule (step 2) - only if enabled
+        // Test aMule and/or Rucio (step 2) - only the enabled ones
         if (formData.amule.enabled !== false) {
           const data = await testConfig({ amule: formData.amule });
           if (data?.results?.amule) {
             setClientTestResults(prev => ({
               ...prev,
               amule: { ...data.results.amule, _label: 'aMule Connection' }
+            }));
+          }
+        }
+        if (formData.rucio?.enabled) {
+          const data = await testConfig({ rucio: formData.rucio });
+          if (data?.results?.rucio) {
+            setClientTestResults(prev => ({
+              ...prev,
+              rucio: { ...data.results.rucio, _label: 'Rucio Connection' }
             }));
           }
         }
@@ -522,6 +539,12 @@ const SetupWizardView = ({ onComplete }) => {
       const { enabled, ...fields } = formData.amule;
       const entry = { type: 'amule', enabled, ...fields };
       if (meta?.fromEnv.amuleHost) entry.source = 'env';
+      clients.push(entry);
+    }
+    if (formData.rucio?.enabled) {
+      const { enabled, ...fields } = formData.rucio;
+      const entry = { type: 'rucio', enabled, ...fields };
+      if (meta?.fromEnv.rucioHost) entry.source = 'env';
       clients.push(entry);
     }
     if (formData.rtorrent.enabled) {
@@ -748,8 +771,8 @@ const SetupWizardView = ({ onComplete }) => {
   };
 
   const AmuleStep = () => h('div', {},
-    h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, 'aMule Integration'),
-    h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Optionally configure connection to your aMule daemon for ed2k/Kademlia downloads'),
+    h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, 'aMule & Rucio'),
+    h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Optionally configure connection to your aMule daemon (ed2k/Kademlia) and/or a Rucio daemon (P2P + eMule/Kad)'),
 
     h(EnableToggle, {
       label: 'Enable aMule Integration',
@@ -788,6 +811,43 @@ const SetupWizardView = ({ onComplete }) => {
 
     formData.amule.enabled === false && h(AlertBox, { type: 'info', className: 'mt-4' },
       h('p', {}, 'aMule integration is optional. You can skip this step if you only want to use other clients.')
+    ),
+
+    // ── Rucio ───────────────────────────────────────────────────────────
+    h('div', { className: 'mt-8 pt-6 border-t border-gray-200 dark:border-gray-700' },
+      h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1' }, 'Rucio'),
+      h('p', { className: 'text-sm text-gray-600 dark:text-gray-400 mb-4' },
+        'Optionally connect to a Rucio daemon (P2P libp2p network + eMule/Kad compatibility).'),
+
+      h(EnableToggle, {
+        label: 'Enable Rucio Integration',
+        description: 'Connect to a Rucio daemon for managing downloads, shares and search',
+        enabled: formData.rucio?.enabled === true,
+        onChange: (enabled) => updateField('rucio', 'enabled', enabled)
+      }),
+
+      formData.rucio?.enabled && h('div', { className: 'mt-6 space-y-4' },
+        h(ClientFieldsRenderer, {
+          type: 'rucio',
+          fields: CLIENT_FIELDS.rucio,
+          values: formData.rucio,
+          onFieldChange: (field, value) => updateField('rucio', field, value),
+          isFieldFromEnv: (field) => wizardFromEnv(meta, 'rucio', field),
+          isEnabled: formData.rucio?.enabled === true
+        }),
+
+        h('div', { className: 'mt-6' },
+          h(TestButton, {
+            onClick: handleTestCurrentStep, loading: isTesting,
+            disabled: !formData.rucio.host || !formData.rucio.port
+          }, 'Test Rucio Connection')
+        ),
+
+        clientTestResults.rucio && h(TestResultIndicator, {
+          result: clientTestResults.rucio,
+          label: 'Rucio Connection Test'
+        })
+      )
     ),
 
     // Validation error message
@@ -1227,6 +1287,15 @@ const SetupWizardView = ({ onComplete }) => {
               h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'Password: ********')
             )
           : h('p', { className: 'text-sm text-gray-500 dark:text-gray-500 italic' }, 'Disabled')
+      ),
+
+      // Rucio
+      formData.rucio?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
+        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Rucio Connection'),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.rucio.host}`),
+        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.rucio.port}`),
+        formData.rucio.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `URL path: ${formData.rucio.path}`),
+        formData.rucio.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: enabled')
       ),
 
       // rtorrent

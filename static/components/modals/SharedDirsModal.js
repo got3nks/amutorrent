@@ -36,9 +36,10 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
     if (initialInstanceId) setControlledId(initialInstanceId);
   }, [initialInstanceId]);
 
+  // Only instances that can edit shared directories over EC (aMule).
   const selectorOptions = initialInstanceId
-    ? { selectedId: controlledId, onSelect: setControlledId }
-    : {};
+    ? { capability: 'sharedDirsEditor', selectedId: controlledId, onSelect: setControlledId }
+    : { capability: 'sharedDirsEditor' };
 
   const {
     connectedInstances: amuleInstances,

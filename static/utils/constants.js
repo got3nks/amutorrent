@@ -243,12 +243,64 @@ export const ICON_SIZES = {
 // Network type display labels
 export const NETWORK_TYPE_LABELS = {
   ed2k: 'ED2K',
+  rucio: 'Rucio',
   bittorrent: 'BitTorrent'
 };
 
+// Client type → network type, so a disabled instance (no runtime status) still
+// gets the right badge. A new client adds its entry here, not a branch in a view.
+export const CLIENT_NETWORK_TYPES = {
+  amule: 'ed2k',
+  rucio: 'rucio',
+  rtorrent: 'bittorrent',
+  qbittorrent: 'bittorrent',
+  deluge: 'bittorrent',
+  transmission: 'bittorrent'
+};
+
 // Client display names (single source of truth for UI labels)
+// Display name + stable order for each network type (used by charts, filters,
+// stats). Order here drives the order networks appear in the UI.
+export const NETWORK_NAMES = {
+  ed2k: 'aMule',
+  rucio: 'Rucio',
+  bittorrent: 'BitTorrent'
+};
+export const NETWORK_ORDER = ['ed2k', 'rucio', 'bittorrent'];
+// Default chip/badge colour per network type (an instance's own colour, when
+// set, overrides it). Lives here with the other network registries so a new
+// network declares its colour in one place rather than inside a view.
+export const NETWORK_COLORS = {
+  ed2k: '#3b82f6',
+  rucio: '#4f6ef7',
+  bittorrent: '#f97316'
+};
+export const NETWORK_COLOR_DEFAULT = '#3b82f6';
+// Icon key (a ClientIcon `client` value) per network type. Defaults to the
+// network type's own name; only overrides live here — the ed2k network draws
+// aMule's icon. A new network adds an entry only when its icon differs from its
+// type name, keeping the mapping out of the views.
+export const NETWORK_TYPE_ICONS = {
+  ed2k: 'amule'
+};
+export const networkTypeIcon = (nt) => NETWORK_TYPE_ICONS[nt] || nt;
+// Human label for an export/copy link, keyed by its URI scheme. A new network's
+// scheme gets its own label here rather than defaulting to "ED2K Link".
+export const LINK_SCHEME_LABELS = {
+  'ed2k://': 'ED2K Link',
+  'rucio:': 'Rucio Link',
+  'magnet:?': 'Magnet Link'
+};
+
+// BitTorrent is the baseline network: a magnet link is always a BitTorrent link,
+// so it's classified (and reported as "no BitTorrent client" rather than
+// "invalid") even when no BitTorrent instance is configured. Networks layered on
+// top declare their own schemes through the linkSchemes capability instead.
+export const MAGNET_SCHEME = 'magnet:?';
+
 export const CLIENT_NAMES = {
   amule: { name: 'aMule', shortName: 'aMu' },
+  rucio: { name: 'Rucio', shortName: 'Ruc' },
   rtorrent: { name: 'rTorrent', shortName: 'rTor' },
   qbittorrent: { name: 'qBittorrent', shortName: 'qBit' },
   deluge: { name: 'Deluge', shortName: 'Dlg' },

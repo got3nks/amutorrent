@@ -15,29 +15,19 @@ import EnableToggle from './EnableToggle.js';
 import TestResultIndicator from './TestResultIndicator.js';
 import {
   TYPE_LABELS,
+  TYPE_DESCRIPTIONS,
   CLIENT_FIELDS,
   TYPE_DEFAULTS,
   ClientFieldsRenderer
 } from './clientFields.js';
 
-// TYPE_LABELS and CLIENT_FIELDS are re-exported at the bottom of the file
-// so the existing `ClientInstanceCard` import path keeps working without any
-// migration.
-
 const { createElement: h, useState, useEffect } = React;
 
-// (Field schema and factories moved to ./clientFields.js so both this modal
-// and the SetupWizard consume the same source of truth.)
+// Field schema, labels and factories live in ./clientFields.js so this modal
+// and the SetupWizard share one source of truth. Re-exported at the bottom of
+// the file so the existing `ClientInstanceCard` import path keeps working.
 
 const INSTANCE_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#e84393', '#6c5ce7', '#00cec9', '#fd79a8'];
-
-const TYPE_DESCRIPTIONS = {
-  amule: 'ED2K / Kademlia downloads',
-  rtorrent: 'BitTorrent via XML-RPC / SCGI',
-  qbittorrent: 'BitTorrent via WebUI API',
-  deluge: 'BitTorrent via WebUI JSON-RPC',
-  transmission: 'BitTorrent via HTTP RPC'
-};
 
 /**
  * ClientTypeSelector - Grid of client type cards for step 1

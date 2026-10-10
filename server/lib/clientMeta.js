@@ -39,7 +39,7 @@ const CLIENT_TYPES = {
       gapStatus: null,
       reqStatus: null,
       lastSeenComplete: 0,
-      ed2kLink: null,
+      link: null,                  // neutral "copy/export link" (ed2k:// for aMule)
       addedAt: null
     },
     capabilities: {
@@ -55,15 +55,98 @@ const CLIENT_TYPES = {
       pauseBeforeMove: false,      // no file handle release needed
       trackers: false,             // ed2k has no tracker concept
       search: true,                // ed2k search supported
+      // Search sources this client offers (value = search `type` sent to the
+      // backend). The UI builds its search buttons from the union of these.
+      searchSources: [{ value: 'global', label: 'ED2K Server', icon: '/static/logo-brax.png' }, { value: 'kad', label: 'Kad', icon: '/static/logo-brax.png' }],
+      // Link schemes this client accepts (the Add Download modal groups pasted
+      // links by scheme and offers only instances that accept each).
+      linkSchemes: ['ed2k://'],
       cancelDeletesFiles: true,    // cancelDownload() cleans up .part temp file
       apiDeletesFiles: false,      // no API-level delete-with-files flag
       refreshSharedAfterDelete: true, // needs a shared-files rescan after shared file deletion
       categories: true,            // supports named categories
       logs: true,                  // has fetchable log output
+      ed2kServers: true,           // has an ED2K server list (ServersView)
+      statsTree: true,             // exposes the EC statistics tree (StatsTreeModal)
+      sharedDirsEditor: true,      // can edit shared directories over EC (SharedDirsModal)
       renameFile: true,            // can rename downloads and shared files
       fileRatingComment: true,     // can set a per-file rating + comment (shared files only in aMule)
-      customSavePath: false        // ed2k uses category paths only
+      customSavePath: false,       // ed2k uses category paths only
+      seedsCompletedFiles: true    // a completed download is seeded/shared (→ item.seeding), no seedingStatuses
     }
+  },
+  rucio: {
+    // Rucio is its own P2P network (libp2p, BLAKE3) that also bridges eMule/Kad.
+    // It gets its own networkType so it is a first-class entity everywhere
+    // (charts, filters, metrics, footer) rather than being conflated with aMule.
+    // Its capability profile still matches aMule (search + shared files +
+    // categories, no trackers, single-file); the unified item builder applies
+    // the source-based (non-BitTorrent) shape to it the same as ed2k.
+    networkType: 'rucio',
+    displayName: 'Rucio',
+    metricsPrefix: 'ru_',         // ru_upload_speed, ru_total_uploaded
+    hashLength: 64,               // BLAKE3 root hash (eMule MD4 results are 32; only used by demo data)
+    statusField: 'state',         // resolveStatus reads the daemon's `state`
+    // Accept both casings: Rucio ≤0.32 serialized DownloadState in PascalCase
+    // (a missing serde rename_all, since fixed to snake_case to match the rest
+    // of its API). Keeping both keys makes the integration version-agnostic.
+    statusMap: {
+      'finding_providers': 'active', 'FindingProviders': 'active',
+      'queued':            'active', 'Queued':           'active',
+      'downloading':       'active', 'Downloading':      'active',
+      'stalled':           'active', 'Stalled':          'active',
+      'paused':            'paused', 'Paused':           'paused',
+      'completed':         'seeding', 'Completed':       'seeding', // completed files are seeded back
+      'failed':            'error',  'Failed':           'error',
+      'cancelled':         'stopped', 'Cancelled':       'stopped'
+    },
+    connectionDefaults: {
+      host: '', port: 3003, useSsl: false, path: '', username: '', password: ''
+    },
+    defaults: {
+      downloadPriority: null,
+      partStatus: null,
+      gapStatus: null,
+      reqStatus: null,
+      lastSeenComplete: 0,
+      link: null,                        // neutral "copy/export link" (rucio: or ed2k://)
+      addedAt: null
+    },
+    capabilities: {
+      nativeMove: false,                 // dir is category-driven, no move-by-path API
+      categoryChangeAutoMoves: false,
+      multiFile: false,                  // one file per root hash
+      sharedFiles: true,                 // has a shared-files concept (GET /shares/files)
+      sharedMeansComplete: true,         // a shared file is a complete file
+      removeSharedMustDeleteFiles: false, // can un-share via API without deleting the file
+      moveSharedForCategoryChange: false,
+      refreshSharedAfterMove: false,
+      moveActiveDownloads: false,
+      pauseBeforeMove: false,
+      noFileMove: true,                  // no API to relocate a file on disk: the path
+                                         // follows the category server-side, and moving
+                                         // it behind the daemon would break seeding — so
+                                         // Move is never offered for Rucio
+      trackers: false,                   // DHT/libp2p, no trackers
+      search: true,                      // unified rucio + eMule/Kad search
+      // One search source (the daemon searches its own network + eMule/Kad
+      // together, so there is no sub-source to pick).
+      searchSources: [{ value: 'rucio', label: 'Rucio', icon: '/static/logo-rucio.svg' }],
+      // Accepts both ed2k:// links and its own rucio: magnets.
+      linkSchemes: ['ed2k://', 'rucio:'],
+      cancelDeletesFiles: true,          // cancel discards the partial download
+      apiDeletesFiles: false,            // deleting from the list never wipes the on-disk file
+      refreshSharedAfterDelete: false,
+      categories: true,                  // full category CRUD in the daemon
+      logs: false,
+      renameFile: true,                  // can rename a download…
+      renameRequiresActiveDownload: true, // …but only while it's still in progress
+      fileRatingComment: false,
+      customSavePath: false,             // path follows the category, not per-download
+      seedsCompletedFiles: true          // completed downloads are seeded back to the network (→ item.seeding)
+    }
+    // No seedingStatuses: Rucio's seeding is "download complete", expressed via
+    // the seedsCompletedFiles capability, not a status-string whitelist.
   },
   rtorrent: {
     networkType: 'bittorrent',
@@ -110,6 +193,8 @@ const CLIENT_TYPES = {
       pauseBeforeMove: true,       // must close/stop before file move
       trackers: true,              // has tracker info
       search: false,               // no search API
+      searchSources: [],
+      linkSchemes: ['magnet:?'],
       cancelDeletesFiles: false,   // removeDownload() only removes from client
       apiDeletesFiles: false,      // no API-level delete-with-files flag
       refreshSharedAfterDelete: false,
@@ -182,6 +267,8 @@ const CLIENT_TYPES = {
       pauseBeforeMove: true,       // should pause before manual move
       trackers: true,              // has tracker info
       search: false,               // no search API (Prowlarr handles this)
+      searchSources: [],
+      linkSchemes: ['magnet:?'],
       cancelDeletesFiles: false,
       apiDeletesFiles: true,       // removeDownload(hash, deleteFiles) handles it
       refreshSharedAfterDelete: false,
@@ -235,6 +322,8 @@ const CLIENT_TYPES = {
       pauseBeforeMove: false,      // Deluge handles move internally
       trackers: true,              // has tracker info
       search: false,               // no search API
+      searchSources: [],
+      linkSchemes: ['magnet:?'],
       cancelDeletesFiles: false,
       apiDeletesFiles: true,       // removeTorrent(hash, removeData) handles it
       refreshSharedAfterDelete: false,
@@ -289,6 +378,8 @@ const CLIENT_TYPES = {
       pauseBeforeMove: false,        // Transmission handles move internally
       trackers: true,                // has tracker info
       search: false,                 // no search API
+      searchSources: [],
+      linkSchemes: ['magnet:?'],
       cancelDeletesFiles: false,
       apiDeletesFiles: true,         // torrent-remove with delete-local-data
       refreshSharedAfterDelete: false,

@@ -30,6 +30,7 @@ const { createElement: h } = React;
 // Short-form client labels used for badges, buttons, and short descriptions.
 export const TYPE_LABELS = {
   amule: 'aMule',
+  rucio: 'Rucio',
   rtorrent: 'rTorrent',
   qbittorrent: 'qBittorrent',
   deluge: 'Deluge',
@@ -40,10 +41,23 @@ export const TYPE_LABELS = {
 // address"). Kept separate from TYPE_LABELS so short-form usage stays clean.
 export const DAEMON_LABELS = {
   amule: 'aMule External Connection (EC)',
+  rucio: 'Rucio daemon',
   rtorrent: 'rTorrent',
   qbittorrent: 'qBittorrent WebUI',
   deluge: 'Deluge Web UI',
   transmission: 'Transmission RPC'
+};
+
+// One-line description of each client type, shown under its name in the
+// add-client type picker. Here with the other per-type registries so a new
+// client declares it once rather than inside a view.
+export const TYPE_DESCRIPTIONS = {
+  amule: 'ED2K / Kademlia downloads',
+  rucio: 'P2P (libp2p + eMule/Kad)',
+  rtorrent: 'BitTorrent via XML-RPC / SCGI',
+  qbittorrent: 'BitTorrent via WebUI API',
+  deluge: 'BitTorrent via WebUI JSON-RPC',
+  transmission: 'BitTorrent via HTTP RPC'
 };
 
 /**
@@ -108,6 +122,18 @@ export const CLIENT_FIELDS = {
     F.categorySync('Useful when foreign categories from BitTorrent clients would create stray directories in aMule.'),
     F.notifications()
   ],
+  rucio: [
+    F.host('rucio'),
+    F.port('rucio', 3003),
+    F.reverseProxyPath('/rucio'),
+    // Optional: only set when the daemon sits behind HTTP basic auth, so it
+    // carries "Optional" semantics distinct from the F.password template.
+    { field: 'username', label: 'Username (Optional)', description: 'Only if the daemon is behind HTTP basic auth', placeholder: 'Leave empty if not required' },
+    F.password('rucio'),
+    F.useSsl('rucio'),
+    F.categorySync(),
+    F.notifications()
+  ],
   rtorrent: [
     { field: 'mode', label: 'Connection Mode', description: 'HTTP: Connect via XML-RPC HTTP proxy (nginx/ruTorrent). SCGI: Connect directly to rTorrent via SCGI TCP. SCGI Socket: Connect via Unix domain socket.', select: true, options: [{ value: 'http', label: 'HTTP (XML-RPC proxy)' }, { value: 'scgi', label: 'SCGI (direct TCP)' }, { value: 'scgi-socket', label: 'SCGI (Unix socket)' }], defaultValue: 'http' },
     F.host('rtorrent', { hideWhen: form => (form.mode || 'http') === 'scgi-socket' }),
@@ -168,7 +194,7 @@ export const TYPE_DEFAULTS = Object.fromEntries(
 
 // Env prefix used for sensitive-field env-var name display ("aMule EC password
 // is set via AMULE_PASSWORD"). Kept in one place to avoid drift.
-const ENV_PREFIX = { amule: 'AMULE', rtorrent: 'RTORRENT', qbittorrent: 'QBITTORRENT', deluge: 'DELUGE', transmission: 'TRANSMISSION' };
+const ENV_PREFIX = { amule: 'AMULE', rucio: 'RUCIO', rtorrent: 'RTORRENT', qbittorrent: 'QBITTORRENT', deluge: 'DELUGE', transmission: 'TRANSMISSION' };
 const ENV_SUFFIX = { password: 'PASSWORD', username: 'USERNAME' };
 
 /**

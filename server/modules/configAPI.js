@@ -54,6 +54,13 @@ class ConfigAPI extends BaseModule {
       amulePort: config.isFromEnv('amule.port'),
       amulePassword: config.isFromEnv('amule.password'),
       amuleSharedFilesReloadInterval: config.isFromEnv('amule.sharedFilesReloadIntervalHours'),
+      rucioEnabled: config.isFromEnv('rucio.enabled'),
+      rucioHost: config.isFromEnv('rucio.host'),
+      rucioPort: config.isFromEnv('rucio.port'),
+      rucioPath: config.isFromEnv('rucio.path'),
+      rucioUsername: config.isFromEnv('rucio.username'),
+      rucioPassword: config.isFromEnv('rucio.password'),
+      rucioUseSsl: config.isFromEnv('rucio.useSsl'),
       rtorrentEnabled: config.isFromEnv('rtorrent.enabled'),
       rtorrentMode: config.isFromEnv('rtorrent.mode'),
       rtorrentHost: config.isFromEnv('rtorrent.host'),
@@ -350,6 +357,15 @@ class ConfigAPI extends BaseModule {
         this.log(`🧪 Testing Transmission connection to ${transmission.host}:${transmission.port}...`);
         results.transmission = await configTester.testTransmissionConnection(transmission.host, transmission.port, username, password, transmission.useSsl, transmission.path);
         this.logTestResult('Transmission connection', results.transmission);
+      }
+
+      // Test Rucio connection if provided and enabled
+      const { rucio } = req.body;
+      if (rucio && rucio.enabled) {
+        const password = rucio.password || (rucio.instanceId ? config.getClientConfig(rucio.instanceId)?.password : null);
+        this.log(`🧪 Testing Rucio connection to ${rucio.host}:${rucio.port}...`);
+        results.rucio = await configTester.testRucioConnection(rucio.host, rucio.port, rucio.useSsl, rucio.path, rucio.username, password);
+        this.logTestResult('Rucio connection', results.rucio);
       }
 
       // Test directories if provided

@@ -50,6 +50,10 @@ const ClientIcon = ({ client, clientType, size = 16, float = false, className = 
     defaultTitle = 'BitTorrent (Transmission)';
     alt = 'Tr';
     src = '/static/logo-transmission.svg';
+  } else if (clientValue === 'rucio') {
+    defaultTitle = 'Rucio';
+    alt = 'Rucio';
+    src = '/static/logo-rucio.svg';
   } else if (clientValue === 'amule' || clientValue === 'ed2k') {
     defaultTitle = 'ED2K (aMule)';
     alt = 'ED2K';

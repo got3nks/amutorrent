@@ -5,7 +5,7 @@
  * Used by DownloadsView, SharedView, UploadsView, and other views
  */
 
-import { CLIENT_SOFTWARE_LABELS } from './constants.js';
+import { CLIENT_SOFTWARE_LABELS, LINK_SCHEME_LABELS } from './constants.js';
 import { generateMagnetLink } from './formatters.js';
 
 /**
@@ -243,25 +243,20 @@ export const extractBittorrentLabels = (downloads) => {
 // Legacy alias for backwards compatibility
 export const extractRtorrentLabels = extractBittorrentLabels;
 
-/**
- * Check if downloads include BitTorrent items (rtorrent or qbittorrent)
- * @param {Array} downloads - Array of download items
- * @returns {boolean} True if any BitTorrent downloads exist
- */
-export const hasBittorrentItems = (downloads) => {
-  return downloads.some(d => isBittorrentClient(d));
-};
-
-// Legacy alias for backwards compatibility
-export const hasRtorrentItems = hasBittorrentItems;
 
 /**
- * Check if downloads include aMule items
+ * The distinct network types present in a set of items — the network-agnostic
+ * replacement for the per-network `has*Items` helpers. A new network shows up
+ * here with no edit.
  * @param {Array} downloads - Array of download items
- * @returns {boolean} True if any aMule downloads exist
+ * @returns {string[]} e.g. ['ed2k', 'bittorrent']
  */
-export const hasAmuleItems = (downloads) => {
-  return downloads.some(d => d.networkType === 'ed2k');
+export const presentNetworkTypes = (downloads) => {
+  const seen = new Set();
+  for (const d of (downloads || [])) {
+    if (d.networkType) seen.add(d.networkType);
+  }
+  return Array.from(seen);
 };
 
 /**
@@ -327,8 +322,9 @@ export const getExportLink = (item) => {
   if (isBittorrentClient(item)) {
     return generateMagnetLink(item);
   }
-  // ED2K: use unified ed2kLink field
-  return item.ed2kLink || null;
+  // Source-based clients: the neutral copy/export link (ed2k:// for aMule,
+  // rucio: magnet for Rucio). `ed2kLink` is read as a fallback for safety.
+  return item.link || item.ed2kLink || null;
 };
 
 /**
@@ -337,7 +333,9 @@ export const getExportLink = (item) => {
  * @returns {string} Label for the export link
  */
 export const getExportLinkLabel = (item) => {
-  return isBittorrentClient(item) ? 'Magnet Link' : 'ED2K Link';
+  const link = (getExportLink(item) || '').toLowerCase();
+  const scheme = Object.keys(LINK_SCHEME_LABELS).find(s => link.startsWith(s));
+  return scheme ? LINK_SCHEME_LABELS[scheme] : 'Link';
 };
 
 /**

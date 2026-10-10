@@ -11,8 +11,8 @@ import React from 'https://esm.sh/react@18.2.0';
 import { formatSpeed } from '../../utils/index.js';
 import { loadChartJs } from '../../utils/chartLoader.js';
 import { getStatusDotClass } from '../../utils/networkStatus.js';
+import { NETWORK_ORDER, NETWORK_NAMES } from '../../utils/constants.js';
 import ClientIcon from '../common/ClientIcon.js';
-import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 
 const { createElement: h, useEffect, useRef, useState } = React;
@@ -111,26 +111,26 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
     }
   });
 
-  // Get client connection status from context
-  const { ed2kConnected, bittorrentConnected } = useClientFilter();
   const { instances } = useStaticData();
 
-  // Show toggle when both aMule and BitTorrent clients are connected
-  const showBothClients = ed2kConnected && bittorrentConnected;
+  // Connected network types, in display order (aMule / Rucio / BitTorrent / ...)
+  const connectedNetworks = NETWORK_ORDER.filter(nt =>
+    Object.values(instances).some(i => i.connected && i.networkType === nt)
+  );
+  const connectedKey = connectedNetworks.join(',');
+  // Show the network toggle when more than one network is connected.
+  const showNetworkToggle = connectedNetworks.length > 1;
 
-  // State for selected network type (when both are available)
-  const [selectedNetwork, setSelectedNetwork] = useState('ed2k');
+  // Selected network for the chart; defaults to the first connected one.
+  const [selectedNetwork, setSelectedNetwork] = useState(connectedNetworks[0] || 'ed2k');
 
-  // Auto-select the available network when only one is connected
+  // Keep the selection valid as connections change.
   useEffect(() => {
-    if (!showBothClients) {
-      if (ed2kConnected) {
-        setSelectedNetwork('ed2k');
-      } else if (bittorrentConnected) {
-        setSelectedNetwork('bittorrent');
-      }
+    if (connectedNetworks.length && !connectedNetworks.includes(selectedNetwork)) {
+      setSelectedNetwork(connectedNetworks[0]);
     }
-  }, [showBothClients, ed2kConnected, bittorrentConnected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedKey, selectedNetwork]);
 
   // Load Chart.js library on mount
   useEffect(() => {
@@ -331,24 +331,20 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
     }
   }
 
-  // Network toggle button component
-  const networkToggle = showBothClients && h('div', {
+  // Network toggle: one button per connected network (aMule / Rucio / BitTorrent)
+  const networkToggle = showNetworkToggle && h('div', {
     className: 'absolute top-2 left-2 z-10 flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600'
   },
-    h('button', {
-      onClick: () => setSelectedNetwork('ed2k'),
-      className: `p-1.5 ${selectedNetwork === 'ed2k'
-        ? 'bg-blue-100 dark:bg-blue-900/50'
-        : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`,
-      title: 'Show aMule'
-    }, h(ClientIcon, { clientType: 'ed2k', size: 16 })),
-    h('button', {
-      onClick: () => setSelectedNetwork('bittorrent'),
-      className: `p-1.5 border-l border-gray-300 dark:border-gray-600 ${selectedNetwork === 'bittorrent'
-        ? 'bg-blue-100 dark:bg-blue-900/50'
-        : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`,
-      title: 'Show BitTorrent'
-    }, h(ClientIcon, { clientType: 'bittorrent', size: 16 }))
+    ...connectedNetworks.map((nt, i) =>
+      h('button', {
+        key: nt,
+        onClick: () => setSelectedNetwork(nt),
+        className: `p-1.5 ${i > 0 ? 'border-l border-gray-300 dark:border-gray-600 ' : ''}${selectedNetwork === nt
+          ? 'bg-blue-100 dark:bg-blue-900/50'
+          : 'bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`,
+        title: `Show ${NETWORK_NAMES[nt] || nt}`
+      }, h(ClientIcon, { clientType: nt, size: 16 }))
+    )
   );
 
   // Determine displayed speeds: hovered historical point or live current

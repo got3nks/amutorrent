@@ -29,7 +29,7 @@ const StatsTreeModal = ({ show, onClose }) => {
     selectedId: effectiveInstance,
     selectedInstance: selectedObj,
     selectInstance
-  } = useAmuleInstanceSelector();
+  } = useAmuleInstanceSelector({ capability: 'statsTree' });
 
   // Persist expanded nodes across open/close
   const [expandedNodes, setExpandedNodes] = useState({});

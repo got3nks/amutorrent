@@ -36,8 +36,6 @@ const SearchView = () => {
   const actions = useActions();
   const { fetchPreviousSearchResults } = useDataFetch();
   const {
-    connectedInstances: amuleInstances,
-    showSelector: showAmuleSelector,
     selectedId: effectiveAmuleInstance,
     selectInstance: selectAmuleInstance
   } = useAmuleInstanceSelector({ selectedId: searchInstanceId, onSelect: setSearchInstanceId });
@@ -60,9 +58,7 @@ const SearchView = () => {
         searchLocked,
         noBorder: true,
         searchInstanceId: effectiveAmuleInstance,
-        onSearchInstanceChange: selectAmuleInstance,
-        amuleInstances,
-        showAmuleSelector
+        onSearchInstanceChange: selectAmuleInstance
       })
     ),
 

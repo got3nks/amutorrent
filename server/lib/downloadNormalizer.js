@@ -3,7 +3,7 @@
  * Shared utility functions for normalizing download data from different clients
  */
 
-const { getClientSoftwareName, CLIENT_SOFTWARE_LABELS } = require('./networkUtils');
+const { CLIENT_SOFTWARE_LABELS } = require('./networkUtils');
 
 // ============================================================================
 // HELPERS
@@ -631,6 +631,126 @@ function normalizeTransmissionDownload(torrent) {
   };
 }
 
+// ============================================================================
+// RUCIO NORMALIZERS
+// ============================================================================
+
+// Rucio has its own networkType. These emit the fields the source-based branch
+// of unifiedItemBuilder reads (category id + categoryName, sourceCount, state
+// for the status map) plus the neutral `link` field, rather than aMule's names.
+
+/**
+ * Reconstruct the "copy link" / re-add value for a Rucio download list item.
+ *
+ * GET /api/v1/downloads (the list) omits the `link` field that the per-download
+ * detail endpoint (GET /downloads/{id}) carries, and the poll loop never fetches
+ * detail (that would be one request per download, every cycle). We rebuild it
+ * here from fields the list does provide, matching the daemon's own link format
+ * so the value round-trips through POST /downloads (rucio:) and POST
+ * /downloads/ed2k. The network is told apart by the signed id: eMule rows use
+ * negative ids, libp2p rows positive.
+ *
+ * @param {Object} d - raw Rucio download (list item)
+ * @returns {string|null} the link, or null when required fields are missing
+ */
+function buildRucioDownloadLink(d) {
+  const hash = d.root_hash;
+  if (!hash) return null;
+  if (d.id < 0) {
+    // eMule: ed2k://|file|<name>|<size>|<md4>|/ — root_hash IS the MD4 hex here.
+    // The name is literal (not URL-encoded), exactly as the daemon emits it.
+    if (!d.name || d.size == null) return null;
+    return `ed2k://|file|${d.name}|${d.size}|${hash}|/`;
+  }
+  // Rucio: rucio:<blake3>?name=<enc>&size=<n>. Providers are intentionally
+  // omitted (the list item has none); the daemon rediscovers them via the DHT
+  // on re-add. The magnet parser is order-independent and tolerates missing
+  // params, so name/size are added only when present.
+  const params = [];
+  if (d.name) params.push(`name=${encodeURIComponent(d.name)}`);
+  if (d.size != null) params.push(`size=${d.size}`);
+  return params.length ? `rucio:${hash}?${params.join('&')}` : `rucio:${hash}`;
+}
+
+/**
+ * Normalize a Rucio download (GET /api/v1/downloads item) to unified format.
+ * @param {Object} d - raw Rucio download
+ * @param {Function} resolveCategoryName - (categoryId) => category name string
+ * @returns {Object} Normalized download
+ */
+function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
+  const size = d.size || 0;
+  const downloaded = d.bytes_done || 0;
+  return {
+    clientType: 'rucio',
+    // Lower-cased like the BitTorrent normalizers (and everything that keys off
+    // the hash downstream) so casing is consistent at the source, not only after
+    // createBaseItem / itemKey re-lower-case it.
+    hash: d.root_hash ? String(d.root_hash).toLowerCase() : d.root_hash,
+    name: d.name || '',
+    rawName: d.name || '',
+    size,
+    downloaded,
+    progress: size > 0 ? Math.round((downloaded / size) * 100) : 0,
+    speed: d.speed_bps || 0,
+    // Accept both casings (see statusMap note in clientMeta.js)
+    isComplete: d.state === 'completed' || d.state === 'Completed',
+    // Drives resolveStatus() via clientMeta statusField: 'state'
+    state: d.state,
+
+    // Organization (ed2k branch reads `category` as the id + `categoryName`)
+    category: d.category_id ?? null,
+    categoryName: resolveCategoryName(d.category_id),
+
+    // Sources. Only the total is on the list item; the count we're actively
+    // transferring from lives on the per-download detail endpoint (sources_active)
+    // and isn't worth a request per download each poll, so xfer stays 0.
+    sourceCount: d.sources_total || 0,
+    sourceCountXfer: 0,
+    sourceCountA4AF: 0,
+    sourceCountNotCurrent: 0,
+
+    // No segment/part visualization data from the daemon (yet)
+    priority: null,
+    partStatus: null,
+    gapStatus: null,
+    reqStatus: null,
+
+    // The "copy link" value — rucio: or ed2k: depending on the source network.
+    // Rebuilt locally: the download list endpoint doesn't carry a link field
+    // (only the per-download detail does), so we reconstruct it from the row.
+    // Emitted under the neutral `link` field (not aMule's `ed2kLink`).
+    link: buildRucioDownloadLink(d),
+
+    raw: { clientType: 'rucio', ...d }
+  };
+}
+
+/**
+ * Normalize a Rucio shared file (GET /api/v1/shares/files item) to unified
+ * format. Shared files are complete files the node is providing.
+ * @param {Object} s - raw Rucio shared file
+ * @returns {Object} Normalized shared file
+ */
+function normalizeRucioSharedFile(s) {
+  return {
+    clientType: 'rucio',
+    // Lower-cased for the same reason as normalizeRucioDownload.
+    hash: s.root_hash ? String(s.root_hash).toLowerCase() : s.root_hash,
+    name: s.name || '',
+    rawName: s.name || '',
+    size: s.size || 0,
+    uploadSpeed: 0,
+    // Neutral copy/export link (the rucio: magnet), under `link` not `ed2kLink`.
+    link: s.magnet || null,
+    // `path` is the CONTAINING FOLDER, like aMule — resolveItemPath joins the
+    // file name onto it. The daemon reports the full file path, so strip the
+    // last segment. The full path stays available in `raw.path`.
+    path: s.path ? (s.path.replace(/\/[^/]*$/, '') || '/') : null,
+    raw: { clientType: 'rucio', ...s }
+  };
+}
+
 module.exports = {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -640,5 +760,7 @@ module.exports = {
   normalizeQBittorrentDownload,
   normalizeDelugeDownload,
   normalizeTransmissionDownload,
+  normalizeRucioDownload,
+  normalizeRucioSharedFile,
   extractTrackerDomain
 };

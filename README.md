@@ -12,6 +12,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 
 ### Multi-Client Support
 - **aMule Integration** - Control aMule via the EC (External Connection) protocol
+- **Rucio Integration** - Connect to the Rucio P2P daemon (libp2p + eMule/Kad) via its REST API
 - **rTorrent Integration** - Connect to rTorrent via XML-RPC (HTTP proxy, SCGI TCP, or Unix socket)
 - **qBittorrent Integration** - Connect to qBittorrent via WebUI API
 - **Deluge Integration** - Connect to Deluge via WebUI JSON-RPC
@@ -124,6 +125,7 @@ Open `http://localhost:4000` and complete the setup wizard.
 |----------|-------------|
 | [Configuration Guide](./docs/CONFIGURATION.md) | Setup wizard, settings, environment variables |
 | [aMule Integration](./docs/AMULE.md) | Connect to aMule via EC protocol |
+| [Rucio Integration](./docs/RUCIO.md) | Connect to Rucio via its REST API (P2P, libp2p + eMule/Kad) |
 | [rTorrent Integration](./docs/RTORRENT.md) | Connect to rTorrent via XML-RPC (HTTP, SCGI, or Unix socket) |
 | [qBittorrent Integration](./docs/QBITTORRENT.md) | Connect to qBittorrent via WebUI API |
 | [Deluge Integration](./docs/DELUGE.md) | Connect to Deluge via WebUI JSON-RPC |
