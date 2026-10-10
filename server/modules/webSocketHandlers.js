@@ -1582,14 +1582,17 @@ class WebSocketHandlers extends BaseModule {
           // deleted without `deleteFiles` left the disk alone unless it was still
           // incomplete — keyed on completeness, like the server's delete decision
           // (a finished, unshared Rucio download is kept, not reported as wiped).
-          const isComplete = !!ci?.complete;
+          // Require the cached item to know completeness: without it we can't tell,
+          // so only an explicit `deleteFiles` counts as a disk wipe — never guess
+          // "incomplete" and report a wipe that didn't happen.
+          const autoCleanedPartial = !!caps?.cancelDeletesFiles && !!ci && !ci.complete;
 
           eventScriptingManager.emit('fileDeleted', {
             hash: result.fileHash?.toLowerCase(),
             instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
             clientType: resolvedClientType,
-            deletedFromDisk: deleteFiles === true || (caps?.cancelDeletesFiles && !isComplete),
+            deletedFromDisk: deleteFiles === true || autoCleanedPartial,
             category: ci?.category || null,
             path: fullPath,
             multiFile: ci?.multiFile || false,
@@ -1923,6 +1926,13 @@ class WebSocketHandlers extends BaseModule {
       }
 
       const clientType = item.client || 'amule';
+      // A client that can't relocate a file (Rucio) can never move — report it
+      // here too, so the pre-check agrees with the execution backstop instead of
+      // returning canMove:true and letting the move fail later.
+      if (clientMeta.hasCapability(clientType, 'noFileMove')) {
+        results.push({ fileHash, canMove: false, reason: 'cannot_move', message: `${clientType} cannot move files`, clientType });
+        continue;
+      }
       const hasNativeMove = clientMeta.hasCapability(clientType, 'nativeMove');
       const cacheKey = item.instanceId || clientType;
 
