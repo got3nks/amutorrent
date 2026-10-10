@@ -173,23 +173,26 @@ export const useViewDeleteModal = ({
       ? deleteModal.fileHash
       : [deleteModal.fileHash];
     let shared = false, autoDelete = false, nonAutoDelete = false;
+    // Classify each item the way the server now does (see sharedFilePolicy): a
+    // shared file on a client that can't just unshare it is always deleted from
+    // disk; otherwise a cancel only discards an UNFINISHED download's partial, so
+    // a completed download (Rucio, or the brief window before an aMule file is
+    // shared) needs the explicit "delete files" option and a permission check.
+    const classify = (item) => {
+      const caps = getCapabilities(item.instanceId);
+      if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) shared = true;
+      else if (caps.cancelDeletesFiles && !item.complete) autoDelete = true;
+      else nonAutoDelete = true;
+    };
     if (deleteModal.isBatch) {
       const keySet = new Set(fileHashes);
       for (const d of dataArray) {
         if (!keySet.has(itemKey(d.instanceId, d.hash))) continue;
-        const caps = getCapabilities(d.instanceId);
-        if (caps.removeSharedMustDeleteFiles && d.shared && !d.downloading) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
+        classify(d);
       }
     } else {
       const item = dataArray.find(d => d.hash === fileHashes[0] && (!deleteModal.instanceId || d.instanceId === deleteModal.instanceId));
-      if (item) {
-        const caps = getCapabilities(item.instanceId);
-        if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
-      }
+      if (item) classify(item);
     }
     return { hasSharedFiles: shared, hasAutoDeleteItems: autoDelete, hasNonAutoDeleteItems: nonAutoDelete };
   }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities]);
