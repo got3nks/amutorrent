@@ -18,22 +18,31 @@ const SearchContext = createContext(null);
 const useSearchState = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState('global');
-  // Which instances currently hold a search lock. A search greys the box while
-  // ANY instance is searching, but each instance locks and unlocks on its own,
-  // so one finishing doesn't re-enable the box while another is still running.
-  // '__local' is an optimistic pre-confirmation hold for an instance-less search
-  // (e.g. Prowlarr) and for the click before the server echoes the lock back.
+  // Which instances currently hold a search lock. Each instance locks and
+  // unlocks on its own, so a search finishing (or a background Torznab search)
+  // on one instance never greys the box for a different, free instance.
+  // Prowlarr, being instance-less, holds the 'prowlarr' key.
   const [lockedInstances, setLockedInstances] = useState(() => new Set());
-  const searchLocked = lockedInstances.size > 0;
   const [searchResults, setSearchResults] = useState([]);
+  // The instance that produced the displayed results. Kept apart from
+  // `searchInstanceId` (which tracks the instance the NEXT search targets, and
+  // changes when the source button changes) so a batch download goes to the
+  // instance that actually found the results, not the current selection.
+  const [searchResultsInstanceId, setSearchResultsInstanceId] = useState(null);
   const [searchPreviousResults, setSearchPreviousResults] = useState([]);
   const [searchPreviousResultsLoaded, setSearchPreviousResultsLoaded] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [searchDownloadCategory, setSearchDownloadCategory] = useState('Default');
   const [searchInstanceId, setSearchInstanceId] = useState(null);
 
-  // Add/remove one instance's search lock. `instanceId` falls back to the
-  // optimistic '__local' hold when the caller has no instance yet.
+  // The box greys only for the instance the selected source would use (Prowlarr
+  // for the 'prowlarr' source), so a lock held elsewhere doesn't block a search
+  // on a free instance.
+  const lockKey = searchType === 'prowlarr' ? 'prowlarr' : searchInstanceId;
+  const searchLocked = lockKey != null && lockedInstances.has(lockKey);
+
+  // Add/remove one instance's search lock, keyed by instance id (or 'prowlarr'
+  // for the instance-less Prowlarr search).
   const setSearchLocked = useCallback((locked, instanceId = null) => {
     const key = instanceId || '__local';
     setLockedInstances(prev => {
@@ -78,6 +87,7 @@ const useSearchState = () => {
     searchError,
     searchDownloadCategory,
     searchInstanceId,
+    searchResultsInstanceId,
 
     // Setters
     setSearchQuery,
@@ -90,11 +100,13 @@ const useSearchState = () => {
     setSearchError,
     setSearchDownloadCategory,
     setSearchInstanceId,
+    setSearchResultsInstanceId,
     clearSearchError,
     setSearchNoResultsError
   }), [
     searchQuery, searchType, searchLocked, searchResults, searchPreviousResults,
     searchPreviousResultsLoaded, searchError, searchDownloadCategory, searchInstanceId,
+    searchResultsInstanceId,
     setSearchLocked, setSearchLockSnapshot,
     setSearchResultsWithClear, clearSearchError, setSearchNoResultsError
     // Note: React useState setters are stable

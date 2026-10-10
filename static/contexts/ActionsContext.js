@@ -30,6 +30,7 @@ const useWebSocketActions = () => {
     searchType,
     searchDownloadCategory,
     searchInstanceId,
+    searchResultsInstanceId,
     clearSearchError,
     setSearchLocked,
     setSearchResults,
@@ -194,9 +195,12 @@ const useWebSocketActions = () => {
 
   const handleBatchDownload = (fileHashes, categoryName = null) => {
     const downloadCategory = categoryName !== null ? categoryName : searchDownloadCategory;
-    // Send category name to backend - it will look up the aMule ID if needed
-    const targetInstance = searchInstanceId || 'amule';
-    sendMessage({ action: 'batchDownloadSearchResults', fileHashes, categoryName: downloadCategory, ...(searchInstanceId && { instanceId: searchInstanceId }) });
+    // Route to the instance that PRODUCED the displayed results, not the current
+    // source selection (which changes when the source button changes). Falls back
+    // to the selection, then aMule, when no producer was recorded.
+    const resultsInstance = searchResultsInstanceId || searchInstanceId || null;
+    const targetInstance = resultsInstance || 'amule';
+    sendMessage({ action: 'batchDownloadSearchResults', fileHashes, categoryName: downloadCategory, ...(resultsInstance && { instanceId: resultsInstance }) });
     setDataDownloadedFiles(prev => {
       const next = new Map(prev);
       fileHashes.forEach(h => {
