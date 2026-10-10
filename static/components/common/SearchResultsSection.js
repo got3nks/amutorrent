@@ -46,7 +46,7 @@ const SearchResultsSection = ({
   // Get data from contexts
   const { appPage, appPageSize, appSortConfig, setAppPage, setAppPageSize, setAppSortConfig, addAppSuccess } = useAppState();
   const { dataDownloadedFiles, setDataDownloadedFiles, downloadedAliasRef, dataCategories } = useStaticData();
-  const { searchDownloadCategory, setSearchDownloadCategory, searchInstanceId } = useSearch();
+  const { searchDownloadCategory, setSearchDownloadCategory, searchInstanceId, searchResultsInstanceId } = useSearch();
   const actions = useActions();
   const { hasCap } = useCapabilities();
   const canAddDownloads = hasCap('add_downloads');
@@ -235,8 +235,10 @@ const SearchResultsSection = ({
     });
   }, [isProwlarr, indexerFilter, indexerOptions, resetLoaded]);
 
-  // Count of downloadable (not already downloaded on the selected client) selected items
-  const activeInstanceId = isProwlarr ? selectedClientId : (searchInstanceId || 'amule');
+  // Count of downloadable (not already downloaded) selected items. Keyed on the
+  // instance that PRODUCED the results (where the batch download will go), not the
+  // live source selection, so the "already downloaded" marks and counts match.
+  const activeInstanceId = isProwlarr ? selectedClientId : (searchResultsInstanceId || searchInstanceId || 'amule');
   const downloadableCount = useMemo(() =>
     Array.from(selectedFiles).filter(hash => {
       const instances = dataDownloadedFiles.get(hash);

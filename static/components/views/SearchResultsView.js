@@ -18,14 +18,16 @@ const { createElement: h } = React;
  */
 const SearchResultsView = () => {
   // Get data from contexts
-  const { searchResults, searchInstanceId, searchType } = useSearch();
+  const { searchResults, searchResultsInstanceId, searchType } = useSearch();
   const { setAppCurrentView } = useAppState();
   const { instances, hasMultiInstance } = useStaticData();
 
-  // Instance badge for multi-instance ED2K/Kad searches
+  // Instance badge for multi-instance ED2K/Kad searches. Keyed on the instance
+  // that PRODUCED the results, not the live source selection (which changes when
+  // the source button changes), so the badge keeps naming the right instance.
   const isAmuleSearch = searchType === 'global' || searchType === 'kad';
-  const instanceInfo = isAmuleSearch && hasMultiInstance && searchInstanceId && instances?.[searchInstanceId];
-  const instanceName = instanceInfo ? (instanceInfo.name || searchInstanceId) : null;
+  const instanceInfo = isAmuleSearch && hasMultiInstance && searchResultsInstanceId && instances?.[searchResultsInstanceId];
+  const instanceName = instanceInfo ? (instanceInfo.name || searchResultsInstanceId) : null;
 
   // Handler for new search button
   const handleNewSearch = () => {

@@ -11,6 +11,7 @@ import { useSearch } from './SearchContext.js';
 import { useStaticData } from './StaticDataContext.js';
 import { useWebSocketConnection } from './WebSocketContext.js';
 import { extractEd2kLinks } from '../utils/index.js';
+import { resolveServingInstanceId } from '../utils/searchInstance.js';
 
 const { createElement: h } = React;
 
@@ -41,19 +42,11 @@ const useWebSocketActions = () => {
   const { setDataDownloadedFiles, lastEd2kWasServerListRef, instances } = useStaticData();
 
   // Resolve which instance a search should target: the one serving the selected
-  // search source. Keeps the current selection if it still serves the source,
-  // otherwise falls back to the first that does. Returns null when none is
-  // connected (the handler then surfaces a clear error).
-  const resolveSearchInstanceId = () => {
-    // Serving instances are those whose clientMeta searchSources include the
-    // selected source value (shipped via instances[id].capabilities) — no
-    // per-network branch, so a new searchable network resolves automatically.
-    const serving = Object.entries(instances || {})
-      .filter(([, i]) => i.connected && (i.capabilities?.searchSources || []).some(s => s.value === searchType))
-      .map(([id]) => id);
-    if (serving.includes(searchInstanceId)) return searchInstanceId;
-    return serving[0] || null;
-  };
+  // search source. Shares one helper with the search-lock greying (SearchContext)
+  // so the instance a search dispatches to and the instance the box greys for
+  // can't drift. Returns null when none is connected (the handler then surfaces a
+  // clear error).
+  const resolveSearchInstanceId = () => resolveServingInstanceId(instances, searchType, searchInstanceId);
 
   // ============================================================================
   // CATEGORY MANAGEMENT
