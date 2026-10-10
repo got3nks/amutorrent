@@ -208,17 +208,17 @@ class MoveOperationManager extends BaseModule {
       this.db.updateStatus(hash, instanceId, 'failed', err.message);
       this.updateActiveOperation(hash, instanceId);
 
-      // Try to resume download at original location (skip for clients with native move - they handle this)
+      // Undo the partial move, then resume (skip for clients with native move - they handle this).
+      // The undo comes first so a file renamed away is back before the client looks for it.
       if (!clientMeta.hasCapability(clientType, 'nativeMove')) {
+        await this.cleanupPartialDest(operation, { clientUpdated: !!operation.clientDirectoryUpdated });
+
         try {
           await this.resumeDownload(operation);
           this.log(`🔄 Resumed download at original location: ${name}`);
         } catch (startErr) {
           this.warn(`⚠️ Failed to resume download: ${startErr.message}`);
         }
-
-        // Cleanup any partial destination files
-        await this.cleanupPartialDest(operation);
       }
 
       // Notify error
@@ -334,6 +334,7 @@ class MoveOperationManager extends BaseModule {
 
     // Step 4: Update client's directory setting (use remote path)
     await this.updateClientDirectory(operation, clientDestPath);
+    operation.clientDirectoryUpdated = true;
 
     // Step 5: Cleanup source (skip if rename was used - source already moved)
     if (!usedRename) {
@@ -669,28 +670,44 @@ class MoveOperationManager extends BaseModule {
   }
 
   /**
-   * Cleanup partial destination files after failed move
+   * Undo a failed or interrupted move without ever deleting the only copy.
+   *
+   * A rename leaves nothing at the source, so the destination is then the only
+   * copy: deleting it, as this used to do unconditionally, lost the file. The
+   * source tells which case it is:
+   *   - source still there: the destination is a partial copy, delete it
+   *   - source gone, client not yet pointed at the destination: move it back
+   *   - source gone, client already updated: keep it where the client expects it
    * @param {Object} operation - Operation record
+   * @param {Object} [opts]
+   * @param {boolean} [opts.clientUpdated] - The client's directory now points at the destination
    */
-  async cleanupPartialDest(operation) {
-    const { name, destPath, isMultiFile } = operation;
+  async cleanupPartialDest(operation, { clientUpdated = false } = {}) {
+    const { name, sourcePath, destPath, isMultiFile } = operation;
+    // A multi-file move renames the item's own directory; a single file moves within its directory.
+    const src = isMultiFile ? sourcePath : path.join(sourcePath, name);
+    const dest = path.join(destPath, name);
 
     try {
-      if (isMultiFile) {
-        // Check if dest directory was created and is empty or partial (destPath + name)
-        const destDir = path.join(destPath, name);
-        const stats = await fs.stat(destDir).catch(() => null);
-        if (stats?.isDirectory()) {
-          await fs.rm(destDir, { recursive: true, force: true });
-          this.log(`🧹 Cleaned up partial destination: ${destDir}`);
+      const destStat = await fs.stat(dest).catch(() => null);
+      if (!destStat) return;
+      const srcExists = await fs.stat(src).then(() => true, () => false);
+
+      if (srcExists) {
+        if (isMultiFile) {
+          if (destStat.isDirectory()) await fs.rm(dest, { recursive: true, force: true });
+        } else {
+          await fs.unlink(dest);
         }
+        this.log(`🧹 Cleaned up partial destination: ${dest}`);
+      } else if (clientUpdated) {
+        this.warn(`⚠️ Move failed after the client switched to ${dest}; leaving the file there`);
       } else {
-        // Remove partial file: name is the filename
-        const destFilePath = path.join(destPath, name);
-        await fs.unlink(destFilePath).catch(() => {});
+        await fs.rename(dest, src);
+        this.log(`↩️ Moved ${name} back to ${src}`);
       }
     } catch (err) {
-      this.warn(`⚠️ Could not cleanup partial destination: ${err.message}`);
+      this.warn(`⚠️ Could not undo the partial move of ${name}, leaving it at ${dest}: ${err.message}`);
     }
   }
 
