@@ -239,6 +239,20 @@ describe('RucioManager._getAllShares', () => {
     assert.equal(shares.length, 3);
     assert.ok(calls <= 2, 'the empty-page backstop stops it');
   });
+
+  it('stops when a full page repeats, with no total and ignored offset (7)', async () => {
+    // A daemon that reports no total and ignores offset serves the same full
+    // page forever — stop as soon as a page repeats, before re-adding it, so it
+    // costs two requests and no duplicates (not a million).
+    let calls = 0;
+    const samePage = Array.from({ length: 1000 }, (_, i) => ({ root_hash: `a${i}` }));
+    const m = makeManager({ client: { getShares: async () => { calls++; return { shares: samePage }; } } });
+
+    const { shares } = await m._getAllShares();
+
+    assert.equal(shares.length, 1000, 'the repeated page is added once, not duplicated');
+    assert.equal(calls, 2, 'detected the repeat on the second request');
+  });
 });
 
 describe('RucioManager.getNetworkStatus', () => {
@@ -352,6 +366,11 @@ describe('sharedFilePolicy with a Rucio item', () => {
   const completedShare = { shared: true, downloading: false };
   const activeDownload = { shared: false, downloading: true };
 
+  it('identifies a completed Rucio share but not an active download', () => {
+    assert.equal(isCompletedShare(rucioCaps, completedShare), true);
+    assert.equal(isCompletedShare(rucioCaps, activeDownload), false);
+  });
+
   it('recategorises a completed Rucio share via the API, not a disk move (bug 2)', () => {
     // Rucio declares moveSharedForCategoryChange:false, so the category change
     // must reach the daemon instead of moving the file behind it.
@@ -360,20 +379,73 @@ describe('sharedFilePolicy with a Rucio item', () => {
     assert.equal(movesSharedForCategoryChange(amuleCaps, completedShare), true);
   });
 
-  it('checks the path before deleting a completed Rucio share (bug 3)', () => {
-    const shared = isCompletedShare(rucioCaps, completedShare);
-    assert.equal(shared, true);
-    // Rucio hands the on-disk path back, so aMuTorrent must not take the
-    // "managed" shortcut for a completed share.
-    assert.equal(clientManagesDeletion(rucioCaps, shared), false);
+  it('checks the path before deleting any COMPLETE Rucio item (bug 3 / A)', () => {
+    // Keyed on completeness, not sharedness: a completed download that isn't in
+    // the share list yet (or never shared) still hands its path back, so the
+    // "managed" shortcut must not apply.
+    assert.equal(clientManagesDeletion(rucioCaps, true), false);
   });
 
-  it('still treats a cancelled active Rucio download as client-managed (bug 3)', () => {
-    const shared = isCompletedShare(rucioCaps, activeDownload);
-    assert.equal(shared, false);
-    // cancelDeletesFiles applies to active downloads: the daemon discards the
-    // partial, so no path check is needed.
-    assert.equal(clientManagesDeletion(rucioCaps, shared), true);
+  it('still treats a cancelled unfinished Rucio download as client-managed (bug 3)', () => {
+    // cancelDeletesFiles applies to an unfinished download: the daemon discards
+    // the partial, so no path check is needed.
+    assert.equal(clientManagesDeletion(rucioCaps, false), true);
+  });
+});
+
+describe('RucioManager.deleteItem', () => {
+  it('finds a completed download\'s path from the daemon when not in shares (A)', async () => {
+    let cancelled = false, removed = false, askedDetail = null;
+    const m = makeManager({
+      lastSharedFiles: [], // not in the share list (just completed, or never shared)
+      lastDownloads: [{ hash: 'aa', isComplete: true }],
+      hashToId: new Map([['aa', 7]]),
+      client: {
+        getDownload: async (id) => { askedDetail = id; return { dest_path: '/data/done/f.mkv' }; },
+        cancelDownload: async () => { cancelled = true; },
+        removeDownload: async () => { removed = true; },
+        unshare: async () => {}
+      }
+    });
+    const res = await m.deleteItem('aa', { deleteFiles: true });
+    assert.deepEqual(res.pathsToDelete, ['/data/done/f.mkv'], 'wipes the daemon dest_path');
+    assert.equal(askedDetail, 7, 'asked the daemon for the download detail');
+    assert.equal(cancelled, false, 'a completed download is never cancelled');
+    assert.equal(removed, true);
+  });
+
+  it('resets the share cache so a delete is reflected next poll (B)', async () => {
+    const m = makeManager({
+      _lastSharesFetch: Date.now(),
+      lastSharedFiles: [{ hash: 'bb', path: '/data', raw: { path: '/data/f.mkv' } }],
+      lastDownloads: [],
+      hashToId: new Map(),
+      client: { unshare: async () => {} }
+    });
+    await m.deleteItem('bb', { deleteFiles: false });
+    assert.equal(m._lastSharesFetch, 0, 'share cache invalidated after delete');
+  });
+});
+
+describe('RucioManager.search cancellation', () => {
+  it('cancels the daemon search when a poll throws (F)', async () => {
+    const realSetTimeout = global.setTimeout;
+    global.setTimeout = (fn) => realSetTimeout(fn, 0); // don't actually wait 2s
+    let cancelled = null;
+    const m = makeManager({
+      _lastSearch: { id: null, results: [], links: new Map() },
+      client: {
+        startSearch: async () => ({ id: 99 }),
+        getSearch: async () => { throw new Error('poll failed'); },
+        cancelSearch: async (id) => { cancelled = id; }
+      }
+    });
+    try {
+      await assert.rejects(() => m.search('matrix'), /poll failed/);
+      assert.equal(cancelled, 99, 'cancelled the lingering daemon search');
+    } finally {
+      global.setTimeout = realSetTimeout;
+    }
   });
 });
 
