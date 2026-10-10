@@ -45,7 +45,7 @@ const SearchResultsSection = ({
 }) => {
   // Get data from contexts
   const { appPage, appPageSize, appSortConfig, setAppPage, setAppPageSize, setAppSortConfig, addAppSuccess } = useAppState();
-  const { dataDownloadedFiles, setDataDownloadedFiles, downloadedAliasRef, dataCategories } = useStaticData();
+  const { dataDownloadedFiles, setDataDownloadedFiles, downloadedAliasRef, dataCategories, instances } = useStaticData();
   const { searchDownloadCategory, setSearchDownloadCategory, searchInstanceId, searchResultsInstanceId } = useSearch();
   const actions = useActions();
   const { hasCap } = useCapabilities();
@@ -312,8 +312,12 @@ const SearchResultsSection = ({
   // ============================================================================
   // MOBILE HEADER CONTENT (shared between sticky toolbar and in-page header)
   // ============================================================================
-  // Determine client type for icon (only show if results exist)
-  const clientType = isProwlarr ? 'prowlarr' : 'amule';
+  // Determine client type for the header icon (only shown if results exist) from
+  // the instance that produced the results, so a Rucio search shows the Rucio
+  // icon rather than aMule's. Falls back to aMule only if the producer is unknown.
+  const clientType = isProwlarr
+    ? 'prowlarr'
+    : (searchResultsInstanceId && instances?.[searchResultsInstanceId]?.type) || 'amule';
 
   // Show filter button only for Prowlarr with multiple indexers
   const showMobileFilterButton = isProwlarr && indexerOptions.length > 2;

@@ -131,7 +131,7 @@ const QuickSearchWidget = ({
                   h('img', { src: type.icon, alt: type.label, className: 'w-4 h-4' }),
                   type.label
                 )
-              : `${type.emoji} ${type.label}`
+              : type.label
           )
         )
       ),
