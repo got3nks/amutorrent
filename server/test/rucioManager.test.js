@@ -305,8 +305,13 @@ describe('RucioManager._updateCategoryRaw', () => {
   it('keeps the daemon download_dir and match_keywords when ours are empty', async () => {
     const puts = [];
     const m = makeManager({
-      lastCategories: [{ id: 7, name: 'Movies', color: '#111', download_dir: '/daemon/movies', match_keywords: '1080p|bluray' }],
-      client: { updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; } }
+      // Reads fresh before the full-replace PUT, so the daemon's current values
+      // (not a possibly-stale cache) are preserved.
+      lastCategories: [{ id: 7, name: 'Movies' }],
+      client: {
+        getCategories: async () => [{ id: 7, name: 'Movies', color: '#111', download_dir: '/daemon/movies', match_keywords: '1080p|bluray' }],
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
     });
 
     await m._updateCategoryRaw(7, { name: 'Films', color: '#00ff00', path: undefined });
@@ -320,13 +325,33 @@ describe('RucioManager._updateCategoryRaw', () => {
   it('uses our path when we have one', async () => {
     const puts = [];
     const m = makeManager({
-      lastCategories: [{ id: 7, name: 'Movies', download_dir: '/daemon/movies' }],
-      client: { updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; } }
+      lastCategories: [{ id: 7, name: 'Movies' }],
+      client: {
+        getCategories: async () => [{ id: 7, name: 'Movies', download_dir: '/daemon/movies' }],
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
     });
 
     await m._updateCategoryRaw(7, { name: 'Movies', path: '/app/movies' });
 
     assert.equal(puts[0].body.download_dir, '/app/movies');
+  });
+
+  it('reads fresh before the PUT so a panel-side keyword change is not clobbered', async () => {
+    // The cache is stale (old keywords); a fresh read must drive the preserved
+    // value, not the cached one, or a name/colour edit would wipe the panel change.
+    const puts = [];
+    const m = makeManager({
+      lastCategories: [{ id: 7, name: 'Movies', match_keywords: 'STALE' }],
+      client: {
+        getCategories: async () => [{ id: 7, name: 'Movies', match_keywords: 'fresh|rules' }],
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
+    });
+
+    await m._updateCategoryRaw(7, { name: 'Films' });
+
+    assert.equal(puts[0].body.match_keywords, 'fresh|rules', 'used the fresh value, not the stale cache');
   });
 });
 
@@ -354,6 +379,11 @@ describe('normalizeRucioSharedFile', () => {
     const n = normalizeRucioSharedFile({ root_hash: 'aa', name: 'f.mkv', size: 10, path: '/data/sub/f.mkv', magnet: 'rucio:aa' });
     assert.equal(n.path, '/data/sub', 'path is the containing folder (resolveItemPath joins the name)');
     assert.equal(n.raw.path, '/data/sub/f.mkv', 'full file path preserved in raw');
+  });
+
+  it('lower-cases the hash like the BitTorrent normalizers', () => {
+    const n = normalizeRucioSharedFile({ root_hash: 'AABBCC', name: 'f.mkv', size: 1, path: '/d/f.mkv' });
+    assert.equal(n.hash, 'aabbcc');
   });
 });
 
@@ -582,6 +612,15 @@ describe('hashFromLink field-based ed2k parse (11)', () => {
     // The field-based parser must not drop a link just because the name is empty;
     // the hash is still pinned to its field after the numeric size.
     assert.equal(hashFromLink('ed2k://|file||123|aabbccddeeff00112233445566778899|/'), 'aabbccddeeff00112233445566778899');
+  });
+
+  it('reads the hash from a link whose name has a raw percent sign', () => {
+    // A stray '%' makes decodeURIComponent throw; that must not drop the hash
+    // (ownership / history / result keying all depend on it).
+    assert.equal(
+      hashFromLink('ed2k://|file|50%OFF Movie.avi|12345|aabbccddeeff00112233445566778899|/'),
+      'aabbccddeeff00112233445566778899'
+    );
   });
 });
 
