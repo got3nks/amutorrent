@@ -1508,7 +1508,10 @@ class WebSocketHandlers extends BaseModule {
 
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
-          const isShared = caps.sharedFiles && (source === 'shared' || (cachedItem && cachedItem.shared && !cachedItem.downloading));
+          // Decide "is it a completed share" through the same policy the delete
+          // pre-check uses, so the two can't disagree; the Shared view also marks
+          // its rows shared even when the cached item is missing.
+          const isShared = isCompletedShare(caps, cachedItem) || (caps.sharedFiles && source === 'shared');
 
           // Build options for deleteItem
           const opts = { deleteFiles: !!deleteFiles, isShared };
@@ -1813,15 +1816,14 @@ class WebSocketHandlers extends BaseModule {
 
         const clientType = item.client;
         const caps = clientMeta.get(clientType)?.capabilities || {};
-        const isShared = isCompletedShare(caps, item);
 
         // The client deletes the file itself (no filesystem permission needed)
         // only when its API deletes files (qBittorrent) or it discards a cancelled
-        // ACTIVE download (cancelDeletesFiles). A shared/completed file is never
+        // UNFINISHED download (cancelDeletesFiles). A COMPLETE item is never
         // auto-deleted by cancel — the manager hands its path back for aMuTorrent
-        // to delete (Rucio), so the path must be checked even when
-        // removeSharedMustDeleteFiles is false.
-        if (clientManagesDeletion(caps, isShared)) {
+        // to delete (Rucio), whether or not it's in the share list — so a
+        // completed item always has the path checked.
+        if (clientManagesDeletion(caps, !!item.complete)) {
           results.push({
             fileHash,
             clientType,

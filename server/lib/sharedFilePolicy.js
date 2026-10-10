@@ -36,16 +36,20 @@ function movesSharedForCategoryChange(caps, item) {
 /**
  * Does the client delete the file itself, so aMuTorrent needn't check the path?
  * True only when the client's API deletes files (e.g. qBittorrent) or when it
- * discards a cancelled ACTIVE download (`cancelDeletesFiles`). A completed share
- * is never auto-deleted by cancel — the manager hands its on-disk path back for
- * aMuTorrent to delete (Rucio) — so a share always needs the path checked.
+ * discards a cancelled download whose file is still a partial — i.e. an
+ * UNFINISHED download (`cancelDeletesFiles`). A COMPLETE item is never
+ * auto-deleted by cancel: Rucio hands its on-disk path back for aMuTorrent to
+ * delete, whether or not it is currently in the share list, so a complete item
+ * always needs the path checked. Keying on completeness (not sharedness) is
+ * deliberate — a completed download not yet in the share list must still be
+ * path-checked.
  * @param {Object} caps
- * @param {boolean} isShared - result of isCompletedShare for this item
+ * @param {boolean} isComplete - whether the item has finished downloading
  * @returns {boolean}
  */
-function clientManagesDeletion(caps, isShared) {
+function clientManagesDeletion(caps, isComplete) {
   if (!caps) return false;
-  return !!caps.apiDeletesFiles || (!!caps.cancelDeletesFiles && !isShared);
+  return !!caps.apiDeletesFiles || (!!caps.cancelDeletesFiles && !isComplete);
 }
 
 module.exports = { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion };
