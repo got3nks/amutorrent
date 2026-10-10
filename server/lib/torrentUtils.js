@@ -169,7 +169,10 @@ function parseTorrentBuffer(torrentData) {
  */
 function parseEd2kLink(link) {
   try {
-    const match = link.match(/ed2k:\/\/\|file\|([^|]+)\|(\d+)\|([a-fA-F0-9]{32})\|/);
+    // Name may be empty ([^|]*, not +): the hash is still pinned to its field
+    // (after the numeric size), so a 32-hex file name can't be read as the hash,
+    // while an empty-name ed2k link still yields its hash instead of null.
+    const match = link.match(/ed2k:\/\/\|file\|([^|]*)\|(\d+)\|([a-fA-F0-9]{32})\|/);
     if (match) {
       return {
         filename: decodeURIComponent(match[1]),

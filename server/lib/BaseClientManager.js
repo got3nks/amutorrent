@@ -12,7 +12,7 @@
 const BaseModule = require('./BaseModule');
 const logger = require('./logger');
 const { TRACKER_REFRESH_INTERVAL, TRACKER_REFRESH_SCOPE, hasDemand } = require('./refreshPolicy');
-const { ed2kHashFromLink } = require('./ed2kLink');
+const { parseEd2kLink } = require('./torrentUtils');
 
 class BaseClientManager extends BaseModule {
   constructor() {
@@ -251,13 +251,15 @@ class BaseClientManager extends BaseModule {
   /**
    * Pull the content hash out of a link this client handles, so generic code
    * (e.g. recording ownership) never has to know a specific network's scheme.
-   * The default reads an ed2k MD4 (ed2k://|file|name|size|<32-hex>|/); a manager
+   * The default reads an ed2k MD4 (ed2k://|file|name|size|<32-hex>|/) via the
+   * field-based parseEd2kLink, which keys the hash off its position after the
+   * numeric size — so a 32-hex file name isn't mistaken for the hash. A manager
    * with other link shapes overrides this.
    * @param {string} link
    * @returns {string|null} lower-cased hash, or null
    */
   hashFromLink(link) {
-    return ed2kHashFromLink(link);
+    return parseEd2kLink(link).hash;
   }
 
   // ============================================================================
