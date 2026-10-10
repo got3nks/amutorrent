@@ -103,8 +103,11 @@ export const useItemContextMenu = ({
     }
 
     // Move to... (gated on ownership + edit_downloads capability)
-    // Hide for clients that can't relocate active downloads (e.g., aMule temp files)
-    const canMoveItem = caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading);
+    // Never for a client that can't relocate a file at all (Rucio: no move API,
+    // and moving behind the daemon would break seeding). Otherwise: active
+    // downloads need moveActiveDownloads; completed/shared files can be relocated.
+    const canMoveItem = !caps.noFileMove &&
+      (caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading));
     if (onMoveTo && canMoveItem && hasCap('edit_downloads') && canMutate && status.key !== 'moving') {
       menuItems.push({
         label: 'Move to...',

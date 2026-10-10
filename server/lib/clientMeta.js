@@ -123,6 +123,10 @@ const CLIENT_TYPES = {
       refreshSharedAfterMove: false,
       moveActiveDownloads: false,
       pauseBeforeMove: false,
+      noFileMove: true,                  // no API to relocate a file on disk: the path
+                                         // follows the category server-side, and moving
+                                         // it behind the daemon would break seeding — so
+                                         // Move is never offered for Rucio
       trackers: false,                   // DHT/libp2p, no trackers
       search: true,                      // unified rucio + eMule/Kad search
       // One search source (the daemon searches its own network + eMule/Kad
