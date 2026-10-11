@@ -35,7 +35,10 @@ const cached = [
 function makeContext() {
   return {
     clientInfo: { isAdmin: true, username: 'tester' },
-    categoryManager: { getByName: (n) => ({ name: n, priority: 0 }) },
+    // Give the category a real path so resolveCategoryDestPaths returns a
+    // destination that differs from the item's directory — otherwise no move would
+    // queue regardless of the gate and the category-change test would be toothless.
+    categoryManager: { getByName: (n) => ({ name: n, priority: 0, path: '/data/' + n }) },
     send: (m) => sends.push(m),
     broadcast: () => {},
     log: () => {},

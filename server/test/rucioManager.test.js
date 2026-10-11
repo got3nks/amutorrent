@@ -161,11 +161,12 @@ describe('RucioManager.deleteItem', () => {
     assert.deepEqual(res.pathsToDelete, ['/data/f.mkv'], 'wipes the real file path, not the folder');
   });
 
-  it('still succeeds when unshare fails after a successful remove (completed, in cache)', async () => {
+  it('swallows a 404 unshare after a successful remove (completed, in cache)', async () => {
     // removeDownload may already have stopped the share (a completed download and
     // its share are the same file → unshare 404s). That must not turn an already-
     // successful delete into a false failure, and shares must still be invalidated.
-    const { client, calls } = makeClientSpy({ unshare: async () => { throw new Error('404 not shared'); } });
+    const notShared = Object.assign(new Error('HTTP 404'), { status: 404 });
+    const { client, calls } = makeClientSpy({ unshare: async () => { throw notShared; } });
     let tracked = null;
     const m = makeManager({
       client,
@@ -179,9 +180,24 @@ describe('RucioManager.deleteItem', () => {
     const res = await m.deleteItem('AA', { deleteFiles: true });
 
     assert.deepEqual(calls.remove, [5], 'the real remove ran');
-    assert.equal(res.success, true, 'a failed unshare does not fail the delete');
-    assert.equal(m._lastSharesFetch, 0, 'shares invalidated despite the unshare error');
+    assert.equal(res.success, true, 'a 404 unshare does not fail the delete');
+    assert.equal(m._lastSharesFetch, 0, 'shares invalidated despite the 404');
     assert.equal(tracked, 'aa', 'deletion still tracked in history');
+  });
+
+  it('propagates a non-404 unshare error after remove (file stays shared)', async () => {
+    // A timeout or 500 means the file is still shared — report failure instead of
+    // a false success + a row that reappears on the next poll.
+    const serverError = Object.assign(new Error('HTTP 500'), { status: 500 });
+    const { client } = makeClientSpy({ unshare: async () => { throw serverError; } });
+    const m = makeManager({
+      client,
+      hashToId: new Map([['aa', 5]]),
+      lastDownloads: [{ hash: 'aa', isComplete: true }],
+      lastSharedFiles: [{ hash: 'aa', path: '/data', raw: { path: '/data/f.mkv' } }]
+    });
+
+    await assert.rejects(() => m.deleteItem('AA', { deleteFiles: true }), /500/);
   });
 
   it('cancels then removes an active download', async () => {
@@ -1020,6 +1036,25 @@ describe('RucioClient._request timeout', () => {
     try {
       const c = new RucioClient({ host: 'h', port: 1, timeoutMs: 20 });
       await assert.rejects(() => c._request('GET', '/x'), /timed out/);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+
+  it('puts the HTTP status on the thrown error (so callers can ignore only 404)', async () => {
+    const origFetch = global.fetch;
+    global.fetch = () => Promise.resolve({
+      ok: false,
+      status: 404,
+      headers: { get: () => 'text/plain' },
+      text: () => Promise.resolve('not found')
+    });
+    try {
+      const c = new RucioClient({ host: 'h', port: 1, timeoutMs: 1000 });
+      await assert.rejects(() => c._request('DELETE', '/api/v1/shares/abc'), (err) => {
+        assert.equal(err.status, 404, 'HTTP status attached to the error');
+        return true;
+      });
     } finally {
       global.fetch = origFetch;
     }
