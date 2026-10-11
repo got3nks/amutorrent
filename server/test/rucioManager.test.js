@@ -161,6 +161,29 @@ describe('RucioManager.deleteItem', () => {
     assert.deepEqual(res.pathsToDelete, ['/data/f.mkv'], 'wipes the real file path, not the folder');
   });
 
+  it('still succeeds when unshare fails after a successful remove (completed, in cache)', async () => {
+    // removeDownload may already have stopped the share (a completed download and
+    // its share are the same file → unshare 404s). That must not turn an already-
+    // successful delete into a false failure, and shares must still be invalidated.
+    const { client, calls } = makeClientSpy({ unshare: async () => { throw new Error('404 not shared'); } });
+    let tracked = null;
+    const m = makeManager({
+      client,
+      _lastSharesFetch: 12345,
+      hashToId: new Map([['aa', 5]]),
+      lastDownloads: [{ hash: 'aa', isComplete: true }],
+      lastSharedFiles: [{ hash: 'aa', path: '/data', raw: { path: '/data/f.mkv' } }],
+      trackDeletion: (h) => { tracked = h; }
+    });
+
+    const res = await m.deleteItem('AA', { deleteFiles: true });
+
+    assert.deepEqual(calls.remove, [5], 'the real remove ran');
+    assert.equal(res.success, true, 'a failed unshare does not fail the delete');
+    assert.equal(m._lastSharesFetch, 0, 'shares invalidated despite the unshare error');
+    assert.equal(tracked, 'aa', 'deletion still tracked in history');
+  });
+
   it('cancels then removes an active download', async () => {
     const { client, calls } = makeClientSpy();
     const m = makeManager({

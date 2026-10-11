@@ -505,18 +505,19 @@ class RucioManager extends BaseClientManager {
       // finished file is never touched. Cancel is best-effort — it legitimately
       // no-ops / errors on an already-terminal download — so it stays caught.
       if (!dl?.isComplete) await client.cancelDownload(id).catch(() => {});
-      // removeDownload / unshare are the operation itself: let a refusal throw
-      // so the caller reports failure instead of a false success + a row that
-      // reappears on the next poll.
+      // removeDownload is the operation itself: let a refusal throw so the caller
+      // reports failure instead of a false success + a row that reappears next poll.
       await client.removeDownload(id);
+      // A completed download is seeded (seedsCompletedFiles), so un-share it too or
+      // the daemon keeps seeding a now-deleted file and the row reappears. This is
+      // cleanup after the real removeDownload above, and best-effort either way:
+      // removeDownload may already have stopped the share (completed download and
+      // its share are the same file → a 404 here), or the item may not actually be
+      // shared yet. Throwing on that would wrongly fail an already-successful delete
+      // and skip the invalidate/track below — so both branches catch.
       if (shared) {
-        await client.unshare(h);
+        await client.unshare(h).catch(() => {});
       } else if (dl?.isComplete) {
-        // A completed download is seeded (seedsCompletedFiles) even when it isn't
-        // in the cached share list yet — a stale/failed share refresh, or a large
-        // paged library. Un-share it too, or the daemon keeps seeding and the row
-        // reappears pointing at a now-deleted file. Best-effort: it may genuinely
-        // not be shared, in which case unshare is a harmless no-op.
         await client.unshare(h).catch(() => {});
       }
     } else {
