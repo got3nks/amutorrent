@@ -753,19 +753,19 @@ const SettingsView = () => {
     },
       // *arr instance selector (only when 2+ capable clients configured)
       (() => {
-        const amuleClients = formData.clients.filter(c => typeCaps(c.type).arrIntegration && c.enabled !== false);
-        return amuleClients.length > 1 && h('div', { className: 'mb-6' },
+        const arrClients = formData.clients.filter(c => typeCaps(c.type).arrIntegration && c.enabled !== false);
+        return arrClients.length > 1 && h('div', { className: 'mb-6' },
           h(ConfigField, {
-            label: 'aMule Instance for *arr',
+            label: 'Instance for *arr',
             description: 'Which aMule instance to use for Torznab API and qBittorrent-compatible API for *arr apps'
           },
             h('select', {
-              value: formData.integrations.amuleInstanceId || '',
+              value: formData.integrations.arrInstanceId || '',
               onChange: (e) => {
                 const val = e.target.value || null;
                 setFormData(prev => ({
                   ...prev,
-                  integrations: { ...prev.integrations, amuleInstanceId: val }
+                  integrations: { ...prev.integrations, arrInstanceId: val }
                 }));
                 setHasChanges(true);
                 setSaveSuccess(false);
@@ -774,7 +774,7 @@ const SettingsView = () => {
               className: 'w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-3 py-2'
             },
               h('option', { value: '' }, 'Auto (first connected)'),
-              ...amuleClients.map(c => {
+              ...arrClients.map(c => {
                 const id = c.id || `${c.type}-${c.host}-${c.port}`;
                 return h('option', { key: id, value: id }, c.name || `aMule (${c.host}:${c.port})`);
               })

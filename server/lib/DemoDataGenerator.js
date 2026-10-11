@@ -397,7 +397,7 @@ class DemoDataGenerator {
       item.gapStatus = null;
       item.reqStatus = null;
       item.lastSeenComplete = Math.random() > 0.5 ? now - this._randomBetween(0, 86400000) : 0;
-      item.ed2kLink = `ed2k://|file|${encodeURIComponent(name)}|${size}|${hash.toUpperCase()}|/`;
+      item.link = `ed2k://|file|${encodeURIComponent(name)}|${size}|${hash.toUpperCase()}|/`;
     } else {
       item.tracker = tracker;
       item.trackers = [tracker];

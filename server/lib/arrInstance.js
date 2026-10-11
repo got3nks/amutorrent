@@ -12,7 +12,7 @@ const clientMeta = require('./clientMeta');
  * @returns {Object|null} manager
  */
 function resolveArrManager(warn) {
-  const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
+  const configuredId = config.getConfig()?.integrations?.arrInstanceId;
   if (configuredId) {
     const byId = registry.get(configuredId);
     if (byId) return byId;

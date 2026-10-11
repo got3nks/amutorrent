@@ -15,7 +15,7 @@ const buildFormData = (cfg) => ({
   server: { ...cfg.server },
   directories: { ...cfg.directories },
   integrations: {
-    amuleInstanceId: cfg.integrations?.amuleInstanceId || null,
+    arrInstanceId: cfg.integrations?.arrInstanceId || null,
     sonarr: { ...cfg.integrations.sonarr },
     radarr: { ...cfg.integrations.radarr },
     prowlarr: { ...cfg.integrations?.prowlarr || { enabled: false, url: '', apiKey: '' } }

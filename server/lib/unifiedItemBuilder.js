@@ -173,9 +173,8 @@ function applyDownloadData(item, download, categoryManager = null) {
       }
     }
 
-    // Links — neutral field; the normalizer supplies `link` (ed2k:// or rucio:).
-    // `ed2kLink` is still read as a fallback for aMule's normalizer.
-    item.link = download.link || download.ed2kLink || item.link;
+    // Copy/export link from the normalizer (ed2k:// or rucio:)
+    item.link = download.link || item.link;
   } else {
     // Torrent shape (has trackers → BitTorrent): all items are always shared/seeding
     item.shared = true;
@@ -300,7 +299,7 @@ function applySharedData(item, sharedFile) {
     item.rating = sharedFile.rating ?? item.rating ?? 0;
 
     // Links — neutral field (ed2k:// for aMule, rucio: magnet for Rucio).
-    item.link = sharedFile.link || sharedFile.ed2kLink || item.link;
+    item.link = sharedFile.link || item.link;
 
     // Store the on-disk file path (aMule + Rucio shared files) for delete checks.
     if (sharedFile.path) {

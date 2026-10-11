@@ -96,6 +96,24 @@ class WebSocketHandlers extends BaseModule {
     }
     return null;
   }
+  /**
+   * Resolve a manager by id, else fall back to the first connected (then
+   * enabled) instance whose client capabilities pass `accepts`.
+   * @param {string} [instanceId]
+   * @param {function} accepts - (capabilities) => boolean
+   * @returns {Object|null} manager
+   */
+  _getManagerFor(instanceId, accepts) {
+    if (instanceId) {
+      const mgr = registry.get(instanceId);
+      if (mgr) return mgr;
+    }
+    const all = registry.getAll().filter(m => accepts(clientMeta.get(m.clientType)?.capabilities || {}));
+    const fallback = all.find(m => m.isConnected?.()) || all.find(m => m.isEnabled?.()) || all[0] || null;
+    if (fallback) logger.warn(`⚠️ [WebSocket._getManagerFor] No usable instanceId, falling back to "${fallback.instanceId}"`);
+    return fallback;
+  }
+
 
   /**
    * Parse cookies from cookie header
@@ -385,11 +403,11 @@ class WebSocketHandlers extends BaseModule {
 
   // Handler implementations
   async handleSearch(data, context) {
-    const manager = this._getManager(data.instanceId, 'amule');
+    const manager = this._getManagerFor(data.instanceId, caps => !!caps.search);
     if (!manager) {
       // No lock was taken, so no unlock will follow: clear the requester's optimistic one.
       if (data.instanceId) context.send({ type: 'search-lock', locked: false, instanceId: data.instanceId });
-      context.send({ type: 'error', message: 'No aMule instance available' });
+      context.send({ type: 'error', message: 'No instance that can search is available' });
       return;
     }
     if (!manager.acquireSearchLock()) {
@@ -423,7 +441,7 @@ class WebSocketHandlers extends BaseModule {
 
       // Get aMule cached results from the specified or last-searched instance
       const instanceId = data?.instanceId || this.lastAmuleSearchInstanceId;
-      const manager = this._getManager(instanceId, 'amule');
+      const manager = this._getManagerFor(instanceId, caps => !!caps.search);
       let amuleResults = [];
       try {
         if (manager) {
@@ -451,9 +469,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleRefreshSharedFiles(data, context) {
     try {
-      const managers = registry.getByType('amule').filter(m => m.isConnected());
+      const managers = registry.getConnected().filter(m => clientMeta.hasCapability(m.clientType, 'sharedDirsEditor'));
       if (managers.length === 0) {
-        context.send({ type: 'error', message: 'No aMule instance available' });
+        context.send({ type: 'error', message: 'No instance with shared folders is available' });
         return;
       }
       for (const mgr of managers) {
@@ -477,9 +495,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleGetServersList(data, context) {
     try {
-      const manager = this._getManager(data?.instanceId, 'amule');
+      const manager = this._getManagerFor(data?.instanceId, caps => !!caps.ed2kServers);
       if (!manager) {
-        context.send({ type: 'error', message: 'No aMule instance available' });
+        context.send({ type: 'error', message: 'No instance with an ED2K server list is available' });
         return;
       }
       const servers = await manager.getServerList();
@@ -498,9 +516,9 @@ class WebSocketHandlers extends BaseModule {
         throw new Error('Missing required parameters: ip, port, or serverAction');
       }
 
-      const manager = this._getManager(instanceId, 'amule');
+      const manager = this._getManagerFor(instanceId, caps => !!caps.ed2kServers);
       if (!manager) {
-        context.send({ type: 'error', message: 'No aMule instance available' });
+        context.send({ type: 'error', message: 'No instance with an ED2K server list is available' });
         return;
       }
 
@@ -530,7 +548,7 @@ class WebSocketHandlers extends BaseModule {
 
   async handleGetStatsTree(data, context) {
     try {
-      const manager = this._getManager(data?.instanceId, 'amule');
+      const manager = this._getManagerFor(data?.instanceId, caps => !!caps.statsTree);
       if (!manager) {
         context.send({ type: 'error', message: 'aMule client not connected. Please complete setup first.' });
         return;
@@ -546,9 +564,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleGetServerInfo(data, context) {
     try {
-      const manager = this._getManager(data?.instanceId, 'amule');
+      const manager = this._getManagerFor(data?.instanceId, caps => !!caps.ed2kServers);
       if (!manager) {
-        context.send({ type: 'error', message: 'No aMule instance available' });
+        context.send({ type: 'error', message: 'No instance with an ED2K server list is available' });
         return;
       }
       const serverInfo = await manager.getServerInfo();
@@ -562,9 +580,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleGetLog(data, context) {
     try {
-      const manager = this._getManager(data?.instanceId, 'amule');
+      const manager = this._getManagerFor(data?.instanceId, caps => !!caps.ed2kServers);
       if (!manager) {
-        context.send({ type: 'error', message: 'No aMule instance available' });
+        context.send({ type: 'error', message: 'No instance with a server log is available' });
         return;
       }
       const log = await manager.getLog();
@@ -618,8 +636,8 @@ class WebSocketHandlers extends BaseModule {
         throw new Error('No file hashes provided for batch download');
       }
 
-      const manager = this._getManager(data.instanceId, 'amule');
-      if (!manager) { throw new Error('No aMule instance available'); }
+      const manager = this._getManagerFor(data.instanceId, caps => !!caps.search);
+      if (!manager) { throw new Error('No instance that can search is available'); }
 
       // Support both legacy categoryId and new categoryName
       let categoryId = 0;
@@ -703,8 +721,10 @@ class WebSocketHandlers extends BaseModule {
         return;
       }
 
-      const manager = this._getManager(data.instanceId, 'amule');
-      if (!manager) { throw new Error('No aMule instance available for ED2K links'); }
+      // An instance that accepts these links' scheme
+      const first = cleaned[0].toLowerCase();
+      const manager = this._getManagerFor(data.instanceId, caps => (caps.linkSchemes || []).some(sch => first.startsWith(sch)));
+      if (!manager) { throw new Error('No instance that accepts these links is available'); }
 
       // Resolve category: prefer categoryName (new), fall back to categoryId (legacy)
       let categoryId = data.categoryId || 0;
@@ -745,12 +765,15 @@ class WebSocketHandlers extends BaseModule {
 
   async handleAddMagnetLinks(data, context) {
     try {
-      const { links, label, clientId = 'rtorrent', instanceId, savePath: customSavePath } = data;
+      const { links, label, clientId, instanceId, savePath: customSavePath } = data;
 
       // Resolve manager from registry
-      const manager = this._getManager(instanceId, clientId);
+      // clientId (a client type) is an optional legacy hint; otherwise any client that takes magnets
+      const manager = clientId && !instanceId
+        ? this._getManager(null, clientId)
+        : this._getManagerFor(instanceId, caps => (caps.linkSchemes || []).includes('magnet:?'));
       if (!manager || !manager.isConnected()) {
-        context.send({ type: 'error', message: `${clientId} is not connected` });
+        context.send({ type: 'error', message: `${manager?.displayName || clientId || 'No torrent client'} is not connected` });
         return;
       }
 
@@ -776,7 +799,7 @@ class WebSocketHandlers extends BaseModule {
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
       const results = [];
       const addOptions = { categoryName: label || '', savePath: directory, priority: category?.priority, start: true, username };
-      const clientName = manager.displayName || clientId;
+      const clientName = manager.displayName;
 
       for (const magnetUri of links) {
         try {
@@ -798,7 +821,7 @@ class WebSocketHandlers extends BaseModule {
       // Broadcast unified items for instant UI feedback
       await this.broadcastItemsUpdate(context);
 
-      context.send({ type: 'magnet-added', results, clientId });
+      context.send({ type: 'magnet-added', results, clientId: manager.clientType });
     } catch (err) {
       context.error('Failed to add magnet links:', err);
       context.send({ type: 'error', message: `Failed to add magnet links: ${err.message}` });
@@ -807,12 +830,15 @@ class WebSocketHandlers extends BaseModule {
 
   async handleAddTorrentFile(data, context) {
     try {
-      const { fileData, fileName, label, clientId = 'rtorrent', instanceId, savePath: customSavePath } = data;
+      const { fileData, fileName, label, clientId, instanceId, savePath: customSavePath } = data;
 
       // Resolve manager from registry
-      const manager = this._getManager(instanceId, clientId);
+      // clientId (a client type) is an optional legacy hint; otherwise any client that takes magnets
+      const manager = clientId && !instanceId
+        ? this._getManager(null, clientId)
+        : this._getManagerFor(instanceId, caps => (caps.linkSchemes || []).includes('magnet:?'));
       if (!manager || !manager.isConnected()) {
-        context.send({ type: 'error', message: `${clientId} is not connected` });
+        context.send({ type: 'error', message: `${manager?.displayName || clientId || 'No torrent client'} is not connected` });
         return;
       }
 
@@ -838,7 +864,7 @@ class WebSocketHandlers extends BaseModule {
       // fileData is base64 encoded - convert to Buffer
       const buffer = Buffer.from(fileData, 'base64');
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
-      const clientName = manager.displayName || clientId;
+      const clientName = manager.displayName;
 
       context.log(`Adding torrent file to ${clientName}: ${fileName} (category: ${label || 'none'}${directory ? `, path: ${directory}` : ''})`);
 
@@ -860,7 +886,7 @@ class WebSocketHandlers extends BaseModule {
       // Broadcast unified items for instant UI feedback
       await this.broadcastItemsUpdate(context);
 
-      context.send({ type: 'torrent-added', success: true, fileName, clientId });
+      context.send({ type: 'torrent-added', success: true, fileName, clientId: manager.clientType });
     } catch (err) {
       context.error('Failed to add torrent file:', err);
       context.send({ type: 'error', message: `Failed to add torrent file: ${err.message}` });

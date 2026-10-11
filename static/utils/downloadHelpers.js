@@ -303,8 +303,8 @@ export const getExportLink = (item) => {
     return generateMagnetLink(item);
   }
   // Source-based clients: the neutral copy/export link (ed2k:// for aMule,
-  // rucio: magnet for Rucio). `ed2kLink` is read as a fallback for safety.
-  return item.link || item.ed2kLink || null;
+  // rucio: magnet for Rucio).
+  return item.link || null;
 };
 
 /**

@@ -395,7 +395,7 @@ class Config extends BaseModule {
         geoip: 'server/data/geoip'
       },
       integrations: {
-        amuleInstanceId: null,  // null = auto (first connected aMule instance)
+        arrInstanceId: null,    // null = auto (first connected instance with arrIntegration)
         sonarr: {
           enabled: false,
           url: '',
@@ -639,7 +639,7 @@ class Config extends BaseModule {
     const fileConfig = await this.loadConfigFile();
 
     // Migrate history.usernameHeader → auth.trustedProxy
-    let needsSave = false;
+    const migrated = [];
     if (fileConfig?.history?.usernameHeader) {
       if (!fileConfig.server) fileConfig.server = {};
       if (!fileConfig.server.auth) fileConfig.server.auth = {};
@@ -647,7 +647,16 @@ class Config extends BaseModule {
       fileConfig.server.auth.trustedProxy.usernameHeader = fileConfig.history.usernameHeader;
       fileConfig.server.auth.trustedProxy.enabled = true;
       delete fileConfig.history.usernameHeader;
-      needsSave = true;
+      migrated.push('history.usernameHeader → server.auth.trustedProxy');
+    }
+
+    // Migrate integrations.amuleInstanceId → integrations.arrInstanceId
+    if (fileConfig?.integrations && 'amuleInstanceId' in fileConfig.integrations) {
+      if (fileConfig.integrations.arrInstanceId === undefined) {
+        fileConfig.integrations.arrInstanceId = fileConfig.integrations.amuleInstanceId;
+      }
+      delete fileConfig.integrations.amuleInstanceId;
+      migrated.push('integrations.amuleInstanceId → integrations.arrInstanceId');
     }
 
     // Store fileConfig for isFromEnv checks and auto-persist comparison.
@@ -668,9 +677,8 @@ class Config extends BaseModule {
       }
     }
 
-    // Persist history.usernameHeader → trustedProxy migration
-    if (needsSave && fileConfig) {
-      await this._persistRuntimeConfig('🔄 Migrated config.json: history.usernameHeader → server.auth.trustedProxy');
+    if (migrated.length > 0 && fileConfig) {
+      await this._persistRuntimeConfig(`🔄 Migrated config.json: ${migrated.join(', ')}`);
     }
 
     // Auto-migrate: if file config has flat client sections but no clients array,

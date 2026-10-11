@@ -123,7 +123,7 @@ function normalizeAmuleDownload(download, resolveCategoryName = () => 'Default')
     isComplete: download.status === AMULE_PS_COMPLETE,
     category: catId,
     categoryName,
-    ed2kLink: download.ed2kLink || download.EC_TAG_PARTFILE_ED2K_LINK || download.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
+    link: download.ed2kLink || download.EC_TAG_PARTFILE_ED2K_LINK || download.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
     // Explicit pass-through of library-mapped fields used by the builder
     progress: download.progress || 0,
     speed: download.speed || 0,
@@ -166,7 +166,7 @@ function normalizeAmuleSharedFile(file, categories = []) {
     categoryName,
     // Map EC_TAG fields to canonical names
     priority: file.priority ?? file.EC_TAG_KNOWNFILE_PRIO ?? file.raw?.EC_TAG_KNOWNFILE_PRIO ?? null,
-    ed2kLink: file.ed2kLink || file.EC_TAG_PARTFILE_ED2K_LINK || file.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
+    link: file.ed2kLink || file.EC_TAG_PARTFILE_ED2K_LINK || file.raw?.EC_TAG_PARTFILE_ED2K_LINK || null,
     comment: file.comment ?? file.EC_TAG_KNOWNFILE_COMMENT ?? file.raw?.EC_TAG_KNOWNFILE_COMMENT ?? '',
     rating: file.rating ?? file.EC_TAG_KNOWNFILE_RATING ?? file.raw?.EC_TAG_KNOWNFILE_RATING ?? 0,
     // Explicit pass-through of library-mapped fields used by the builder
@@ -719,7 +719,6 @@ function normalizeRucioDownload(d, resolveCategoryName = () => 'Default') {
     // The "copy link" value — rucio: or ed2k: depending on the source network.
     // Rebuilt locally: the download list endpoint doesn't carry a link field
     // (only the per-download detail does), so we reconstruct it from the row.
-    // Emitted under the neutral `link` field (not aMule's `ed2kLink`).
     link: buildRucioDownloadLink(d),
 
     raw: { clientType: 'rucio', ...d }
@@ -741,7 +740,7 @@ function normalizeRucioSharedFile(s) {
     rawName: s.name || '',
     size: s.size || 0,
     uploadSpeed: 0,
-    // Neutral copy/export link (the rucio: magnet), under `link` not `ed2kLink`.
+    // Neutral copy/export link (the rucio: magnet).
     link: s.magnet || null,
     // `path` is the CONTAINING FOLDER, like aMule — resolveItemPath joins the
     // file name onto it. The daemon reports the full file path, so strip the
