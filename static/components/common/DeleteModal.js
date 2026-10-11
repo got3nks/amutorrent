@@ -146,7 +146,7 @@ const DeleteModal = ({
           }),
           h('span', { className: 'text-sm text-gray-700 dark:text-gray-300' },
             isCheckingPermissions ? 'Checking file permissions...' :
-            isMixed ? 'Also delete torrent files from disk' :
+            isMixed ? 'Also delete the finished files from disk' :
             'Also delete files from disk'
           )
         )
