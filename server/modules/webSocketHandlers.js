@@ -19,6 +19,7 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
+const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles } = require('../lib/sharedFilePolicy');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -255,7 +256,16 @@ class WebSocketHandlers extends BaseModule {
 
     context.log(`New WebSocket connection from ${clientIp}${locationInfo}`);
     context.send({ type: 'connected', message: 'Connected to aMule Controller' });
-    context.send({ type: 'search-lock', locked: registry.getByType('amule').some(m => m.isSearchInProgress()) });
+    // Seed the client with the set of instances currently holding a search
+    // lock, not a single flag — otherwise a search on one instance greys (and
+    // later ungreys) the box while another instance is still searching.
+    const lockedInstances = [];
+    registry.forEach(m => {
+      if (typeof m.isSearchInProgress === 'function' && m.isSearchInProgress()) {
+        lockedInstances.push(m.instanceId);
+      }
+    });
+    context.send({ type: 'search-lock-snapshot', lockedInstances });
 
     // Send cached batch update to newly connected client (if available), filtered by ownership
     // Always sends full snapshot (items array), never delta, for new connections
@@ -622,22 +632,26 @@ class WebSocketHandlers extends BaseModule {
       }
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
 
-      // File info callback for history tracking (resolves hash → filename/size from search results)
+      // File info for history tracking: fetch the search results ONCE and index
+      // them by hash, rather than per download. getSearchResults() hits the
+      // daemon and, for Rucio, rebuilds _lastSearch.links as the batch reads it.
+      const resultsByHash = new Map();
+      try {
+        const searchResults = await manager.getSearchResults();
+        for (const r of (searchResults?.results || [])) {
+          const h = (r.fileHash || r.raw?.EC_TAG_SEARCHFILE_HASH)?.toLowerCase();
+          if (h) resultsByHash.set(h, r);
+        }
+      } catch (err) {
+        // Silently fail — filenames will be 'Unknown'.
+      }
       const fileInfoCallback = async (hash) => {
-        try {
-          const searchResults = await manager.getSearchResults();
-          const results = searchResults?.results || [];
-          const file = results.find(r => {
-            const resultHash = r.fileHash || r.raw?.EC_TAG_SEARCHFILE_HASH;
-            return resultHash?.toLowerCase() === hash.toLowerCase();
-          });
-          if (file) {
-            const filename = file.fileName || file.raw?.EC_TAG_PARTFILE_NAME || 'Unknown';
-            const size = file.fileSize || file.raw?.EC_TAG_PARTFILE_SIZE_FULL || null;
-            return { filename, size };
-          }
-        } catch (err) {
-          // Silently fail - filename will be 'Unknown'
+        const file = resultsByHash.get(hash.toLowerCase());
+        if (file) {
+          return {
+            filename: file.fileName || file.raw?.EC_TAG_PARTFILE_NAME || 'Unknown',
+            size: file.fileSize || file.raw?.EC_TAG_PARTFILE_SIZE_FULL || null
+          };
         }
         return { filename: 'Unknown', size: null };
       };
@@ -704,11 +718,15 @@ class WebSocketHandlers extends BaseModule {
         // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
         const success = await manager.addEd2kLink(link, categoryId, username);
         results.push({ link, success });
-        // Record ownership — extract hash from ed2k link format: ed2k://|file|name|size|hash|/
+        // Record ownership — ask the manager to parse its own link (ed2k MD4 or
+        // rucio: BLAKE3, lower-cased), so this generic handler needs no per-
+        // network knowledge and a new network's owner is tracked too (otherwise,
+        // with user management on, a user without edit_all_downloads can't pause
+        // or delete their own).
         if (success && context.clientInfo.userId && this.userManager) {
-          const hashMatch = link.match(/\|([a-fA-F0-9]{32})\|/);
-          if (hashMatch) {
-            this.userManager.recordOwnership(itemKey(manager.instanceId, hashMatch[1]), context.clientInfo.userId);
+          const hash = manager.hashFromLink?.(link);
+          if (hash) {
+            this.userManager.recordOwnership(itemKey(manager.instanceId, hash), context.clientInfo.userId);
           }
         }
       }
@@ -1494,10 +1512,12 @@ class WebSocketHandlers extends BaseModule {
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
           // `source` describes the whole batch, so trust it only when the item
-          // isn't cached: a partfile in a batch with shared files is still a download.
-          const isShared = !!caps.sharedFiles && (cachedItem
-            ? !!(cachedItem.shared && !cachedItem.downloading)
-            : source === 'shared');
+          // isn't cached: a partfile in a batch with shared files is still a
+          // download. When cached, decide through the same isCompletedShare policy
+          // the delete pre-check uses, so the two can't disagree.
+          const isShared = cachedItem
+            ? isCompletedShare(caps, cachedItem)
+            : (!!caps.sharedFiles && source === 'shared');
           const itemDeleteFiles = typeof item.deleteFiles === 'boolean' ? item.deleteFiles : !!deleteFiles;
           deleteDecisions.set(itemKey(instanceId, item.fileHash?.toLowerCase()), { isShared, deleteFiles: itemDeleteFiles });
 
@@ -1567,13 +1587,20 @@ class WebSocketHandlers extends BaseModule {
           const resolvedClientType = result.clientType || reqItem?.clientType || ci?.client;
           const caps = resolvedClientType ? clientMeta.get(resolvedClientType)?.capabilities : {};
           const decision = deleteDecisions.get(itemKey(result.instanceId || reqItem?.instanceId, result.fileHash?.toLowerCase())) || {};
+          // A cancel only discards an UNFINISHED download's partial, so an item
+          // deleted without `deleteFiles` left the disk alone unless it was still
+          // incomplete — keyed on completeness (a finished, unshared Rucio download
+          // is kept, not reported as wiped). Require the cached item to know
+          // completeness: without it we can't tell, so only an explicit per-item
+          // deleteFiles counts as a wipe — never guess "incomplete".
+          const autoCleanedPartial = !!caps?.cancelDeletesFiles && !!ci && !ci.complete;
 
           eventScriptingManager.emit('fileDeleted', {
             hash: result.fileHash?.toLowerCase(),
             instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
             clientType: resolvedClientType,
-            deletedFromDisk: decision.deleteFiles === true || !!(caps?.cancelDeletesFiles && !decision.isShared),
+            deletedFromDisk: decision.deleteFiles === true || autoCleanedPartial,
             category: ci?.category || null,
             path: fullPath,
             multiFile: ci?.multiFile || false,
@@ -1666,10 +1693,13 @@ class WebSocketHandlers extends BaseModule {
 
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
-          const isShared = caps.sharedFiles && item?.shared && !item?.downloading;
+          // Only clients that must physically MOVE a shared file to recategorise
+          // it (aMule) skip the API and move; a client that can recategorise in
+          // place (Rucio: moveSharedForCategoryChange false) uses setCategoryOrLabel.
+          const movesSharedInsteadOfApi = movesSharedForCategoryChange(caps, item);
 
-          // Set category/label (skip for shared files — they only need a move, no API call)
-          if (!isShared) {
+          // Set category/label (skipped only when the client moves instead)
+          if (!movesSharedInsteadOfApi) {
             if (!manager.isConnected()) {
               results.push({ fileHash, fileName, success: false, error: `${manager.clientType} not connected`, instanceId, instanceName: manager.displayName });
               continue;
@@ -1689,8 +1719,11 @@ class WebSocketHandlers extends BaseModule {
 
           results.push({ fileHash, success: true, instanceId, instanceName: manager.displayName });
 
-          // Queue move if requested (or always for shared files — they need explicit moving)
-          if (moveFiles || isShared) {
+          // Queue move if requested (or when the client recategorises by moving),
+          // but never for a client that can't relocate a file (Rucio): the category
+          // change above already stands on its own, and a move would throw after the
+          // rename and lose the file.
+          if ((moveFiles || movesSharedInsteadOfApi) && clientCanMoveFiles(caps)) {
             const { localPath: destPathLocal, remotePath: destPathRemote } = resolveCategoryDestPaths(targetCategory, manager.clientType, item?.instanceId);
             const sourcePath = item?.directory || item?.filePath;
 
@@ -1801,13 +1834,14 @@ class WebSocketHandlers extends BaseModule {
 
         const clientType = item.client;
         const caps = clientMeta.get(clientType)?.capabilities || {};
-        const isShared = caps.sharedFiles && item.shared && !item.downloading;
 
-        // Client handles deletion internally (no filesystem permission needed)
-        // cancelDeletesFiles: client auto-deletes temp files on cancel (e.g., aMule active downloads)
-        // apiDeletesFiles: client API handles file deletion (e.g., qBittorrent)
-        // removeSharedMustDeleteFiles: shared files need explicit disk deletion (exempt from cancelDeletesFiles shortcut)
-        if ((caps.cancelDeletesFiles && !(isShared && caps.removeSharedMustDeleteFiles)) || caps.apiDeletesFiles) {
+        // The client deletes the file itself (no filesystem permission needed)
+        // only when its API deletes files (qBittorrent) or it discards a cancelled
+        // UNFINISHED download (cancelDeletesFiles). A COMPLETE item is never
+        // auto-deleted by cancel — the manager hands its path back for aMuTorrent
+        // to delete (Rucio), whether or not it's in the share list — so a
+        // completed item always has the path checked.
+        if (clientManagesDeletion(caps, !!item.complete)) {
           results.push({
             fileHash,
             clientType,
@@ -1900,6 +1934,13 @@ class WebSocketHandlers extends BaseModule {
       }
 
       const clientType = item.client || 'amule';
+      // A client that can't relocate a file (Rucio) can never move — report it
+      // here too, so the pre-check agrees with the execution backstop instead of
+      // returning canMove:true and letting the move fail later.
+      if (!clientCanMoveFiles(clientMeta.CLIENT_TYPES[clientType]?.capabilities)) {
+        results.push({ fileHash, canMove: false, reason: 'cannot_move', message: `${clientType} cannot move files`, clientType });
+        continue;
+      }
       const hasNativeMove = clientMeta.hasCapability(clientType, 'nativeMove');
       const cacheKey = item.instanceId || clientType;
 
@@ -2154,6 +2195,15 @@ class WebSocketHandlers extends BaseModule {
         const manager = registry.get(item.instanceId);
         if (!manager || !manager.isConnected()) {
           results.push({ fileHash, fileName: item.name, success: false, error: 'Client not connected' });
+          continue;
+        }
+
+        // A client that can't relocate a file (Rucio) must never reach the move
+        // queue: the rename step would succeed and the failing updateDirectory
+        // would then unlink the only copy. The UI already hides Move for it; this
+        // is the backstop.
+        if (!clientCanMoveFiles(clientMeta.CLIENT_TYPES[manager.clientType]?.capabilities)) {
+          results.push({ fileHash, fileName: item.name, success: false, error: `${manager.displayName} cannot move files` });
           continue;
         }
 

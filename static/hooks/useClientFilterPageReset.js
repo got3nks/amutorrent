@@ -14,11 +14,12 @@ const { useRef, useEffect } = React;
 
 /**
  * @param {function} onPageChange - Callback to reset page (called with 0)
- * @param {boolean} isEd2kEnabled - Whether ED2K network type is enabled
- * @param {boolean} isBittorrentEnabled - Whether BitTorrent network type is enabled
+ * @param {string} enabledNetworksKey - Stable key of the enabled connected
+ *   networks (changes whenever any network filter toggles). Network-agnostic,
+ *   so a new network is covered with no change here.
  * @param {Set} disabledInstances - Set of disabled instance IDs (new ref on each change)
  */
-export const useClientFilterPageReset = (onPageChange, isEd2kEnabled, isBittorrentEnabled, disabledInstances) => {
+export const useClientFilterPageReset = (onPageChange, enabledNetworksKey, disabledInstances) => {
   const isFirstRender = useRef(true);
   const onPageChangeRef = useRef(onPageChange);
   onPageChangeRef.current = onPageChange;
@@ -29,7 +30,7 @@ export const useClientFilterPageReset = (onPageChange, isEd2kEnabled, isBittorre
       return;
     }
     onPageChangeRef.current(0);
-  }, [isEd2kEnabled, isBittorrentEnabled, disabledInstances]);
+  }, [enabledNetworksKey, disabledInstances]);
 };
 
 export default useClientFilterPageReset;

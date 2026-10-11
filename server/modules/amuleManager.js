@@ -28,7 +28,6 @@ class AmuleManager extends BaseClientManager {
   constructor() {
     super();
     this.sharedFilesReloadInterval = null;  // Timer for automatic shared files reload
-    this.searchInProgress = false;
     this._lastSharedHashes = new Set();           // hashes seen in the previous successful getUpdate
     this._pendingSharedDeletions = new Map();     // hash → expiry timestamp; explains expected drops
     this._categorySlotCache = null;  // { at, categories } - see _getCategoriesForResolve()
@@ -217,34 +216,15 @@ class AmuleManager extends BaseClientManager {
     return !!this.client;
   }
 
-  // Search lock management
+  // Search lock helpers
   //
-  // The lock doubles as the UI's "search busy" signal. It is a mutex, so it has
-  // exactly one holder and its two transitions are the only edges there are -
-  // no separate flag and no owner counting. Every path that starts an aMule
-  // search takes it, so the search box greys for exactly the moments a user
-  // search would be refused.
-  acquireSearchLock() {
-    if (this.searchInProgress) {
-      return false;
-    }
-    this.searchInProgress = true;
-    this._broadcastSearchLock(true);
-    return true;
-  }
-
-  releaseSearchLock() {
-    if (!this.searchInProgress) return;
-    this.searchInProgress = false;
-    this._broadcastSearchLock(false);
-  }
-
-  /** Tell the clients that may search about the slot changing hands. */
-  _broadcastSearchLock(locked) {
-    this.broadcast?.({ type: 'search-lock', locked }, {
-      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
-    });
-  }
+  // The mutex itself (acquire/release/isSearchInProgress) lives in
+  // BaseClientManager, shared by every searchable client. It doubles as the
+  // UI's "search busy" signal: one holder, two transitions, no separate flag or
+  // owner counting. The helpers below build a waiting / scoped acquire on top of
+  // it for aMule's single ed2k search slot, where every path that starts a
+  // search must hold it so the search box greys exactly when a search would be
+  // refused.
 
   /**
    * Acquire the search lock, waiting for it rather than failing immediately.
@@ -295,9 +275,6 @@ class AmuleManager extends BaseClientManager {
     }
   }
 
-  isSearchInProgress() {
-    return this.searchInProgress;
-  }
 
   // ============================================================================
   // SHARED FILES AUTO-RELOAD SCHEDULER
@@ -711,29 +688,9 @@ class AmuleManager extends BaseClientManager {
    * @returns {Object} Normalized metadata for history DB
    */
   extractHistoryMetadata(item) {
-    const downloaded = item.downloaded || 0;
-    const uploaded = item.transferredTotal || item.transferred || 0;
-    const size = item.size || 0;
-    // For shared files (no progress field), downloaded = size
-    const isSharedFile = item.progress === undefined;
-    const effectiveDownloaded = isSharedFile ? size : downloaded;
-    const ratio = effectiveDownloaded > 0 ? uploaded / effectiveDownloaded : 0;
-    // aMule's path is the directory containing the file — only useful if absolute
-    const directory = item.path && item.path.startsWith('/') ? item.path : null;
-
-    return {
-      hash: item.hash?.toLowerCase(),
-      instanceId: item.instanceId,
-      size,
-      name: item.name,
-      downloaded: effectiveDownloaded,
-      uploaded,
-      ratio,
-      trackerDomain: null,
-      directory,
-      multiFile: false,
-      category: null // filled from unified items categoryByKey lookup
-    };
+    // Single-file, source-based shape shared with Rucio; aMule's uploaded total
+    // lives on transferredTotal/transferred.
+    return this.sourceBasedHistoryMetadata(item, item.transferredTotal || item.transferred || 0);
   }
 
   // ============================================================================

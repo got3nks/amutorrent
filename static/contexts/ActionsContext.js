@@ -11,6 +11,7 @@ import { useSearch } from './SearchContext.js';
 import { useStaticData } from './StaticDataContext.js';
 import { useWebSocketConnection } from './WebSocketContext.js';
 import { extractEd2kLinks } from '../utils/index.js';
+import { resolveServingInstanceId } from '../utils/searchInstance.js';
 
 const { createElement: h } = React;
 
@@ -30,13 +31,22 @@ const useWebSocketActions = () => {
     searchType,
     searchDownloadCategory,
     searchInstanceId,
+    searchResultsInstanceId,
     clearSearchError,
     setSearchLocked,
     setSearchResults,
     setSearchPreviousResults,
-    setSearchError
+    setSearchError,
+    setSearchInstanceId
   } = useSearch();
-  const { setDataDownloadedFiles, lastEd2kWasServerListRef } = useStaticData();
+  const { setDataDownloadedFiles, lastEd2kWasServerListRef, instances } = useStaticData();
+
+  // Resolve which instance a search should target: the one serving the selected
+  // search source. Shares one helper with the search-lock greying (SearchContext)
+  // so the instance a search dispatches to and the instance the box greys for
+  // can't drift. Returns null when none is connected (the handler then surfaces a
+  // clear error).
+  const resolveSearchInstanceId = () => resolveServingInstanceId(instances, searchType, searchInstanceId);
 
   // ============================================================================
   // CATEGORY MANAGEMENT
@@ -121,11 +131,12 @@ const useWebSocketActions = () => {
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     clearSearchError();
-    setSearchLocked(true); // Lock immediately to show "Searching..." state
     setSearchPreviousResults([]); // Clear previous results when starting new search
 
-    // Prowlarr uses REST API instead of WebSocket
+    // Prowlarr uses REST API instead of WebSocket, so it never broadcasts a
+    // search lock — it holds and releases its own key around the fetch.
     if (searchType === 'prowlarr') {
+      setSearchLocked(true, 'prowlarr'); // show "Searching..." state
       try {
         const response = await fetch('/api/prowlarr/search', {
           method: 'POST',
@@ -150,25 +161,39 @@ const useWebSocketActions = () => {
       } catch (err) {
         setSearchError(`Prowlarr search failed: ${err.message}`);
       } finally {
-        setSearchLocked(false);
+        setSearchLocked(false, 'prowlarr');
       }
       return;
     }
 
+    // Target the instance matching the selected source's client type, and
+    // persist it so the follow-up batch download routes to the same instance.
+    const targetInstanceId = resolveSearchInstanceId();
+    if (targetInstanceId && targetInstanceId !== searchInstanceId) {
+      setSearchInstanceId(targetInstanceId);
+    }
+    // Lock the serving instance optimistically; the server echoes the lock for
+    // the same instance and clears it when the search finishes. With no resolved
+    // instance, skip the optimistic hold and let the server's broadcast drive it,
+    // so no orphan key can linger.
+    if (targetInstanceId) setSearchLocked(true, targetInstanceId);
     sendMessage({
       action: 'search',
       query: searchQuery,
       type: searchType,
       extension: null,
-      ...(searchInstanceId && { instanceId: searchInstanceId })
+      ...(targetInstanceId && { instanceId: targetInstanceId })
     });
   };
 
   const handleBatchDownload = (fileHashes, categoryName = null) => {
     const downloadCategory = categoryName !== null ? categoryName : searchDownloadCategory;
-    // Send category name to backend - it will look up the aMule ID if needed
-    const targetInstance = searchInstanceId || 'amule';
-    sendMessage({ action: 'batchDownloadSearchResults', fileHashes, categoryName: downloadCategory, ...(searchInstanceId && { instanceId: searchInstanceId }) });
+    // Route to the instance that PRODUCED the displayed results, not the current
+    // source selection (which changes when the source button changes). Falls back
+    // to the selection, then aMule, when no producer was recorded.
+    const resultsInstance = searchResultsInstanceId || searchInstanceId || null;
+    const targetInstance = resultsInstance || 'amule';
+    sendMessage({ action: 'batchDownloadSearchResults', fileHashes, categoryName: downloadCategory, ...(resultsInstance && { instanceId: resultsInstance }) });
     setDataDownloadedFiles(prev => {
       const next = new Map(prev);
       fileHashes.forEach(h => {
@@ -181,7 +206,15 @@ const useWebSocketActions = () => {
   };
 
   const handleAddEd2kLinks = (input, categoryName = 'Default', isServerList = false, instanceId = null) => {
-    const links = extractEd2kLinks(input);
+    // Extract using the schemes the connected ed2k-path (non-tracker) clients
+    // accept, so a new network's scheme isn't dropped here. Fall back to the
+    // defaults when nothing's connected yet.
+    const ed2kSchemes = [...new Set(
+      Object.values(instances || {})
+        .filter(i => i.connected && !i.capabilities?.trackers)
+        .flatMap(i => i.capabilities?.linkSchemes || [])
+    )];
+    const links = extractEd2kLinks(input, ed2kSchemes.length ? ed2kSchemes : undefined);
 
     if (links.length === 0) {
       addAppError('No valid ED2K links found');

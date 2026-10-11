@@ -123,7 +123,10 @@ function applyDownloadData(item, download, categoryManager = null) {
     item.eta = null;
   }
 
-  if (clientMeta.isEd2k(download.clientType)) {
+  if (!clientMeta.hasCapability(download.clientType, 'trackers')) {
+    // Source-based shape (no trackers → aMule, Rucio): sources, category id +
+    // name, single-file, a copy/export link. Keyed off the capability, not the
+    // network type, so a new source-based network needs no edit here.
     // Organization
     item.categoryId = download.category ?? item.categoryId;
     item.category = download.categoryName || item.category;
@@ -167,10 +170,11 @@ function applyDownloadData(item, download, categoryManager = null) {
       }
     }
 
-    // Links
-    item.ed2kLink = download.ed2kLink || item.ed2kLink;
-  } else if (clientMeta.isBittorrent(download.clientType)) {
-    // BitTorrent clients (rtorrent, qbittorrent) — all items are always shared/seeding
+    // Links — neutral field; the normalizer supplies `link` (ed2k:// or rucio:).
+    // `ed2kLink` is still read as a fallback for aMule's normalizer.
+    item.link = download.link || download.ed2kLink || item.link;
+  } else {
+    // Torrent shape (has trackers → BitTorrent): all items are always shared/seeding
     item.shared = true;
 
     // Determine seeding status from clientMeta
@@ -221,6 +225,15 @@ function applyDownloadData(item, download, categoryManager = null) {
     item.addedAt = download.startedTime && download.startedTime > 0 ? download.startedTime : null;
   }
 
+  // Seeding for source-based clients (aMule/Rucio) is "download complete" — they
+  // seed/share the file the moment it finishes, with no seedingStatuses list.
+  // BitTorrent decides seeding in its branch above, from statusText. Capability-
+  // driven so a completed Rucio download reads as seeding even before it shows
+  // up in the shared-files list.
+  if (clientMeta.hasCapability(download.clientType, 'seedsCompletedFiles') && item.complete) {
+    item.seeding = true;
+  }
+
   // Copy embedded peers array (aMule download sources, or any client that embeds peers)
   if (Array.isArray(download.peers)) {
     for (const peer of download.peers) {
@@ -247,9 +260,10 @@ function applySharedData(item, sharedFile) {
     item.uploadSpeed = sharedFile.uploadSpeed;
   }
 
-  if (clientMeta.isEd2k(sharedFile.clientType)) {
-    // aMule shared files are completed downloads - mark them as such
-    // (unless already set by applyDownloadData for files still downloading)
+  if (clientMeta.hasCapability(sharedFile.clientType, 'sharedMeansComplete')) {
+    // Clients where a shared file is a complete file (aMule, Rucio) — the
+    // capability exists for exactly this. Mark it complete/seeding unless
+    // applyDownloadData already set it for a file still downloading.
     if (!item.downloading) {
       item.progress = 100;
       item.complete = true;
@@ -282,10 +296,10 @@ function applySharedData(item, sharedFile) {
     item.comment = sharedFile.comment ?? item.comment ?? '';
     item.rating = sharedFile.rating ?? item.rating ?? 0;
 
-    // Links
-    item.ed2kLink = sharedFile.ed2kLink || item.ed2kLink;
+    // Links — neutral field (ed2k:// for aMule, rucio: magnet for Rucio).
+    item.link = sharedFile.link || sharedFile.ed2kLink || item.link;
 
-    // Store file path for aMule shared files (needed for delete permission checks)
+    // Store the on-disk file path (aMule + Rucio shared files) for delete checks.
     if (sharedFile.path) {
       item.filePath = sharedFile.path;
     }

@@ -39,7 +39,6 @@ const UploadsView = () => {
       instanceId: item.instanceId,
       client: item.client,
       tracker: item.tracker,
-      categoryId: item.networkType === 'ed2k' ? (item.categoryId ?? 0) : undefined,
       category: item.category,
       parentItem: item,
       parentHash: item.hash
@@ -62,8 +61,7 @@ const UploadsView = () => {
     // Client/Category filter
     unifiedFilter,
     setUnifiedFilter,
-    hasBittorrent: hasBittorrentUploads,
-    hasAmule: hasAmuleUploads,
+    presentNetworks: uploadNetworks,
     // Tracker filter (array)
     trackerFilters,
     toggleTrackerFilter,
@@ -309,7 +307,7 @@ const UploadsView = () => {
         mobileHeaderContent
       ),
       // Filter row (filter button + inline pills)
-      (showTrackerFilter || hasAmuleUploads || hasBittorrentUploads) && h('div', {
+      (showTrackerFilter || uploadNetworks.length > 0) && h('div', {
         className: 'flex items-center gap-1.5 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto',
         style: { scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }
       },
@@ -410,7 +408,7 @@ const UploadsView = () => {
     // ========================================================================
     FileInfoElement,
 
-    (showTrackerFilter || hasAmuleUploads || hasBittorrentUploads) && h(MobileFilterSheet, {
+    (showTrackerFilter || uploadNetworks.length > 0) && h(MobileFilterSheet, {
       show: mobileFilters.showFilterSheet,
       onClose: () => mobileFilters.setShowFilterSheet(false),
       onApply: mobileFilters.handleFilterSheetApply,

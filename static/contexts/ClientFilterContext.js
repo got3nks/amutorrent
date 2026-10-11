@@ -138,16 +138,17 @@ export const ClientFilterProvider = ({ children }) => {
         // Disable all of this type
         for (const id of typeIds) next.add(id);
 
-        // Safety: don't disable ALL connected instances — enable the other type
+        // Never leave nothing visible. If hiding this type would disable every
+        // connected instance, show all the OTHER networks instead (generic over
+        // any number of networks). If this is the only connected network, keep
+        // it (there's nothing else to switch to).
         const allConnectedIds = Object.entries(instances)
           .filter(([, inst]) => inst.connected)
           .map(([id]) => id);
         if (allConnectedIds.every(id => next.has(id))) {
-          const otherType = networkType === 'ed2k' ? 'bittorrent' : 'ed2k';
-          const otherIds = Object.entries(instances)
-            .filter(([, inst]) => inst.networkType === otherType && inst.connected)
-            .map(([id]) => id);
-          for (const id of otherIds) next.delete(id);
+          const otherIds = allConnectedIds.filter(id => !typeIds.includes(id));
+          if (otherIds.length === 0) return prev; // only this network — can't hide it
+          for (const id of otherIds) next.delete(id); // reveal the others
         }
       } else {
         // Enable all of this type
@@ -195,18 +196,30 @@ export const ClientFilterProvider = ({ children }) => {
     });
   }, [disabledInstances]);
 
-  // Derived: is network type enabled (any connected instance of that type is not disabled)
-  const isEd2kEnabled = useMemo(() => {
+  // Derived: is a network type enabled (any connected instance of that type is
+  // not disabled). Generic over network type so it works for ed2k, rucio,
+  // bittorrent, or any future network.
+  const isNetworkTypeEnabled = useCallback((networkType) => {
     return Object.entries(instances).some(([id, inst]) =>
-      inst.networkType === 'ed2k' && inst.connected && !disabledInstances.has(id)
+      inst.networkType === networkType && inst.connected && !disabledInstances.has(id)
     );
   }, [instances, disabledInstances]);
 
-  const isBittorrentEnabled = useMemo(() => {
-    return Object.entries(instances).some(([id, inst]) =>
-      inst.networkType === 'bittorrent' && inst.connected && !disabledInstances.has(id)
-    );
-  }, [instances, disabledInstances]);
+  // All network types that currently have a connected instance. The generic
+  // list the UI should branch on — a new network appears here automatically.
+  const connectedNetworks = useMemo(() => {
+    const seen = new Set();
+    for (const inst of Object.values(instances)) {
+      if (inst.connected) seen.add(inst.networkType);
+    }
+    return Array.from(seen);
+  }, [instances]);
+
+  // Back-compat convenience booleans for ed2k/bittorrent (still consumed by
+  // aMule/BitTorrent-specific UI — the stats tree, the tracker filter). New,
+  // network-agnostic code uses connectedNetworks + isNetworkTypeEnabled instead.
+  const isEd2kEnabled = useMemo(() => isNetworkTypeEnabled('ed2k'), [isNetworkTypeEnabled]);
+  const isBittorrentEnabled = useMemo(() => isNetworkTypeEnabled('bittorrent'), [isNetworkTypeEnabled]);
 
   // Memoize context value
   const value = useMemo(() => ({
@@ -223,13 +236,19 @@ export const ClientFilterProvider = ({ children }) => {
     ed2kConnected,
     bittorrentConnected,
 
-    // Convenience booleans: user preference AND connected
+    // Generic, network-agnostic view of enablement
+    connectedNetworks,
+    isNetworkTypeEnabled,
+    // Every connected network has at least one enabled instance
+    allClientsEnabled: connectedNetworks.every(nt => isNetworkTypeEnabled(nt)),
+
+    // Convenience booleans: user preference AND connected (ed2k/bittorrent only)
     isEd2kEnabled,
-    isBittorrentEnabled,
-    allClientsEnabled: isEd2kEnabled && isBittorrentEnabled
+    isBittorrentEnabled
   }), [toggleNetworkType, filterByEnabledClients,
     disabledInstances, toggleInstance, isInstanceEnabled,
-    ed2kConnected, bittorrentConnected, isEd2kEnabled, isBittorrentEnabled]);
+    ed2kConnected, bittorrentConnected, connectedNetworks,
+    isEd2kEnabled, isBittorrentEnabled, isNetworkTypeEnabled]);
 
   return h(ClientFilterContext.Provider, { value }, children);
 };

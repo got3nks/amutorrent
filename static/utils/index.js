@@ -80,6 +80,7 @@ export {
   PROGRESS_STRIPES_STYLE,
   CLIENT_NAMES,
   NETWORK_TYPE_LABELS,
+  CLIENT_NETWORK_TYPES,
   UPLOAD_STATE_LABELS
 } from './constants.js';
 
@@ -135,9 +136,7 @@ export {
   getStatusBarColor,
   isActiveStatus,
   formatSourceDisplay,
-  hasBittorrentItems,
-  hasRtorrentItems, // Legacy alias
-  hasAmuleItems,
+  presentNetworkTypes,
   filterByClient,
   filterByUnifiedFilter,
   buildUnifiedFilterOptions,

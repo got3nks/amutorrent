@@ -136,6 +136,7 @@ const HomeView = () => {
   // Get client chart configuration from hook
   const {
     isLoading: clientConfigLoading,
+    networks,
     showBothCharts,
     showSingleClient,
     singleNetworkType,
@@ -206,61 +207,36 @@ const HomeView = () => {
               )
             ),
 
-            // BOTH CLIENTS: aMule Speed Chart
-            showBothCharts && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: 'ed2k', size: 16 }),
-                  'aMule Speed (24h)'
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.speedData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
+            // BOTH/MULTI NETWORK: one speed chart per connected network
+            // (aMule / Rucio / BitTorrent). Half-width tiles wrap as needed.
+            ...(showBothCharts ? networks.map(n =>
+              h('div', { key: `home-speed-${n.type}`, className: 'col-span-6 md:col-span-3' },
+                h(DashboardChartWidget, {
+                  title: h('span', { className: 'flex items-center gap-2' },
+                    h(ClientIcon, { clientType: n.type, size: 16 }),
+                    `${n.name} Speed (24h)`
+                  ),
+                  height: '200px'
+                },
+                  shouldRenderCharts && dashboardState.speedData
+                    ? h(Suspense, {
+                        fallback: h('div', {
+                          className: 'h-full flex items-center justify-center'
+                        },
+                          h(LoadingSpinner, { size: 'sm' })
+                        )
                       },
-                        h(LoadingSpinner, { size: 'sm' })
+                        h(ClientSpeedChart, {
+                          speedData: dashboardState.speedData,
+                          networkType: n.type,
+                          theme,
+                          historicalRange: '24h'
+                        })
                       )
-                    },
-                      h(ClientSpeedChart, {
-                        speedData: dashboardState.speedData,
-                        networkType: 'ed2k',
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
+                    : h('div', { className: 'h-full' })
+                )
               )
-            ),
-
-            // BOTH CLIENTS: BitTorrent Speed Chart (aggregated rtorrent + qbittorrent)
-            showBothCharts && h('div', { className: 'col-span-6 md:col-span-3' },
-              h(DashboardChartWidget, {
-                title: h('span', { className: 'flex items-center gap-2' },
-                  h(ClientIcon, { clientType: 'bittorrent', size: 16 }),
-                  'BitTorrent Speed (24h)'
-                ),
-                height: '200px'
-              },
-                shouldRenderCharts && dashboardState.speedData
-                  ? h(Suspense, {
-                      fallback: h('div', {
-                        className: 'h-full flex items-center justify-center'
-                      },
-                        h(LoadingSpinner, { size: 'sm' })
-                      )
-                    },
-                      h(ClientSpeedChart, {
-                        speedData: dashboardState.speedData,
-                        networkType: 'bittorrent',
-                        theme,
-                        historicalRange: '24h'
-                      })
-                    )
-                  : h('div', { className: 'h-full' })
-              )
-            ),
+            ) : []),
 
             // SINGLE CLIENT: Speed Chart
             showSingleClient && h('div', { className: 'col-span-6 md:col-span-3' },

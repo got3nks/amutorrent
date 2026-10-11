@@ -15,6 +15,7 @@ import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useWebSocketConnection } from '../contexts/WebSocketContext.js';
 import DeleteModal from '../components/common/DeleteModal.js';
 import { itemKey, parseItemKey } from '../utils/itemKey.js';
+import { classifyDeleteItem } from '../utils/itemActionPolicy.js';
 
 const { createElement: h } = React;
 
@@ -166,11 +167,12 @@ export const useViewDeleteModal = ({
     return () => removeMessageHandler(handlePermissions);
   }, [addMessageHandler, removeMessageHandler]);
 
-  // A shared file its client can't unshare is only removed by deleting it.
-  const mustDeleteFiles = useCallback((item) => {
-    const caps = getCapabilities(item.instanceId);
-    return !!(caps.removeSharedMustDeleteFiles && item.shared && !item.downloading);
-  }, [getCapabilities]);
+  // A shared file its client can't unshare is only removed by deleting it — the
+  // 'shared' bucket of the shared delete classifier (itemActionPolicy).
+  const mustDeleteFiles = useCallback(
+    (item) => classifyDeleteItem(getCapabilities(item.instanceId), item) === 'shared',
+    [getCapabilities]
+  );
 
   // Capability-driven flags for the items being deleted
   const { hasSharedFiles, hasAutoDeleteItems, hasNonAutoDeleteItems } = useMemo(() => {
@@ -179,28 +181,37 @@ export const useViewDeleteModal = ({
       ? deleteModal.fileHash
       : [deleteModal.fileHash];
     let shared = false, autoDelete = false, nonAutoDelete = false;
+    // Classify each item the way the server does (itemActionPolicy mirrors
+    // lib/sharedFilePolicy): a shared file on a client that can't just unshare it
+    // is always deleted from disk; a cancel only discards an UNFINISHED download's
+    // partial; anything else (a completed download, Rucio included) needs the
+    // explicit "delete files" option and a permission check.
+    const classify = (item) => {
+      switch (classifyDeleteItem(getCapabilities(item.instanceId), item)) {
+        case 'shared': shared = true; break;
+        case 'autoClean': autoDelete = true; break;
+        default: nonAutoDelete = true;
+      }
+    };
     if (deleteModal.isBatch) {
       const keySet = new Set(fileHashes);
       for (const d of dataArray) {
         if (!keySet.has(itemKey(d.instanceId, d.hash))) continue;
-        const caps = getCapabilities(d.instanceId);
-        if (mustDeleteFiles(d)) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
+        classify(d);
       }
     } else {
       const item = dataArray.find(d => d.hash === fileHashes[0] && (!deleteModal.instanceId || d.instanceId === deleteModal.instanceId));
-      if (item) {
-        const caps = getCapabilities(item.instanceId);
-        if (mustDeleteFiles(item)) shared = true;
-        if (caps.cancelDeletesFiles) autoDelete = true;
-        else nonAutoDelete = true;
-      }
+      if (item) classify(item);
     }
     return { hasSharedFiles: shared, hasAutoDeleteItems: autoDelete, hasNonAutoDeleteItems: nonAutoDelete };
-  }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities, mustDeleteFiles]);
+  }, [deleteModal.show, deleteModal.fileHash, deleteModal.isBatch, deleteModal.instanceId, dataArray, getCapabilities]);
 
-  // Determine source type based on items (auto-detect shared vs downloads)
+  // Determine source type based on items (auto-detect shared vs downloads). Only
+  // a must-delete shared file (removeSharedMustDeleteFiles) counts as 'shared':
+  // that tag steers the aMule server branch, and a mixed batch would otherwise
+  // mark a sibling partfile shared and skip its cancel. Rucio ignores the tag —
+  // deleteItem decides from its own share list — so dropping Rucio shares from it
+  // changes nothing for Rucio and avoids mis-tagging aMule items.
   const sourceType = useMemo(() => {
     if (!deleteModal.show) return 'downloads';
     return hasSharedFiles ? 'shared' : 'downloads';

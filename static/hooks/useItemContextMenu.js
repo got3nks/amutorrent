@@ -10,6 +10,7 @@ import { getItemStatusInfo, getExportLink, getExportLinkLabel } from '../utils/i
 import { itemKey } from '../utils/itemKey.js';
 import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useCapabilities } from './useCapabilities.js';
+import { canMoveItem } from '../utils/itemActionPolicy.js';
 
 /**
  * Hook for building context menu items and handlers
@@ -102,10 +103,10 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Move to... (gated on ownership + edit_downloads capability)
-    // Hide for clients that can't relocate active downloads (e.g., aMule temp files)
-    const canMoveItem = caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading);
-    if (onMoveTo && canMoveItem && hasCap('edit_downloads') && canMutate && status.key !== 'moving') {
+    // Move to... (gated on ownership + edit_downloads capability). The movable
+    // decision — client can relocate files at all, and the item is in a movable
+    // state — lives in itemActionPolicy so the hooks and tests share one rule.
+    if (onMoveTo && canMoveItem(caps, item) && hasCap('edit_downloads') && canMutate && status.key !== 'moving') {
       menuItems.push({
         label: 'Move to...',
         icon: 'folderOpen',
@@ -153,8 +154,11 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Rename (only for clients with renameFile capability, gated on ownership)
-    if (onRename && caps.renameFile && hasCap('rename_files') && canMutate) {
+    // Rename (only for clients with renameFile capability, gated on ownership).
+    // Some clients (Rucio) can only rename a download that's still in progress,
+    // not a completed/shared file — hide it for those via the capability.
+    if (onRename && caps.renameFile && hasCap('rename_files') && canMutate &&
+        (!caps.renameRequiresActiveDownload || !item.complete)) {
       menuItems.push({
         label: 'Rename',
         icon: 'edit',
@@ -179,9 +183,10 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Export link (read-only action, not gated on ownership)
+    // Export link (read-only action, not gated on ownership). getExportLink
+    // resolves the neutral `item.link` (ed2k:// or rucio:) or a BitTorrent magnet.
     if (onCopyLink) {
-      const hasExportLink = isBittorrent || !!item.ed2kLink || !!getExportLink(item);
+      const hasExportLink = isBittorrent || !!getExportLink(item);
       const isCopied = copiedHash === item.hash;
       const linkLabel = getExportLinkLabel(item);
 

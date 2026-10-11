@@ -12,6 +12,7 @@
 const BaseModule = require('./BaseModule');
 const logger = require('./logger');
 const { TRACKER_REFRESH_INTERVAL, TRACKER_REFRESH_SCOPE, hasDemand } = require('./refreshPolicy');
+const { parseEd2kLink } = require('./torrentUtils');
 
 class BaseClientManager extends BaseModule {
   constructor() {
@@ -42,6 +43,38 @@ class BaseClientManager extends BaseModule {
     this._trackerRefreshTimer = null;
     this._trackerRefreshIntervalMs = TRACKER_REFRESH_INTERVAL;
     this._trackerRefreshScope = TRACKER_REFRESH_SCOPE;
+
+    // One search at a time per client (the search box greys while held).
+    this._searchInProgress = false;
+  }
+
+  // ============================================================================
+  // SEARCH LOCK (one search at a time per client; shared by searchable managers)
+  // ============================================================================
+
+  /** Take the lock, or false if a search is already running. */
+  acquireSearchLock() {
+    if (this._searchInProgress) return false;
+    this._searchInProgress = true;
+    this._broadcastSearchLock(true);
+    return true;
+  }
+
+  releaseSearchLock() {
+    if (!this._searchInProgress) return;
+    this._searchInProgress = false;
+    this._broadcastSearchLock(false);
+  }
+
+  /** Tell the clients that may search about the slot changing hands. */
+  _broadcastSearchLock(locked) {
+    this.broadcast?.({ type: 'search-lock', locked, instanceId: this.instanceId }, {
+      filter: u => u?.isAdmin || u?.capabilities?.includes('search')
+    });
+  }
+
+  isSearchInProgress() {
+    return !!this._searchInProgress;
   }
 
   // ============================================================================
@@ -182,6 +215,51 @@ class BaseClientManager extends BaseModule {
     } catch (err) {
       logger.warn(`[${this.clientType}] Failed to track deletion:`, err.message);
     }
+  }
+
+  /**
+   * Shared `extractHistoryMetadata` default for single-file, source-based clients
+   * (aMule, Rucio): no trackers, one file per item. A shared file (no `progress`
+   * field) counts as fully downloaded; the directory is the item's path when
+   * absolute. The caller passes the uploaded total, which each client names
+   * differently.
+   * @param {Object} item - raw download/shared-file item
+   * @param {number} uploaded - bytes uploaded for this item
+   * @returns {Object} history-DB metadata
+   */
+  sourceBasedHistoryMetadata(item, uploaded = 0) {
+    const size = item.size || 0;
+    const isSharedFile = item.progress === undefined;
+    const downloaded = isSharedFile ? size : (item.downloaded || 0);
+    const ratio = downloaded > 0 ? uploaded / downloaded : 0;
+    const directory = item.path && item.path.startsWith('/') ? item.path : null;
+    return {
+      hash: item.hash?.toLowerCase(),
+      instanceId: item.instanceId,
+      size,
+      name: item.name,
+      downloaded,
+      uploaded,
+      ratio,
+      trackerDomain: null,
+      directory,
+      multiFile: false,
+      category: null // filled from the unified items' categoryByKey lookup
+    };
+  }
+
+  /**
+   * Pull the content hash out of a link this client handles, so generic code
+   * (e.g. recording ownership) never has to know a specific network's scheme.
+   * The default reads an ed2k MD4 (ed2k://|file|name|size|<32-hex>|/) via the
+   * field-based parseEd2kLink, which keys the hash off its position after the
+   * numeric size — so a 32-hex file name isn't mistaken for the hash. A manager
+   * with other link shapes overrides this.
+   * @param {string} link
+   * @returns {string|null} lower-cased hash, or null
+   */
+  hashFromLink(link) {
+    return parseEd2kLink(link).hash;
   }
 
   // ============================================================================

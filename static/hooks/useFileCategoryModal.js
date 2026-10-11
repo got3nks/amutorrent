@@ -12,6 +12,7 @@ import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useAppState } from '../contexts/AppStateContext.js';
 import { useWebSocketConnection } from '../contexts/WebSocketContext.js';
 import { itemKey } from '../utils/itemKey.js';
+import { clientCanMoveFiles } from '../utils/itemActionPolicy.js';
 
 const { createElement: h } = React;
 
@@ -128,6 +129,9 @@ export const useFileCategoryModal = ({ onSubmit, getSelectedHashes, dataArray })
     let autoMove = false, optionalMove = false, forced = false;
     for (const item of modalState.items) {
       const caps = getCapabilities(item.instanceId);
+      // A client that can't relocate a file (Rucio) only ever changes the
+      // category in place — it never contributes a move to the modal.
+      if (!clientCanMoveFiles(caps)) continue;
       if (caps.moveSharedForCategoryChange && item.shared && !item.downloading) {
         forced = true;    // shared files must be physically moved for category change
       } else if (caps.categoryChangeAutoMoves) {
@@ -153,6 +157,7 @@ export const useFileCategoryModal = ({ onSubmit, getSelectedHashes, dataArray })
     // Handles multi-instance: each item's instanceId resolves its own path mapping
     return items.some(item => {
       const caps = getCapabilities(item.instanceId);
+      if (!clientCanMoveFiles(caps)) return false; // can't relocate a file — never show Move
       const clientType = item.client;
       const instanceId = item.instanceId;
       const needsManualMove = caps.moveSharedForCategoryChange && item.shared && !item.downloading;
@@ -200,6 +205,7 @@ export const useFileCategoryModal = ({ onSubmit, getSelectedHashes, dataArray })
     // Get items that need move — items where client doesn't auto-move, or shared files needing manual move
     const moveItems = modalState.items.filter(item => {
       const caps = getCapabilities(item.instanceId);
+      if (!clientCanMoveFiles(caps)) return false; // can't relocate a file
       const needsManualMove = caps.moveSharedForCategoryChange && item.shared && !item.downloading;
       return !caps.categoryChangeAutoMoves || needsManualMove;
     });

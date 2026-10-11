@@ -10,6 +10,7 @@ import FileMoveModal from '../components/modals/FileMoveModal.js';
 import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useWebSocketConnection } from '../contexts/WebSocketContext.js';
 import { itemKey } from '../utils/itemKey.js';
+import { clientCanMoveFiles } from '../utils/itemActionPolicy.js';
 
 const { createElement: h } = React;
 
@@ -83,12 +84,16 @@ export const useFileMoveModal = ({ getSelectedHashes, dataArray }) => {
   // Open modal for batch (selection mode)
   const handleBatchMove = useCallback(() => {
     const selectedKeys = getSelectedHashes();
-    if (!selectedKeys || selectedKeys.size === 0) return;
+    // getSelectedHashes returns an array — guard with .length, not .size.
+    if (!selectedKeys || selectedKeys.length === 0) return;
 
     const items = [];
     for (const key of selectedKeys) {
       const item = dataArray.find(d => itemKey(d.instanceId, d.hash) === key);
-      if (item) {
+      // Skip items whose client can't relocate a file (Rucio): the move would be
+      // refused server-side, so a mixed batch moves only the movable ones and a
+      // Rucio-only selection opens nothing instead of erroring.
+      if (item && clientCanMoveFiles(getCapabilities(item.instanceId))) {
         items.push({ fileHash: item.hash, instanceId: item.instanceId, fileName: item.name });
       }
     }
@@ -103,7 +108,7 @@ export const useFileMoveModal = ({ getSelectedHashes, dataArray }) => {
     });
     setPermissionCheck({ loading: false, canMove: false, error: null, destPath: null });
     lastCheckedPath.current = null;
-  }, [getSelectedHashes, dataArray]);
+  }, [getSelectedHashes, dataArray, getCapabilities]);
 
   const closeModal = useCallback(() => {
     setModalState(prev => ({ ...prev, show: false }));

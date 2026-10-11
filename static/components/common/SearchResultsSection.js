@@ -45,8 +45,8 @@ const SearchResultsSection = ({
 }) => {
   // Get data from contexts
   const { appPage, appPageSize, appSortConfig, setAppPage, setAppPageSize, setAppSortConfig, addAppSuccess } = useAppState();
-  const { dataDownloadedFiles, setDataDownloadedFiles, downloadedAliasRef, dataCategories } = useStaticData();
-  const { searchDownloadCategory, setSearchDownloadCategory, searchInstanceId } = useSearch();
+  const { dataDownloadedFiles, setDataDownloadedFiles, downloadedAliasRef, dataCategories, instances } = useStaticData();
+  const { searchDownloadCategory, setSearchDownloadCategory, searchInstanceId, searchResultsInstanceId } = useSearch();
   const actions = useActions();
   const { hasCap } = useCapabilities();
   const canAddDownloads = hasCap('add_downloads');
@@ -235,12 +235,14 @@ const SearchResultsSection = ({
     });
   }, [isProwlarr, indexerFilter, indexerOptions, resetLoaded]);
 
-  // Count of downloadable (not already downloaded on the selected client) selected items
-  const activeInstanceId = isProwlarr ? selectedClientId : (searchInstanceId || 'amule');
+  // Count of downloadable (not already downloaded) selected items. Keyed on the
+  // instance that PRODUCED the results (where the batch download will go), not the
+  // live source selection, so the "already downloaded" marks and counts match.
+  const activeInstanceId = isProwlarr ? selectedClientId : (searchResultsInstanceId || searchInstanceId || 'amule');
   const downloadableCount = useMemo(() =>
     Array.from(selectedFiles).filter(hash => {
-      const instances = dataDownloadedFiles.get(hash);
-      return !instances || !activeInstanceId || !instances.has(activeInstanceId);
+      const downloadedBy = dataDownloadedFiles.get(hash);
+      return !downloadedBy || !activeInstanceId || !downloadedBy.has(activeInstanceId);
     }).length,
     [selectedFiles, dataDownloadedFiles, activeInstanceId]
   );
@@ -248,8 +250,8 @@ const SearchResultsSection = ({
   // Batch download handler — handles both aMule and Prowlarr results
   const handleBatchDownload = useCallback(async () => {
     const toDownload = Array.from(selectedFiles).filter(hash => {
-      const instances = dataDownloadedFiles.get(hash);
-      return !instances || !activeInstanceId || !instances.has(activeInstanceId);
+      const downloadedBy = dataDownloadedFiles.get(hash);
+      return !downloadedBy || !activeInstanceId || !downloadedBy.has(activeInstanceId);
     });
     if (toDownload.length === 0) {
       clearAllSelections();
@@ -289,9 +291,9 @@ const SearchResultsSection = ({
         setDataDownloadedFiles(prev => {
           const next = new Map(prev);
           prowlarrGuids.forEach(h => {
-            const instances = next.get(h) || new Set();
-            instances.add(selectedClientId || 'unknown');
-            next.set(h, instances);
+            const downloadedBy = next.get(h) || new Set();
+            downloadedBy.add(selectedClientId || 'unknown');
+            next.set(h, downloadedBy);
           });
           return next;
         });
@@ -310,8 +312,12 @@ const SearchResultsSection = ({
   // ============================================================================
   // MOBILE HEADER CONTENT (shared between sticky toolbar and in-page header)
   // ============================================================================
-  // Determine client type for icon (only show if results exist)
-  const clientType = isProwlarr ? 'prowlarr' : 'amule';
+  // Determine client type for the header icon (only shown if results exist) from
+  // the instance that produced the results, so a Rucio search shows the Rucio
+  // icon rather than aMule's. Falls back to aMule only if the producer is unknown.
+  const clientType = isProwlarr
+    ? 'prowlarr'
+    : (searchResultsInstanceId && instances?.[searchResultsInstanceId]?.type) || 'amule';
 
   // Show filter button only for Prowlarr with multiple indexers
   const showMobileFilterButton = isProwlarr && indexerOptions.length > 2;

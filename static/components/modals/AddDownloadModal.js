@@ -8,12 +8,12 @@
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
 import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, AmuleInstanceSelector, PathPicker } from '../common/index.js';
-import { useClientFilter } from '../../contexts/ClientFilterContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
 import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { LINK_SCHEME_LABELS, MAGNET_SCHEME } from '../../utils/constants.js';
 
-const { createElement: h, useState, useRef, useCallback, useEffect } = React;
+const { createElement: h, useState, useRef, useEffect } = React;
 
 /**
  * Add download modal
@@ -32,8 +32,6 @@ const AddDownloadModal = ({
   onClose,
   initialTorrentFiles = []
 }) => {
-  // Get aMule connection status from context
-  const { ed2kConnected: amuleConnected } = useClientFilter();
   // Get BitTorrent client selection state (instance-aware)
   const {
     connectedClients: btClients,
@@ -59,7 +57,6 @@ const AddDownloadModal = ({
     connectedInstances: amuleInstances,
     showSelector: showAmuleSelector,
     selectedId: effectiveAmuleInstance,
-    selectedInstance: selectedAmuleObj,
     selectInstance: selectAmuleInstance
   } = useAmuleInstanceSelector();
 
@@ -81,33 +78,52 @@ const AddDownloadModal = ({
     }
   }, [initialTorrentFiles]);
 
-  // Parse links to determine types
-  const parseLinks = useCallback((text) => {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const ed2kLinks = [];
-    const magnetLinks = [];
-    const invalidLinks = [];
-
-    lines.forEach(line => {
-      if (line.toLowerCase().startsWith('ed2k://')) {
-        ed2kLinks.push(line);
-      } else if (line.toLowerCase().startsWith('magnet:?')) {
-        magnetLinks.push(line);
-      } else if (line.length > 0) {
-        invalidLinks.push(line);
-      }
-    });
-
-    return { ed2kLinks, magnetLinks, invalidLinks };
-  }, []);
-
   // Early return AFTER all hooks are called (React rules of hooks)
   if (!show) return null;
 
-  const { ed2kLinks, magnetLinks, invalidLinks } = parseLinks(links);
+  // Link routing is driven entirely by the instances' `linkSchemes` capability:
+  // classify each pasted line by the scheme it starts with, and in handleSubmit
+  // send each scheme's links to an instance that accepts it. A new scheme needs
+  // no edit here. Schemes an instance's metadata declares are known even while
+  // it is offline, so classification doesn't depend on who is connected.
+  const allInstances = Object.entries(instances || {}).map(([id, i]) => ({ id, ...i }));
+  // magnet: is always known (BitTorrent baseline) so an aMule-only user sees a
+  // magnet line as "(no BitTorrent client)" rather than an invalid link.
+  const knownSchemes = [...new Set([MAGNET_SCHEME, ...allInstances.flatMap(i => i.capabilities?.linkSchemes || [])])];
+  const schemeOf = (line) => knownSchemes.find(s => line.toLowerCase().startsWith(s.toLowerCase())) || null;
+  const connectedAccepting = (scheme) => allInstances.filter(i => i.connected && (i.capabilities?.linkSchemes || []).includes(scheme));
+  // A magnet link, or any scheme served by a tracker (BitTorrent) client, goes
+  // down the magnet path; every other scheme (ed2k://, rucio:, …) down the ed2k
+  // path. magnet is torrent even when no BitTorrent instance is configured.
+  const isTorrentScheme = (scheme) => scheme === MAGNET_SCHEME || allInstances.some(i => (i.capabilities?.linkSchemes || []).includes(scheme) && i.capabilities?.trackers);
 
-  // Check if we can submit
-  const hasEd2kLinks = ed2kLinks.length > 0 && amuleConnected;
+  const ed2kLinks = [], magnetLinks = [], unroutableLinks = [], invalidLinks = [];
+  for (const line of links.split('\n').map(l => l.trim()).filter(Boolean)) {
+    const scheme = schemeOf(line);
+    if (!scheme) { invalidLinks.push(line); continue; }
+    if (isTorrentScheme(scheme)) { magnetLinks.push(line); continue; } // the magnet / BitTorrent path
+    // ed2k-path link: routable only if a connected instance accepts its scheme;
+    // otherwise it can't be added right now (e.g. a rucio: link with Rucio
+    // offline) and is reported rather than silently dropped on submit.
+    if (connectedAccepting(scheme).length > 0) ed2kLinks.push(line);
+    else unroutableLinks.push(line);
+  }
+
+  // Group the ed2k-path links by scheme and resolve the instance each group goes
+  // to (the selected accepting one, else the first) — shared by the summary and
+  // the submit so the two can't describe/route differently.
+  const ed2kGroupsByScheme = () => {
+    const groups = {};
+    for (const link of ed2kLinks) (groups[schemeOf(link)] ||= []).push(link);
+    return groups;
+  };
+  const ed2kTargetFor = (scheme) => {
+    const accepting = connectedAccepting(scheme);
+    return accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0] || null;
+  };
+
+  // Check if we can submit (ed2kLinks are already filtered to routable ones).
+  const hasEd2kLinks = ed2kLinks.length > 0;
   const hasMagnetLinks = magnetLinks.length > 0 && hasBitTorrentClient;
   const hasTorrentFiles = torrentFiles.length > 0 && hasBitTorrentClient;
   const canSubmit = hasEd2kLinks || hasMagnetLinks || hasTorrentFiles;
@@ -135,9 +151,15 @@ const AddDownloadModal = ({
     // Custom save path: only send if user explicitly set one and client supports it
     const effectiveSavePath = (showSavePath && customSavePath && supportsCustomPath) ? customSavePath : null;
 
-    // Add ED2K links if any (send category name - backend resolves to per-instance amuleId)
-    if (ed2kLinks.length > 0 && amuleConnected && onAddEd2kLinks) {
-      onAddEd2kLinks(ed2kLinks, finalCategory, false, effectiveAmuleInstance);
+    // Add ed2k-path links: send each scheme group to the instance that accepts it
+    // (the selected one when it does, else the first) so a rucio: link never lands
+    // on an aMule instance.
+    if (ed2kLinks.length > 0 && onAddEd2kLinks) {
+      for (const [scheme, groupLinks] of Object.entries(ed2kGroupsByScheme())) {
+        const target = ed2kTargetFor(scheme);
+        if (!target) continue;
+        onAddEd2kLinks(groupLinks, finalCategory, false, target.id);
+      }
     }
 
     // Add magnet links if any (pass instanceId + clientType + optional savePath)
@@ -237,19 +259,19 @@ const AddDownloadModal = ({
     const parts = [];
     const finalCategory = getFinalCategory();
     const selectedClientName = selectedClient?.name || 'BitTorrent';
-    const effectiveAmuleName = selectedAmuleObj?.name || 'aMule';
 
+    // Name the instance each ed2k-path scheme group actually goes to (ed2k:// →
+    // aMule, rucio: → Rucio), via the same grouping/target helpers as submit.
     if (ed2kLinks.length > 0) {
-      let ed2kPart = `${ed2kLinks.length} ED2K link${ed2kLinks.length > 1 ? 's' : ''}`;
-      if (!amuleConnected) {
-        ed2kPart += ' (aMule offline)';
-      } else {
-        ed2kPart += ` → ${effectiveAmuleName}`;
+      for (const [scheme, groupLinks] of Object.entries(ed2kGroupsByScheme())) {
+        const target = ed2kTargetFor(scheme);
+        const noun = LINK_SCHEME_LABELS[scheme] || 'Link';
+        let part = `${groupLinks.length} ${noun}${groupLinks.length > 1 ? 's' : ''} → ${target?.name || target?.id || scheme}`;
         if (finalCategory && finalCategory !== 'Default') {
-          ed2kPart += ` (${finalCategory})`;
+          part += ` (${finalCategory})`;
         }
+        parts.push(part);
       }
-      parts.push(ed2kPart);
     }
     // Resolve effective save path: custom override → category path → null
     const effectiveCustomPath = (showSavePath && customSavePath) ? customSavePath : null;
@@ -288,6 +310,9 @@ const AddDownloadModal = ({
           parts.push(prefix);
         }
       }
+    }
+    if (unroutableLinks.length > 0) {
+      parts.push(`${unroutableLinks.length} link${unroutableLinks.length > 1 ? 's' : ''} no connected client accepts`);
     }
     if (invalidLinks.length > 0) {
       parts.push(`${invalidLinks.length} invalid link${invalidLinks.length > 1 ? 's' : ''}`);
@@ -441,10 +466,11 @@ const AddDownloadModal = ({
             );
           })(),
 
-          // aMule instance selector - visible when 2+ aMule instances and ED2K links
+          // Instance selector for the ed2k-path links — visible when 2+
+          // accepting instances (aMule/Rucio) are connected.
           ed2kLinks.length > 0 && h('div', null,
             showAmuleSelector && h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1' },
-              'aMule Instance'
+              'Instance'
             ),
             h(AmuleInstanceSelector, {
               connectedInstances: amuleInstances,
@@ -458,7 +484,8 @@ const AddDownloadModal = ({
           // Category options toggle - only show when content is entered and at least one client is connected
           (() => {
             const hasDownloads = ed2kLinks.length > 0 || magnetLinks.length > 0 || torrentFiles.length > 0;
-            const hasConnectedClient = amuleConnected || hasBitTorrentClient;
+            // Routable ed2k content (hasEd2kLinks is already filtered) or a BT client.
+            const hasConnectedClient = hasEd2kLinks || hasBitTorrentClient;
             const showOptionsSection = hasDownloads && hasConnectedClient;
 
             if (!showOptionsSection) return null;
