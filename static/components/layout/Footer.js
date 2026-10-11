@@ -216,8 +216,8 @@ const Footer = ({ currentView, onOpenAbout }) => {
         // Left: Connection status (scrollable when many clients configured)
         h('div', { className: 'flex items-center gap-1.5 lg:gap-3 min-w-0 overflow-x-auto flex-nowrap', style: { scrollbarWidth: 'none' } },
           // aMule: ED2K and KAD status (only when an actual aMule instance is
-          // connected — other ed2k-networkType clients, e.g. Rucio, render as
-          // their own badge below rather than under the ED2K/KAD headers)
+          // connected — every other client, e.g. Rucio, renders as its own
+          // per-client badge below rather than under the ED2K/KAD headers)
           amuleInsts.length > 0 && h(React.Fragment, null,
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
@@ -232,7 +232,8 @@ const Footer = ({ currentView, onOpenAbout }) => {
           ),
           // Divider between aMule and other per-client status badges
           amuleInsts.length > 0 && btTypes.length > 0 && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
-          // BitTorrent client statuses (dynamic — works for rtorrent, qbittorrent, deluge, etc.)
+          // Per-client status for every non-aMule client, each from its own flat
+          // networkStatus (dynamic — rtorrent, qbittorrent, deluge, Rucio, …)
           ...btTypes.map(type => {
             const { status: st, tooltip } = btStatusMap[type];
             const names = CLIENT_NAMES[type] || { name: type, shortName: type.slice(0, 3) };

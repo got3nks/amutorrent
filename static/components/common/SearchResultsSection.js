@@ -241,8 +241,8 @@ const SearchResultsSection = ({
   const activeInstanceId = isProwlarr ? selectedClientId : (searchResultsInstanceId || searchInstanceId || 'amule');
   const downloadableCount = useMemo(() =>
     Array.from(selectedFiles).filter(hash => {
-      const instances = dataDownloadedFiles.get(hash);
-      return !instances || !activeInstanceId || !instances.has(activeInstanceId);
+      const downloadedBy = dataDownloadedFiles.get(hash);
+      return !downloadedBy || !activeInstanceId || !downloadedBy.has(activeInstanceId);
     }).length,
     [selectedFiles, dataDownloadedFiles, activeInstanceId]
   );
@@ -250,8 +250,8 @@ const SearchResultsSection = ({
   // Batch download handler — handles both aMule and Prowlarr results
   const handleBatchDownload = useCallback(async () => {
     const toDownload = Array.from(selectedFiles).filter(hash => {
-      const instances = dataDownloadedFiles.get(hash);
-      return !instances || !activeInstanceId || !instances.has(activeInstanceId);
+      const downloadedBy = dataDownloadedFiles.get(hash);
+      return !downloadedBy || !activeInstanceId || !downloadedBy.has(activeInstanceId);
     });
     if (toDownload.length === 0) {
       clearAllSelections();
@@ -291,9 +291,9 @@ const SearchResultsSection = ({
         setDataDownloadedFiles(prev => {
           const next = new Map(prev);
           prowlarrGuids.forEach(h => {
-            const instances = next.get(h) || new Set();
-            instances.add(selectedClientId || 'unknown');
-            next.set(h, instances);
+            const downloadedBy = next.get(h) || new Set();
+            downloadedBy.add(selectedClientId || 'unknown');
+            next.set(h, downloadedBy);
           });
           return next;
         });
