@@ -1469,7 +1469,9 @@ class WebSocketHandlers extends BaseModule {
 
   async handleBatchDelete(data, context) {
     try {
-      const { items, deleteFiles, source } = data; // items: Array of { fileHash, clientType, instanceId, fileName }
+      // items: Array of { fileHash, clientType, instanceId, fileName, deleteFiles? }.
+      // A per-item deleteFiles overrides the batch one.
+      const { items, deleteFiles, source } = data;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         throw new Error('No items provided for batch delete');
@@ -1484,6 +1486,7 @@ class WebSocketHandlers extends BaseModule {
 
       const results = [];
       const instanceIdsToRefresh = new Set();
+      const deleteDecisions = new Map();
 
       for (const item of items) {
         // Ownership check: skip items user doesn't own
@@ -1508,13 +1511,18 @@ class WebSocketHandlers extends BaseModule {
 
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
-          // Decide "is it a completed share" through the same policy the delete
-          // pre-check uses, so the two can't disagree; the Shared view also marks
-          // its rows shared even when the cached item is missing.
-          const isShared = isCompletedShare(caps, cachedItem) || (caps.sharedFiles && source === 'shared');
+          // `source` describes the whole batch, so trust it only when the item
+          // isn't cached: a partfile in a batch with shared files is still a
+          // download. When cached, decide through the same isCompletedShare policy
+          // the delete pre-check uses, so the two can't disagree.
+          const isShared = cachedItem
+            ? isCompletedShare(caps, cachedItem)
+            : (!!caps.sharedFiles && source === 'shared');
+          const itemDeleteFiles = typeof item.deleteFiles === 'boolean' ? item.deleteFiles : !!deleteFiles;
+          deleteDecisions.set(itemKey(instanceId, item.fileHash?.toLowerCase()), { isShared, deleteFiles: itemDeleteFiles });
 
           // Build options for deleteItem
-          const opts = { deleteFiles: !!deleteFiles, isShared };
+          const opts = { deleteFiles: itemDeleteFiles, isShared };
           if (isShared && cachedItem?.raw?.path && cachedItem?.name) {
             opts.filePath = path.join(cachedItem.raw.path, cachedItem.rawName || cachedItem.name);
           }
@@ -1578,13 +1586,13 @@ class WebSocketHandlers extends BaseModule {
 
           const resolvedClientType = result.clientType || reqItem?.clientType || ci?.client;
           const caps = resolvedClientType ? clientMeta.get(resolvedClientType)?.capabilities : {};
+          const decision = deleteDecisions.get(itemKey(result.instanceId || reqItem?.instanceId, result.fileHash?.toLowerCase())) || {};
           // A cancel only discards an UNFINISHED download's partial, so an item
           // deleted without `deleteFiles` left the disk alone unless it was still
-          // incomplete — keyed on completeness, like the server's delete decision
-          // (a finished, unshared Rucio download is kept, not reported as wiped).
-          // Require the cached item to know completeness: without it we can't tell,
-          // so only an explicit `deleteFiles` counts as a disk wipe — never guess
-          // "incomplete" and report a wipe that didn't happen.
+          // incomplete — keyed on completeness (a finished, unshared Rucio download
+          // is kept, not reported as wiped). Require the cached item to know
+          // completeness: without it we can't tell, so only an explicit per-item
+          // deleteFiles counts as a wipe — never guess "incomplete".
           const autoCleanedPartial = !!caps?.cancelDeletesFiles && !!ci && !ci.complete;
 
           eventScriptingManager.emit('fileDeleted', {
@@ -1592,7 +1600,7 @@ class WebSocketHandlers extends BaseModule {
             instanceId: result.instanceId || reqItem?.instanceId || null,
             filename: name,
             clientType: resolvedClientType,
-            deletedFromDisk: deleteFiles === true || autoCleanedPartial,
+            deletedFromDisk: decision.deleteFiles === true || autoCleanedPartial,
             category: ci?.category || null,
             path: fullPath,
             multiFile: ci?.multiFile || false,

@@ -167,6 +167,13 @@ export const useViewDeleteModal = ({
     return () => removeMessageHandler(handlePermissions);
   }, [addMessageHandler, removeMessageHandler]);
 
+  // A shared file its client can't unshare is only removed by deleting it — the
+  // 'shared' bucket of the shared delete classifier (itemActionPolicy).
+  const mustDeleteFiles = useCallback(
+    (item) => classifyDeleteItem(getCapabilities(item.instanceId), item) === 'shared',
+    [getCapabilities]
+  );
+
   // Capability-driven flags for the items being deleted
   const { hasSharedFiles, hasAutoDeleteItems, hasNonAutoDeleteItems } = useMemo(() => {
     if (!deleteModal.show) return { hasSharedFiles: false, hasAutoDeleteItems: false, hasNonAutoDeleteItems: false };
@@ -291,7 +298,8 @@ export const useViewDeleteModal = ({
       const keySet = new Set(compoundKeys);
       const items = dataArray
         .filter(d => keySet.has(itemKey(d.instanceId, d.hash)))
-        .map(d => ({ fileHash: d.hash, clientType: d.client, instanceId: d.instanceId, fileName: d.name }));
+        // Per item, so the checkbox only applies to items that offer it.
+        .map(d => ({ fileHash: d.hash, clientType: d.client, instanceId: d.instanceId, fileName: d.name, deleteFiles: deleteFiles || mustDeleteFiles(d) }));
       actions.files.deleteFile(items, null, deleteFiles, sourceType);
       // Clear selections after batch delete
       if (typeof clearAllSelections === 'function') {
@@ -300,10 +308,10 @@ export const useViewDeleteModal = ({
     } else {
       const clientType = deleteModal.clientType;
       const fileName = deleteModal.fileName;
-      actions.files.deleteFile(deleteModal.fileHash, clientType, deleteFiles, sourceType, fileName, deleteModal.instanceId);
+      actions.files.deleteFile(deleteModal.fileHash, clientType, deleteFiles || hasSharedFiles, sourceType, fileName, deleteModal.instanceId);
     }
     closeDeleteModal();
-  }, [deleteModal, actions.files, dataArray, sourceType, closeDeleteModal, clearAllSelections]);
+  }, [deleteModal, actions.files, dataArray, sourceType, closeDeleteModal, clearAllSelections, mustDeleteFiles, hasSharedFiles]);
 
   // Navigate to categories view (for "Edit category mappings" link in warnings)
   const onEditMappings = useCallback(() => {
