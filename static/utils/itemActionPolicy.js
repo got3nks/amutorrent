@@ -50,7 +50,10 @@ export function canMoveItem(caps, item) {
  * @returns {'shared'|'autoClean'|'explicit'}
  */
 export function classifyDeleteItem(caps, item) {
-  if (caps?.removeSharedMustDeleteFiles && item?.shared && !item?.downloading) return 'shared';
+  // A finished aMule file is shared the moment it completes, even before the
+  // shared list catches up (lib/sharedFilePolicy.js deletesAsShare).
+  const finishedShare = !!(caps?.seedsCompletedFiles && item?.complete);
+  if (caps?.removeSharedMustDeleteFiles && (item?.shared || finishedShare) && !item?.downloading) return 'shared';
   if (caps?.cancelDeletesFiles && !item?.complete) return 'autoClean';
   return 'explicit';
 }

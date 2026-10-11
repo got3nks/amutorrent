@@ -989,11 +989,10 @@ describe('itemActionPolicy.classifyDeleteItem — delete classification (2, 5)',
     assert.equal(classifyDeleteItem(amuleCaps, { complete: true, shared: true, downloading: false }), 'shared');
   });
 
-  it('a completed-but-unshared aMule download is now path-checked (accepted change)', () => {
-    // The brief window after an aMule download finishes but before it is shared:
-    // cancel no longer auto-cleans it, so it needs the explicit delete-files
-    // option + permission check (the maintainer accepted this as more correct).
-    assert.equal(classifyDeleteItem(amuleCaps, { complete: true, shared: false }), 'explicit');
+  it('a finished aMule download not yet in the shared list is deleted as a shared file', () => {
+    // aMule shares a file the moment it completes, and cancelling a finished
+    // download is not safe, so it is never offered as a cancel.
+    assert.equal(classifyDeleteItem(amuleCaps, { complete: true, shared: false }), 'shared');
   });
 
   it('an active aMule download still auto-cleans its partial on cancel (unchanged)', () => {

@@ -101,3 +101,78 @@ describe('batch delete', () => {
     assert.equal(callFor('dddd').isShared, true);
   });
 });
+
+// aMule keeps a finished download listed (status PS_COMPLETE) until it is
+// cleared, and shares it at the same time. The unified item keeps the download's
+// raw data, which has no path, so deleting it failed with "File path required".
+describe('deleting a finished aMule download', () => {
+  const { normalizeAmuleDownload, normalizeAmuleSharedFile } = require('../lib/downloadNormalizer');
+  const { assembleUnifiedItems } = require('../lib/unifiedItemBuilder');
+  const { AmuleManager } = require('../modules/amuleManager');
+  const { importStatic } = require('./helpers/importEsm');
+
+  const HASH = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const finishedDownload = () => Object.assign(normalizeAmuleDownload({
+    fileName: 'Finished Sample.avi', rawFileName: 'Finished Sample.avi', fileHash: HASH,
+    fileSize: 10, fileSizeDownloaded: 10, status: 9, ecid: 77, raw: { EC_TAG_PARTFILE_STATUS: 9 }
+  }), { instanceId: AMULE });
+  const sharedEntry = () => Object.assign(normalizeAmuleSharedFile({
+    fileName: 'Finished Sample.avi', rawFileName: 'Finished Sample.avi', fileHash: HASH,
+    fileSize: 10, path: '/incoming', raw: {}
+  }, []), { instanceId: AMULE });
+
+  let cachedItems;
+  beforeEach(() => {
+    calls = [];
+    registry.register(AMULE, 'amule', fakeManager('amule', AMULE));
+    originals.getCachedBatchData = dataFetchService.getCachedBatchData;
+    originals.broadcast = webSocketHandlers.broadcastItemsUpdate;
+    originals.emit = eventScriptingManager.emit;
+    dataFetchService.getCachedBatchData = () => ({ items: cachedItems });
+    webSocketHandlers.broadcastItemsUpdate = async () => {};
+    eventScriptingManager.emit = () => {};
+  });
+
+  afterEach(() => {
+    registry.unregister(AMULE);
+    dataFetchService.getCachedBatchData = originals.getCachedBatchData;
+    webSocketHandlers.broadcastItemsUpdate = originals.broadcast;
+    eventScriptingManager.emit = originals.emit;
+  });
+
+  it('passes the shared file path for a finished download that is also shared', async () => {
+    cachedItems = assembleUnifiedItems([finishedDownload()], [sharedEntry()]);
+    await runDelete({ items: [item(AMULE, HASH, { deleteFiles: true })] });
+    assert.equal(calls[0].isShared, true);
+    assert.equal(calls[0].filePath, '/incoming/Finished Sample.avi');
+  });
+
+  it('never cancels a finished download missing from the shared list yet', async () => {
+    // Cancelling a finished aMule download is not safe; it is refused for lack of a path instead.
+    cachedItems = assembleUnifiedItems([finishedDownload()], []);
+    await runDelete({ items: [item(AMULE, HASH, { deleteFiles: true })] });
+    assert.equal(calls[0].isShared, true);
+    assert.equal(calls[0].filePath, undefined);
+  });
+
+  it('clears the finished entry after deleting its file', async () => {
+    const cleared = [];
+    const m = Object.create(AmuleManager.prototype);
+    Object.assign(m, {
+      trackDeletion() {}, markSharedDeletion() {}, warn() {},
+      client: { clearCompleted: async (ecids) => { cleared.push(...ecids); } },
+      _finishedEcidByHash: new Map([[HASH, 77]])
+    });
+    const res = await m.deleteItem(HASH.toUpperCase(), { deleteFiles: true, isShared: true, filePath: '/incoming/f' });
+    assert.equal(res.success, true);
+    assert.deepEqual(cleared, [77]);
+  });
+
+  it('the delete modal treats it as a shared file', async () => {
+    const { classifyDeleteItem } = await importStatic('utils', 'itemActionPolicy.js');
+    const clientMeta = require('../lib/clientMeta');
+    const caps = clientMeta.get('amule').capabilities;
+    assert.equal(classifyDeleteItem(caps, { complete: true, shared: false, downloading: false }), 'shared');
+    assert.equal(classifyDeleteItem(caps, { complete: false, shared: true, downloading: true }), 'autoClean');
+  });
+});

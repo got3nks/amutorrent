@@ -66,4 +66,17 @@ function clientCanMoveFiles(caps) {
   return !!caps && !caps.noFileMove;
 }
 
-module.exports = { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles };
+/**
+ * Delete this item as a shared file? Also true for a finished file on a client
+ * that shares it the moment it completes (aMule), even before it appears in the
+ * shared list: cancelling a finished aMule download is not safe.
+ * @param {Object} caps
+ * @param {Object} item
+ * @returns {boolean}
+ */
+function deletesAsShare(caps, item) {
+  return isCompletedShare(caps, item) ||
+    !!(caps && caps.sharedFiles && caps.seedsCompletedFiles && item && item.complete && !item.downloading);
+}
+
+module.exports = { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles, deletesAsShare };

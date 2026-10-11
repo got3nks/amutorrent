@@ -489,6 +489,10 @@ class AmuleManager extends BaseClientManager {
     const categoryManager = require('../lib/CategoryManager');
     const resolveCategoryName = (catId) => categoryManager.getCategoryNameByAmuleId(this.instanceId, catId);
     const downloads = rawDownloads.map(d => normalizeAmuleDownload(d, resolveCategoryName));
+    // aMule keeps finished downloads listed until cleared; deleteItem clears them.
+    this._finishedEcidByHash = new Map(downloads
+      .filter(d => d.isComplete && d.ecid != null && d.hash)
+      .map(d => [String(d.hash).toLowerCase(), d.ecid]));
 
     // ── Derive uploading clients (for speed aggregation + peer embedding) ─
     // US_NONE = 8 — filter out clients that aren't uploading
@@ -863,6 +867,12 @@ class AmuleManager extends BaseClientManager {
       }
       this.trackDeletion(hash);
       this.markSharedDeletion(hash);  // suppress upcoming desync false-positive on this hash
+      // Otherwise the finished entry stays listed after its file is gone.
+      const ecid = this._finishedEcidByHash?.get(String(hash).toLowerCase());
+      if (ecid != null && this.client) {
+        await this.client.clearCompleted([ecid]).catch(err =>
+          this.warn(`⚠️ Could not clear the finished entry of ${hash}: ${err.message}`));
+      }
       return { success: true, pathsToDelete: [filePath] };
     }
 

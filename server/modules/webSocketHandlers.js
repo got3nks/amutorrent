@@ -19,7 +19,7 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
-const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles } = require('../lib/sharedFilePolicy');
+const { movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles, deletesAsShare } = require('../lib/sharedFilePolicy');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -1513,19 +1513,20 @@ class WebSocketHandlers extends BaseModule {
         try {
           const caps = clientMeta.get(manager.clientType).capabilities;
           // `source` describes the whole batch, so trust it only when the item
-          // isn't cached: a partfile in a batch with shared files is still a
-          // download. When cached, decide through the same isCompletedShare policy
-          // the delete pre-check uses, so the two can't disagree.
+          // isn't cached: a partfile in a batch with shared files is still a download.
           const isShared = cachedItem
-            ? isCompletedShare(caps, cachedItem)
+            ? deletesAsShare(caps, cachedItem)
             : (!!caps.sharedFiles && source === 'shared');
           const itemDeleteFiles = typeof item.deleteFiles === 'boolean' ? item.deleteFiles : !!deleteFiles;
           deleteDecisions.set(itemKey(instanceId, item.fileHash?.toLowerCase()), { isShared, deleteFiles: itemDeleteFiles });
 
           // Build options for deleteItem
           const opts = { deleteFiles: itemDeleteFiles, isShared };
-          if (isShared && cachedItem?.raw?.path && cachedItem?.name) {
-            opts.filePath = path.join(cachedItem.raw.path, cachedItem.rawName || cachedItem.name);
+          // Same resolver as the delete pre-check. A finished aMule download keeps
+          // its download raw data, which has no path.
+          if (isShared && cachedItem) {
+            const resolved = resolveItemPath(cachedItem);
+            if (resolved) opts.filePath = resolved.remotePath;
           }
 
           const result = await manager.deleteItem(item.fileHash, opts);
