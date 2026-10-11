@@ -52,4 +52,18 @@ function clientManagesDeletion(caps, isComplete) {
   return !!caps.apiDeletesFiles || (!!caps.cancelDeletesFiles && !isComplete);
 }
 
-module.exports = { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion };
+/**
+ * Can this client relocate a file on disk at all? False for a client that
+ * declares `noFileMove` (Rucio: no move API, and moving a file behind the daemon
+ * would break seeding). The single guard the three move paths — the standalone
+ * batch move, the category-change move, and the move pre-check — all share, so a
+ * noFileMove item is refused identically wherever a move is queued. Mirrors the
+ * frontend's clientCanMoveFiles in static/utils/itemActionPolicy.js.
+ * @param {Object} caps - the client's capabilities
+ * @returns {boolean}
+ */
+function clientCanMoveFiles(caps) {
+  return !!caps && !caps.noFileMove;
+}
+
+module.exports = { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles };

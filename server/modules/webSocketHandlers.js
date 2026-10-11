@@ -19,7 +19,7 @@ const { checkPathPermissions, resolveItemPath, resolveCategoryDestPaths } = requ
 const registry = require('../lib/ClientRegistry');
 const clientMeta = require('../lib/clientMeta');
 const { itemKey } = require('../lib/itemKey');
-const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion } = require('../lib/sharedFilePolicy');
+const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles } = require('../lib/sharedFilePolicy');
 const { parseTorrentBuffer } = require('../lib/torrentUtils');
 const geoIPManager = require('./geoIPManager');
 const authManager = require('./authManager');
@@ -1715,7 +1715,7 @@ class WebSocketHandlers extends BaseModule {
           // but never for a client that can't relocate a file (Rucio): the category
           // change above already stands on its own, and a move would throw after the
           // rename and lose the file.
-          if ((moveFiles || movesSharedInsteadOfApi) && !caps.noFileMove) {
+          if ((moveFiles || movesSharedInsteadOfApi) && clientCanMoveFiles(caps)) {
             const { localPath: destPathLocal, remotePath: destPathRemote } = resolveCategoryDestPaths(targetCategory, manager.clientType, item?.instanceId);
             const sourcePath = item?.directory || item?.filePath;
 
@@ -1929,7 +1929,7 @@ class WebSocketHandlers extends BaseModule {
       // A client that can't relocate a file (Rucio) can never move — report it
       // here too, so the pre-check agrees with the execution backstop instead of
       // returning canMove:true and letting the move fail later.
-      if (clientMeta.hasCapability(clientType, 'noFileMove')) {
+      if (!clientCanMoveFiles(clientMeta.CLIENT_TYPES[clientType]?.capabilities)) {
         results.push({ fileHash, canMove: false, reason: 'cannot_move', message: `${clientType} cannot move files`, clientType });
         continue;
       }
@@ -2194,7 +2194,7 @@ class WebSocketHandlers extends BaseModule {
         // queue: the rename step would succeed and the failing updateDirectory
         // would then unlink the only copy. The UI already hides Move for it; this
         // is the backstop.
-        if (clientMeta.hasCapability(manager.clientType, 'noFileMove')) {
+        if (!clientCanMoveFiles(clientMeta.CLIENT_TYPES[manager.clientType]?.capabilities)) {
           results.push({ fileHash, fileName: item.name, success: false, error: `${manager.displayName} cannot move files` });
           continue;
         }

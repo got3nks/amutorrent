@@ -10,6 +10,7 @@ import { getItemStatusInfo, getExportLink, getExportLinkLabel } from '../utils/i
 import { itemKey } from '../utils/itemKey.js';
 import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useCapabilities } from './useCapabilities.js';
+import { canMoveItem } from '../utils/itemActionPolicy.js';
 
 /**
  * Hook for building context menu items and handlers
@@ -102,13 +103,10 @@ export const useItemContextMenu = ({
       });
     }
 
-    // Move to... (gated on ownership + edit_downloads capability)
-    // Never for a client that can't relocate a file at all (Rucio: no move API,
-    // and moving behind the daemon would break seeding). Otherwise: active
-    // downloads need moveActiveDownloads; completed/shared files can be relocated.
-    const canMoveItem = !caps.noFileMove &&
-      (caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading));
-    if (onMoveTo && canMoveItem && hasCap('edit_downloads') && canMutate && status.key !== 'moving') {
+    // Move to... (gated on ownership + edit_downloads capability). The movable
+    // decision — client can relocate files at all, and the item is in a movable
+    // state — lives in itemActionPolicy so the hooks and tests share one rule.
+    if (onMoveTo && canMoveItem(caps, item) && hasCap('edit_downloads') && canMutate && status.key !== 'moving') {
       menuItems.push({
         label: 'Move to...',
         icon: 'folderOpen',

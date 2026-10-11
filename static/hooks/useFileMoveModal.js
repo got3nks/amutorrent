@@ -10,6 +10,7 @@ import FileMoveModal from '../components/modals/FileMoveModal.js';
 import { useStaticData } from '../contexts/StaticDataContext.js';
 import { useWebSocketConnection } from '../contexts/WebSocketContext.js';
 import { itemKey } from '../utils/itemKey.js';
+import { clientCanMoveFiles } from '../utils/itemActionPolicy.js';
 
 const { createElement: h } = React;
 
@@ -92,7 +93,7 @@ export const useFileMoveModal = ({ getSelectedHashes, dataArray }) => {
       // Skip items whose client can't relocate a file (Rucio): the move would be
       // refused server-side, so a mixed batch moves only the movable ones and a
       // Rucio-only selection opens nothing instead of erroring.
-      if (item && !getCapabilities(item.instanceId).noFileMove) {
+      if (item && clientCanMoveFiles(getCapabilities(item.instanceId))) {
         items.push({ fileHash: item.hash, instanceId: item.instanceId, fileName: item.name });
       }
     }
