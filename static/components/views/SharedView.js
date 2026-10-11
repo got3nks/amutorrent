@@ -38,8 +38,8 @@ const SharedView = () => {
   // Ownership check: user can mutate item if they have edit_all_downloads or own it
   const canMutateItem = useCallback((item) => hasCap('edit_all_downloads') || item.ownedByMe !== false, [hasCap]);
 
-  const amuleConfigEnabled = useMemo(() => {
-    return Object.values(instances).some(inst => inst.type === 'amule' && inst.connected);
+  const sharedDirsEditable = useMemo(() => {
+    return Object.values(instances).some(inst => inst.connected && inst.capabilities?.sharedDirsEditor);
   }, [instances]);
 
   const [showSharedDirsModal, setShowSharedDirsModal] = useState(false);
@@ -369,7 +369,7 @@ const SharedView = () => {
           options: trackerOptions,
           title: 'Filter by tracker'
         }),
-        amuleConfigEnabled && h(Button, {
+        sharedDirsEditable && h(Button, {
           key: 'shared-dirs',
           variant: 'success',
           onClick: () => setShowSharedDirsModal(true),

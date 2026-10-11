@@ -68,6 +68,8 @@ const CLIENT_TYPES = {
       logs: true,                  // has fetchable log output
       ed2kServers: true,           // has an ED2K server list (ServersView)
       statsTree: true,             // exposes the EC statistics tree (StatsTreeModal)
+      arrIntegration: true,        // serves Torznab and the qBittorrent-compatible API
+      splitNetworkStatus: true,    // networkStatus is { ed2k, kad }, not one status
       sharedDirsEditor: true,      // can edit shared directories over EC (SharedDirsModal)
       renameFile: true,            // can rename downloads and shared files
       fileRatingComment: true,     // can set a per-file rating + comment (shared files only in aMule)

@@ -21,7 +21,7 @@ const { createElement: h, useEffect, useRef, useState } = React;
  * Downsample data for mobile performance
  * 288 points = 1 data point every 5 minutes for 24 hours
  * @param {Array} data - Original data array
- * @param {string} networkType - 'ed2k' or 'bittorrent'
+ * @param {string} networkType - Network type, e.g. 'ed2k'
  * @param {number} targetPoints - Target number of data points
  * @returns {Array} Downsampled data
  */
@@ -256,9 +256,9 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
     .filter(([, i]) => i.connected && i.networkType === selectedNetwork)
     .map(([id, i]) => ({ id, ...i }));
 
-  if (selectedNetwork === 'ed2k') {
+  if (tabInstances.length > 0 && tabInstances.every(i => i.capabilities?.splitNetworkStatus)) {
     if (tabInstances.length === 1) {
-      // Single aMule: show ED2K and KAD separately
+      // Single instance: show ED2K and KAD separately
       const inst = tabInstances[0];
       const ed2kNs = inst.networkStatus?.ed2k;
       const kadNs = inst.networkStatus?.kad;
@@ -277,7 +277,7 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
         )
       );
     } else {
-      // Multi aMule: per-instance combined ED2K/KAD
+      // Several instances: per-instance combined ED2K/KAD
       networkStatus = h(React.Fragment, null,
         ...tabInstances.map(inst => {
           const ed2kNs = inst.networkStatus?.ed2k;
@@ -302,7 +302,7 @@ const MobileSpeedWidget = ({ speedData, stats, theme }) => {
       );
     }
   } else {
-    // BitTorrent: per-instance status
+    // One status per instance
     networkStatus = h(React.Fragment, null,
       ...tabInstances.map(inst => {
         const ns = inst.networkStatus;

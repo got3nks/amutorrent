@@ -90,14 +90,10 @@ const ClientInstanceModal = ({ isOpen, onClose, onSave, onTest, editClient = nul
     return editClient?._fromEnv?.[field] || false;
   };
 
-  const canTest = isEnabled && (() => {
-    if (formState.type === 'rtorrent' && formState.mode === 'scgi-socket') {
-      return !!formState.socketPath;
-    }
-    if (!formState.host || !formState.port) return false;
-    if (formState.type === 'amule' && !formState.password && !isFieldFromEnv('password')) return false;
-    return true;
-  })();
+  // Every visible required field (clientFields.js) has a value or comes from env
+  const canTest = isEnabled && fields
+    .filter(f => f.required && !f.hideWhen?.(formState))
+    .every(f => String(formState[f.field] ?? '').trim() !== '' || isFieldFromEnv(f.field));
 
   const handleTypeSelect = (type) => {
     const baseName = TYPE_LABELS[type];

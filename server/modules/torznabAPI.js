@@ -9,7 +9,7 @@ const config = require('./config');
 const response = require('../lib/responseFormatter');
 
 // Client registry - replaces direct singleton manager imports
-const registry = require('../lib/ClientRegistry');
+const { resolveArrManager } = require('../lib/arrInstance');
 
 class TorznabAPI extends BaseModule {
   constructor() {
@@ -17,19 +17,7 @@ class TorznabAPI extends BaseModule {
     this.handler = new TorznabHandler();
     // One resolver, and the client derived from it: the search lock and the
     // connection must be the same instance or the lock protects nothing.
-    const resolveAmuleManager = () => {
-      const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-      if (configuredId) {
-        const byId = registry.get(configuredId);
-        if (byId) return byId;
-        const fallback = registry.getByType('amule').find(m => m.isConnected());
-        if (fallback) {
-          this.warn(`⚠️ [TorznabAPI] Configured amuleInstanceId "${configuredId}" not found, falling back to "${fallback.instanceId}"`);
-        }
-        return fallback || null;
-      }
-      return registry.getByType('amule').find(m => m.isConnected()) || null;
-    };
+    const resolveAmuleManager = () => resolveArrManager(msg => this.warn(msg));
 
     this.handler.setDependencies({
       getAmuleManager: resolveAmuleManager,

@@ -352,6 +352,8 @@ const SettingsView = () => {
 
   const isDocker = configStatus?.isDocker;
   const meta = currentConfig?._meta;
+  // A configured client's capabilities, connected or not
+  const typeCaps = (type) => meta?.clientCapabilities?.[type] || {};
 
   // Prowlarr hands over magnets, so its section needs a client that takes them
   const hasMagnetClient = instancesAcceptingScheme(MAGNET_SCHEME, { connectedOnly: false }).length > 0;
@@ -606,7 +608,7 @@ const SettingsView = () => {
             onToggle: handleToggleClient,
             onRemove: removeInstance,
             onTest: handleTestClient,
-            onSharedDirs: client.type === 'amule'
+            onSharedDirs: instances[client.id]?.capabilities?.sharedDirsEditor
               ? (instanceId) => setSharedDirsModal({ show: true, instanceId })
               : undefined,
             isTesting,
@@ -749,9 +751,9 @@ const SettingsView = () => {
 
       badge: arrBadge
     },
-      // aMule instance selector (only when 2+ aMule clients configured)
+      // *arr instance selector (only when 2+ capable clients configured)
       (() => {
-        const amuleClients = formData.clients.filter(c => c.type === 'amule' && c.enabled !== false);
+        const amuleClients = formData.clients.filter(c => typeCaps(c.type).arrIntegration && c.enabled !== false);
         return amuleClients.length > 1 && h('div', { className: 'mb-6' },
           h(ConfigField, {
             label: 'aMule Instance for *arr',
@@ -785,7 +787,7 @@ const SettingsView = () => {
         title: '*arr Integration Configuration',
         port: formData.server.port,
         authEnabled: formData.server.auth?.enabled,
-        amuleEnabled: formData.clients.some(c => c.type === 'amule' && c.enabled !== false),
+        amuleEnabled: formData.clients.some(c => typeCaps(c.type).arrIntegration && c.enabled !== false),
         apiKey: adminApiKey,
         username: currentUsername,
         className: 'mb-6'

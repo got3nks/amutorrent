@@ -13,6 +13,7 @@ const { parseBasicAuth, verifyPassword } = require('../lib/authUtils');
 
 // Client registry - replaces direct singleton manager imports
 const registry = require('../lib/ClientRegistry');
+const { resolveArrManager } = require('../lib/arrInstance');
 
 // Session TTL for /api/v2 cookie sessions. Sliding-window: extended on each request.
 // Matches qBittorrent's default WebUI session timeout.
@@ -171,20 +172,7 @@ class QBittorrentAPI extends BaseModule {
    */
   updateHandler() {
     if (this.hashStore) {
-      const resolveAmuleManager = () => {
-        const configuredId = config.getConfig()?.integrations?.amuleInstanceId;
-        let amuleMgr;
-        if (configuredId) {
-          amuleMgr = registry.get(configuredId);
-          if (!amuleMgr) {
-            amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-            if (amuleMgr) this.warn(`⚠️ [QBittorrentAPI.getAmuleClient] Configured amuleInstanceId "${configuredId}" not found, falling back to "${amuleMgr.instanceId}"`);
-          }
-        } else {
-          amuleMgr = registry.getByType('amule').find(m => m.isConnected());
-        }
-        return amuleMgr;
-      };
+      const resolveAmuleManager = () => resolveArrManager(msg => this.warn(msg));
 
       this.handler.setDependencies({
         getAmuleClient: () => resolveAmuleManager()?.getClient() || null,

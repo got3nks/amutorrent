@@ -88,20 +88,20 @@ const Footer = ({ currentView, onOpenAbout }) => {
     byType[inst.type].push({ id, ...inst });
   }
 
-  // aMule: worst ED2K and KAD status across instances
-  const amuleInsts = byType.amule || [];
-  if (amuleInsts.length > 0) {
-    const ed2kStatuses = amuleInsts.map(i => i.networkStatus?.ed2k).filter(Boolean);
-    const kadStatuses = amuleInsts.map(i => i.networkStatus?.kad).filter(Boolean);
+  // Clients reporting separate ED2K and KAD statuses: worst of each across instances
+  const splitStatusInsts = Object.values(byType).flat().filter(i => i.capabilities?.splitNetworkStatus);
+  if (splitStatusInsts.length > 0) {
+    const ed2kStatuses = splitStatusInsts.map(i => i.networkStatus?.ed2k).filter(Boolean);
+    const kadStatuses = splitStatusInsts.map(i => i.networkStatus?.kad).filter(Boolean);
 
     ed2k = findWorstStatus(ed2kStatuses) || disconnected;
     kad = findWorstStatus(kadStatuses) || disconnected;
 
     // Multi-instance tooltips (only when 2+ aMule instances)
-    if (amuleInsts.length > 1) {
+    if (splitStatusInsts.length > 1) {
       ed2kTooltip = h('div', { className: 'space-y-1' },
         h('div', { className: 'font-semibold mb-1' }, 'ED2K Status'),
-        ...amuleInsts.map(inst => {
+        ...splitStatusInsts.map(inst => {
           const ns = inst.networkStatus?.ed2k;
           if (!ns) return null;
           const detail = ns.connected && ns.serverName
@@ -117,7 +117,7 @@ const Footer = ({ currentView, onOpenAbout }) => {
 
       kadTooltip = h('div', { className: 'space-y-1' },
         h('div', { className: 'font-semibold mb-1' }, 'KAD Status'),
-        ...amuleInsts.map(inst => {
+        ...splitStatusInsts.map(inst => {
           const ns = inst.networkStatus?.kad;
           if (!ns) return null;
           const portDetail = ns.connected && (ns.listenPort || ns.tcpPort)
@@ -135,10 +135,10 @@ const Footer = ({ currentView, onOpenAbout }) => {
     kad = disconnected;
   }
 
-  // BitTorrent clients: compute worst status per type (dynamic — works for rtorrent, qbittorrent, deluge, etc.)
-  const btTypes = Object.keys(byType).filter(t => t !== 'amule').sort();
-  const btStatusMap = {};  // { type: { status, tooltip } }
-  for (const type of btTypes) {
+  // Clients with one status: worst per type
+  const singleStatusTypes = Object.keys(byType).filter(t => !byType[t].some(i => i.capabilities?.splitNetworkStatus)).sort();
+  const singleStatusMap = {};  // { type: { status, tooltip } }
+  for (const type of singleStatusTypes) {
     const insts = byType[type];
     const statuses = insts.map(i => i.networkStatus).filter(Boolean);
     const worst = findWorstStatus(statuses) || disconnected;
@@ -157,7 +157,7 @@ const Footer = ({ currentView, onOpenAbout }) => {
         }).filter(Boolean)
       );
     }
-    btStatusMap[type] = { status: worst, tooltip };
+    singleStatusMap[type] = { status: worst, tooltip };
   }
 
   // --- Speed computation ---
@@ -218,7 +218,7 @@ const Footer = ({ currentView, onOpenAbout }) => {
           // aMule: ED2K and KAD status (only when an actual aMule instance is
           // connected — every other client, e.g. Rucio, renders as its own
           // per-client badge below rather than under the ED2K/KAD headers)
-          amuleInsts.length > 0 && h(React.Fragment, null,
+          splitStatusInsts.length > 0 && h(React.Fragment, null,
             h('div', { className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' }, 'ED2K:'),
               renderBadge(ed2k.status, ed2k.text, ed2kTooltip || (ed2k.listenPort ? `Port ${ed2k.listenPort}` : null)),
@@ -231,11 +231,11 @@ const Footer = ({ currentView, onOpenAbout }) => {
             )
           ),
           // Divider between aMule and other per-client status badges
-          amuleInsts.length > 0 && btTypes.length > 0 && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
+          splitStatusInsts.length > 0 && singleStatusTypes.length > 0 && h('div', { className: 'w-px h-4 bg-gray-300 dark:bg-gray-600 flex-shrink-0' }),
           // Per-client status for every non-aMule client, each from its own flat
           // networkStatus (dynamic — rtorrent, qbittorrent, deluge, Rucio, …)
-          ...btTypes.map(type => {
-            const { status: st, tooltip } = btStatusMap[type];
+          ...singleStatusTypes.map(type => {
+            const { status: st, tooltip } = singleStatusMap[type];
             const names = CLIENT_NAMES[type] || { name: type, shortName: type.slice(0, 3) };
             return h('div', { key: type, className: 'flex items-center gap-1.5 flex-shrink-0' },
               h('span', { className: 'font-semibold text-gray-700 dark:text-gray-300' },

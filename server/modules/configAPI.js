@@ -15,6 +15,7 @@ const { requireCapability, requireAdmin } = require('../middleware/capabilities'
 
 // Client registry - replaces direct singleton manager imports
 const registry = require('../lib/ClientRegistry');
+const clientMeta = require('../lib/clientMeta');
 
 class ConfigAPI extends BaseModule {
   constructor() {
@@ -34,6 +35,15 @@ class ConfigAPI extends BaseModule {
   // ==========================================================================
   // HELPER METHODS
   // ==========================================================================
+
+  /**
+   * Capabilities per client type, so settings can gate features of a client
+   * that is configured but not connected.
+   * @returns {Object} { [type]: capabilities }
+   */
+  buildClientCapabilities() {
+    return Object.fromEntries(Object.entries(clientMeta.CLIENT_TYPES).map(([type, meta]) => [type, meta.capabilities || {}]));
+  }
 
   /**
    * Build the _meta.fromEnv object for API responses
@@ -222,7 +232,7 @@ class ConfigAPI extends BaseModule {
 
       res.json({
         ...currentConfig,
-        _meta: { fromEnv: this.buildFromEnvMeta() }
+        _meta: { fromEnv: this.buildFromEnvMeta(), clientCapabilities: this.buildClientCapabilities() }
       });
     } catch (err) {
       this.error('❌ Error getting current config:', err.message);
@@ -240,7 +250,7 @@ class ConfigAPI extends BaseModule {
 
       res.json({
         ...envConfig,
-        _meta: { fromEnv: this.buildFromEnvMeta() }
+        _meta: { fromEnv: this.buildFromEnvMeta(), clientCapabilities: this.buildClientCapabilities() }
       });
     } catch (err) {
       this.error('❌ Error getting defaults:', err.message);
