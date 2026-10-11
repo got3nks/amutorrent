@@ -1,11 +1,12 @@
-const { describe, it } = require('node:test');
+const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
+const { importStatic } = require('./helpers/importEsm');
 
 const { RucioManager } = require('../modules/rucioManager.js');
 const { normalizeRucioSharedFile } = require('../lib/downloadNormalizer.js');
 const RucioClient = require('../lib/rucio/RucioClient.js');
 const clientMeta = require('../lib/clientMeta.js');
-const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion } = require('../lib/sharedFilePolicy.js');
+const { isCompletedShare, movesSharedForCategoryChange, clientManagesDeletion, clientCanMoveFiles } = require('../lib/sharedFilePolicy.js');
 const { hashFromLink } = require('../lib/rucio/links.js');
 
 // Build a RucioManager without running the constructor (which would need a
@@ -18,6 +19,10 @@ function makeManager(overrides = {}) {
   m.trackDeletion = () => {};
   m.trackDownload = () => {};
   m.instanceId = 'rucio-1';
+  // Generation counters the constructor would set (makeManager skips it); harmless
+  // defaults so a mid-fetch invalidation in a test bumps a number, not NaN.
+  m._categoriesGeneration = 0;
+  m._sharesGeneration = 0;
   Object.assign(m, overrides);
   return m;
 }
@@ -581,6 +586,104 @@ describe('RucioManager._updateCategoryRaw guards (3)', () => {
   });
 });
 
+describe('RucioManager category id recovery by name (3)', () => {
+  it('editCategory updates the recreated category when the stored id is stale', async () => {
+    // The panel deleted the old category and recreated 'Movies' with a new id;
+    // our stored amuleId (5) no longer exists. Recover by name and update id 12.
+    const puts = [];
+    const m = makeManager({
+      lastCategories: [{ id: 5, name: 'Movies' }],
+      _categoriesGeneration: 0,
+      client: {
+        getCategories: async () => [{ id: 12, name: 'Movies', match_keywords: 'keep|me', download_dir: '/d' }],
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
+    });
+    const res = await m.editCategory({ id: 5, name: 'Movies', path: '' });
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0].id, 12, 'updated the recreated id, not the stale 5');
+    assert.equal(puts[0].body.match_keywords, 'keep|me', 'keyword rules preserved');
+    assert.ok(res.success);
+  });
+
+  it('renameCategory recovers by the old name when the stored id is stale', async () => {
+    const puts = [];
+    const m = makeManager({
+      lastCategories: [{ id: 5, name: 'Movies' }],
+      _categoriesGeneration: 0,
+      client: {
+        getCategories: async () => [{ id: 20, name: 'Movies', match_keywords: 'k' }],
+        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+      }
+    });
+    const res = await m.renameCategory({ id: 5, oldName: 'Movies', newName: 'Films' });
+    assert.equal(puts[0].id, 20, 'renamed the live category, not the stale id');
+    assert.equal(puts[0].body.name, 'Films');
+    assert.ok(res.success);
+  });
+
+  it('still refuses to PUT when the id is gone and no name recovers it', async () => {
+    let puts = 0;
+    const m = makeManager({
+      _categoriesGeneration: 0,
+      client: {
+        getCategories: async () => [{ id: 1, name: 'Other' }],
+        updateCategory: async () => { puts++; }
+      }
+    });
+    await assert.rejects(
+      () => m._updateCategoryRaw(5, { name: 'X' }, { fallbackName: 'Nonexistent' }),
+      /not found/
+    );
+    assert.equal(puts, 0, 'no PUT when the category cannot be located');
+  });
+});
+
+describe('RucioManager.fetchData category generation race (2)', () => {
+  it('discards a list fetched before an edit invalidated the cache mid-poll', async () => {
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const m = makeManager({
+      _lastSharesFetch: Date.now(),       // skip the share refresh
+      _completedHashes: null,
+      lastCategories: null,                // forces a category fetch this poll
+      _categoriesGeneration: 0,
+      lastDownloads: [],
+      lastSharedFiles: [],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => { await gate; return [{ id: 1, name: 'OldName' }]; }
+      }
+    });
+    const poll = m.fetchData();            // getCategories dispatched, gated
+    m._invalidateCategories();             // an edit lands mid-fetch: bumps generation, nulls cache
+    release();                             // the in-flight fetch now resolves with the pre-edit list
+    await poll;
+    assert.equal(m.lastCategories, null, 'stale pre-edit list discarded, cache left null to refetch');
+  });
+
+  it('adopts the fetched list when no edit intervenes', async () => {
+    const m = makeManager({
+      _lastSharesFetch: Date.now(),
+      _completedHashes: null,
+      lastCategories: null,
+      _categoriesGeneration: 0,
+      lastDownloads: [],
+      lastSharedFiles: [],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [],
+        getShares: async () => ({ shares: [], total: 0 }),
+        getCategories: async () => [{ id: 1, name: 'Movies' }]
+      }
+    });
+    await m.fetchData();
+    assert.deepEqual(m.lastCategories, [{ id: 1, name: 'Movies' }], 'adopted the fetched list');
+  });
+});
+
 describe('RucioManager.addEd2kLink history (10)', () => {
   it('records the name and size parsed from the ed2k link', async () => {
     let tracked = null;
@@ -622,6 +725,15 @@ describe('hashFromLink field-based ed2k parse (11)', () => {
       'aabbccddeeff00112233445566778899'
     );
   });
+
+  it('parses an uppercase ED2K:// scheme (4)', () => {
+    // extractEd2kLinks accepts any scheme case, so an ED2K://… link reaches the
+    // parser; a case-sensitive regex would miss it and record no ownership.
+    assert.equal(
+      hashFromLink('ED2K://|file|Movie.avi|12345|AABBCCDDEEFF00112233445566778899|/'),
+      'aabbccddeeff00112233445566778899'
+    );
+  });
 });
 
 describe('RucioManager.fetchData shared files (6)', () => {
@@ -649,6 +761,32 @@ describe('RucioManager.fetchData shared files (6)', () => {
     assert.deepEqual(sharedFiles, [{ hash: 'keep', instanceId: 'rucio-1' }], 'kept the previous shared list');
     assert.notEqual(m._lastSharesFetch, undefined);
     assert.equal(m._lastSharesFetch, 0, 'did not stamp a successful fetch, so it retries next poll');
+  });
+
+  it('discards a share page-walk invalidated mid-fetch, forcing a refetch next poll', async () => {
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const m = makeManager({
+      _lastSharesFetch: 0,            // force a share refresh this poll
+      _sharesRefreshIntervalMs: 30000,
+      _sharesGeneration: 0,
+      _completedHashes: new Set(),    // seeded: no completion-driven invalidation
+      lastCategories: [],
+      lastDownloads: [],
+      lastSharedFiles: [{ hash: 'old', instanceId: 'rucio-1' }],
+      hashToId: new Map(),
+      client: {
+        getDownloads: async () => [],
+        getShares: async () => { await gate; return { shares: [{ root_hash: 'stale' }], total: 1 }; },
+        getCategories: async () => []
+      }
+    });
+    const poll = m.fetchData();       // _getAllShares dispatched, gated
+    m._invalidateShares();            // a delete lands mid-fetch: bumps generation, resets timer
+    release();
+    const { sharedFiles } = await poll;
+    assert.deepEqual(sharedFiles, [{ hash: 'old', instanceId: 'rucio-1' }], 'kept the last list, discarded the stale page-walk');
+    assert.equal(m._lastSharesFetch, 0, 'left the timer forcing a refetch next poll');
   });
 });
 
@@ -742,64 +880,93 @@ describe('RucioManager.search client capture (9)', () => {
   });
 });
 
-describe('Move gating for Rucio (1)', () => {
+// Exercises the REAL frontend predicate module the hooks import (via
+// importStatic), not a copy — so a change to the hook logic surfaces here
+// instead of leaving a green test behind.
+describe('itemActionPolicy.canMoveItem — Move gating (1, 5)', () => {
   const rucioCaps = clientMeta.get('rucio').capabilities;
   const amuleCaps = clientMeta.get('amule').capabilities;
-  // Mirrors the context-menu gate (useItemContextMenu): a client that can't
-  // relocate a file never offers Move; others can move completed/shared items.
-  const canMove = (caps, item) => !caps.noFileMove &&
-    (caps.moveActiveDownloads || item.complete || (item.shared && !item.downloading));
+  let canMoveItem, clientCanMoveFilesFE;
+
+  before(async () => {
+    ({ canMoveItem, clientCanMoveFiles: clientCanMoveFilesFE } =
+      await importStatic('utils', 'itemActionPolicy.js'));
+  });
 
   it('declares Rucio unable to move files, and the others able', () => {
     assert.equal(rucioCaps.noFileMove, true);
+    assert.equal(clientCanMoveFilesFE(rucioCaps), false);
     for (const t of ['amule', 'rtorrent', 'qbittorrent', 'deluge', 'transmission']) {
       assert.ok(!clientMeta.get(t).capabilities.noFileMove, `${t} should still offer Move`);
+      assert.equal(clientCanMoveFilesFE(clientMeta.get(t).capabilities), true);
     }
   });
 
   it('never offers Move for a completed or shared Rucio item', () => {
-    assert.equal(canMove(rucioCaps, { complete: true }), false);
-    assert.equal(canMove(rucioCaps, { shared: true, downloading: false }), false);
+    assert.equal(canMoveItem(rucioCaps, { complete: true }), false);
+    assert.equal(canMoveItem(rucioCaps, { shared: true, downloading: false }), false);
   });
 
   it('still offers Move for a completed aMule item', () => {
-    assert.equal(canMove(amuleCaps, { complete: true }), true);
+    assert.equal(canMoveItem(amuleCaps, { complete: true }), true);
+  });
+
+  it('does not offer Move for an active aMule download (moveActiveDownloads false)', () => {
+    assert.equal(amuleCaps.moveActiveDownloads, false);
+    assert.equal(canMoveItem(amuleCaps, { complete: false, downloading: true }), false);
   });
 });
 
-describe('delete modal classification by completeness (2)', () => {
+describe('itemActionPolicy.classifyDeleteItem — delete classification (2, 5)', () => {
   const rucioCaps = clientMeta.get('rucio').capabilities;
   const amuleCaps = clientMeta.get('amule').capabilities;
-  // Mirrors useViewDeleteModal.classify: a shared-must-delete file → shared; a
-  // cancel only discards an UNFINISHED download's partial → autoDelete; a
-  // completed download needs the explicit "delete files" option → nonAutoDelete.
-  const classify = (caps, item) => {
-    if (caps.removeSharedMustDeleteFiles && item.shared && !item.downloading) return 'shared';
-    if (caps.cancelDeletesFiles && !item.complete) return 'autoDelete';
-    return 'nonAutoDelete';
-  };
+  let classifyDeleteItem;
+
+  before(async () => {
+    ({ classifyDeleteItem } = await importStatic('utils', 'itemActionPolicy.js'));
+  });
 
   it('a completed Rucio file needs the explicit delete-files option (reaches the path check)', () => {
-    assert.equal(classify(rucioCaps, { complete: true, shared: true, downloading: false }), 'nonAutoDelete');
+    assert.equal(classifyDeleteItem(rucioCaps, { complete: true, shared: true, downloading: false }), 'explicit');
   });
 
   it('an active Rucio download auto-cleans its partial on cancel', () => {
-    assert.equal(classify(rucioCaps, { complete: false, downloading: true }), 'autoDelete');
+    assert.equal(classifyDeleteItem(rucioCaps, { complete: false, downloading: true }), 'autoClean');
   });
 
   it('an aMule shared file is still always deleted from disk (unchanged)', () => {
-    assert.equal(classify(amuleCaps, { complete: true, shared: true, downloading: false }), 'shared');
+    assert.equal(classifyDeleteItem(amuleCaps, { complete: true, shared: true, downloading: false }), 'shared');
   });
 
   it('a completed-but-unshared aMule download is now path-checked (accepted change)', () => {
     // The brief window after an aMule download finishes but before it is shared:
     // cancel no longer auto-cleans it, so it needs the explicit delete-files
     // option + permission check (the maintainer accepted this as more correct).
-    assert.equal(classify(amuleCaps, { complete: true, shared: false }), 'nonAutoDelete');
+    assert.equal(classifyDeleteItem(amuleCaps, { complete: true, shared: false }), 'explicit');
   });
 
   it('an active aMule download still auto-cleans its partial on cancel (unchanged)', () => {
-    assert.equal(classify(amuleCaps, { complete: false, downloading: true }), 'autoDelete');
+    assert.equal(classifyDeleteItem(amuleCaps, { complete: false, downloading: true }), 'autoClean');
+  });
+});
+
+// The three server move paths (batch move, category-change move, move pre-check)
+// all refuse a noFileMove client through this one shared predicate, so a test on
+// it covers the decision each path now funnels through. The handler methods
+// themselves can't be unit-loaded here: webSocketHandlers pulls in the server's
+// runtime deps (express, cookie-signature, better-sqlite3…), the same ones that
+// keep the full suite from running in this dependency-free harness.
+describe('sharedFilePolicy.clientCanMoveFiles — server move refusal (5)', () => {
+  it('refuses a noFileMove client (Rucio) and allows the movable ones', () => {
+    assert.equal(clientCanMoveFiles(clientMeta.get('rucio').capabilities), false);
+    for (const t of ['amule', 'rtorrent', 'qbittorrent', 'deluge', 'transmission']) {
+      assert.equal(clientCanMoveFiles(clientMeta.get(t).capabilities), true, `${t} should be movable`);
+    }
+  });
+
+  it('treats missing capabilities as not movable (no accidental move)', () => {
+    assert.equal(clientCanMoveFiles(undefined), false);
+    assert.equal(clientCanMoveFiles(null), false);
   });
 });
 
