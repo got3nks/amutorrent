@@ -19,8 +19,13 @@ import {
   TestSummary,
   IntegrationConfigInfo,
   ClientFieldsRenderer,
-  CLIENT_FIELDS
+  CLIENT_FIELDS,
+  TYPE_LABELS,
+  TYPE_DESCRIPTIONS,
+  TYPE_DEFAULTS,
+  missingRequiredFields
 } from '../settings/index.js';
+import { NETWORK_NAMES, CLIENT_NETWORK_TYPES, MAGNET_SCHEME } from '../../utils/constants.js';
 import { validatePassword } from '../../utils/passwordValidator.js';
 import { hasTestErrors as checkTestErrors, checkResultsForErrors, buildTestPayload } from '../../utils/testHelpers.js';
 
@@ -28,17 +33,14 @@ import { hasTestErrors as checkTestErrors, checkResultsForErrors, buildTestPaylo
 // camelCase keys (`rtorrentHost`, `qbittorrentPassword`), so translate the
 // renderer's field-name lookup to that convention.
 const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
-// A few env-var keys don't exactly match the schema field name — historical
-// naming. Kept as an explicit alias table rather than renaming schema fields
-// or backend env vars.
-const FROM_ENV_ALIASES = {
-  amule: { sharedFilesReloadIntervalHours: 'amuleSharedFilesReloadInterval' }
-};
-const wizardFromEnv = (meta, type, field) => {
-  const alias = FROM_ENV_ALIASES[type]?.[field];
-  if (alias && meta?.fromEnv?.[alias]) return true;
-  return !!meta?.fromEnv?.[`${type}${capitalize(field)}`];
-};
+const wizardFromEnv = (meta, type, field) => !!meta?.fromEnv?.[`${type}${capitalize(field)}`];
+
+const CLIENT_TYPES = Object.keys(CLIENT_FIELDS);
+
+// Per-client results of a config test, labelled for display
+const clientResultsFrom = (data) => Object.fromEntries(CLIENT_TYPES
+  .filter(type => data?.results?.[type])
+  .map(type => [type, { ...data.results[type], _label: `${TYPE_LABELS[type]} Connection` }]));
 
 /**
  * SetupWizardView component
@@ -72,8 +74,6 @@ const SetupWizardView = ({ onComplete }) => {
   const debouncedAuthPassword = useDebouncedValue(formData?.server?.auth?.password || '');
   const debouncedPasswordConfirm = useDebouncedValue(passwordConfirm);
 
-  const steps = ['Welcome', 'Security', 'aMule & Rucio', 'BitTorrent', 'Directories', 'Integrations', 'Review'];
-
   // Load defaults on mount
   useEffect(() => {
     fetchStatus();
@@ -93,37 +93,12 @@ const SetupWizardView = ({ onComplete }) => {
             enabled: true // Enable auth by default during first-run setup
           }
         },
-        amule: {
-          ...defaults.amule,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.amuleEnabled ? defaults.amule.enabled : false
-        },
-        rucio: {
-          ...defaults.rucio,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.rucioEnabled ? defaults.rucio.enabled : false
-        },
-        rtorrent: {
-          mode: 'http',
-          ...defaults.rtorrent,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.rtorrentEnabled ? defaults.rtorrent.enabled : false
-        },
-        qbittorrent: {
-          ...defaults.qbittorrent,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.qbittorrentEnabled ? defaults.qbittorrent.enabled : false
-        },
-        deluge: {
-          ...defaults.deluge,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.delugeEnabled ? defaults.deluge.enabled : false
-        },
-        transmission: {
-          ...defaults.transmission,
-          // Disabled by default unless explicitly enabled via env var
-          enabled: meta?.fromEnv?.transmissionEnabled ? defaults.transmission.enabled : false
-        },
+        // Every client starts disabled unless enabled via env var
+        ...Object.fromEntries(CLIENT_TYPES.map(type => [type, {
+          ...TYPE_DEFAULTS[type],
+          ...defaults[type],
+          enabled: meta?.fromEnv?.[`${type}Enabled`] ? !!defaults[type]?.enabled : false
+        }])),
         directories: { ...defaults.directories },
         integrations: {
           sonarr: { ...defaults.integrations.sonarr },
@@ -168,8 +143,7 @@ const SetupWizardView = ({ onComplete }) => {
   // Navigate to next step
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
-      // Validate security step before proceeding (step 1)
-      if (currentStep === 1) {
+      if (step.key === 'security') {
         // Only validate if authentication is enabled and password is not from environment
         if (formData.server.auth.enabled) {
           // Validate admin username
@@ -209,72 +183,28 @@ const SetupWizardView = ({ onComplete }) => {
         setSecurityValidationError(null); // Clear any previous errors
       }
 
-      // Validate aMule step (step 2) - only if enabled
-      if (currentStep === 2) {
+      if (step.group) {
         const errors = [];
-        if (formData.amule.enabled !== false) {
-          if (!formData.amule.host) errors.push('aMule host is required');
-          if (!formData.amule.port) errors.push('aMule port is required');
-          if (!formData.amule.password && !meta?.fromEnv.amulePassword) errors.push('aMule password is required');
-        }
-        if (formData.rucio?.enabled) {
-          if (!formData.rucio.host) errors.push('Rucio host is required');
-          if (!formData.rucio.port) errors.push('Rucio port is required');
-        }
-        if (errors.length > 0) {
-          setStepValidationError(errors.join(', '));
-          return;
-        }
-        setStepValidationError(null);
-      }
-
-      // Validate BitTorrent step (step 3) - rTorrent and qBittorrent
-      if (currentStep === 3) {
-        const errors = [];
-
-        // Validate rTorrent if enabled
-        if (formData.rtorrent.enabled) {
-          if (formData.rtorrent.mode === 'scgi-socket') {
-            if (!formData.rtorrent.socketPath && !meta?.fromEnv.rtorrentSocketPath) errors.push('rTorrent socket path is required');
-          } else {
-            if (!formData.rtorrent.host && !meta?.fromEnv.rtorrentHost) errors.push('rTorrent host is required');
-            if (!formData.rtorrent.port && !meta?.fromEnv.rtorrentPort) errors.push('rTorrent port is required');
+        for (const type of step.group.types) {
+          if (!formData[type]?.enabled) continue;
+          for (const f of missingRequiredFields(type, formData[type], (field) => wizardFromEnv(meta, type, field))) {
+            errors.push(`${TYPE_LABELS[type]} ${f.label.toLowerCase()} is required`);
           }
         }
-
-        // Validate qBittorrent if enabled
-        if (formData.qbittorrent?.enabled) {
-          if (!formData.qbittorrent.host && !meta?.fromEnv.qbittorrentHost) errors.push('qBittorrent host is required');
-          if (!formData.qbittorrent.port && !meta?.fromEnv.qbittorrentPort) errors.push('qBittorrent port is required');
-        }
-
-        // Validate Deluge if enabled
-        if (formData.deluge?.enabled) {
-          if (!formData.deluge.host && !meta?.fromEnv.delugeHost) errors.push('Deluge host is required');
-          if (!formData.deluge.port && !meta?.fromEnv.delugePort) errors.push('Deluge port is required');
-        }
-
-        // Validate Transmission if enabled
-        if (formData.transmission?.enabled) {
-          if (!formData.transmission.host && !meta?.fromEnv.transmissionHost) errors.push('Transmission host is required');
-          if (!formData.transmission.port && !meta?.fromEnv.transmissionPort) errors.push('Transmission port is required');
-        }
-
         if (errors.length > 0) {
           setStepValidationError(errors.join(', '));
           return;
         }
-
-        // Cross-validation: at least one client must be enabled
-        if (formData.amule.enabled === false && !formData.rucio?.enabled && !formData.rtorrent.enabled && !formData.qbittorrent?.enabled && !formData.deluge?.enabled && !formData.transmission?.enabled) {
-          setStepValidationError('At least one download client (aMule, Rucio, rTorrent, qBittorrent, Deluge, or Transmission) must be enabled');
+        // Leaving the last client step: at least one client must be enabled
+        const isLastClientStep = !steps[currentStep + 1]?.group;
+        if (isLastClientStep && !CLIENT_TYPES.some(type => formData[type]?.enabled)) {
+          setStepValidationError(`At least one download client (${CLIENT_TYPES.map(t => TYPE_LABELS[t]).join(', ')}) must be enabled`);
           return;
         }
         setStepValidationError(null);
       }
 
-      // Validate directories step (step 4)
-      if (currentStep === 4) {
+      if (step.key === 'directories') {
         const errors = [];
         if (!formData.directories.data) errors.push('Data directory is required');
         if (!formData.directories.logs) errors.push('Logs directory is required');
@@ -286,8 +216,7 @@ const SetupWizardView = ({ onComplete }) => {
         setStepValidationError(null);
       }
 
-      // Validate integrations step (step 5)
-      if (currentStep === 5) {
+      if (step.key === 'integrations') {
         const errors = [];
         if (formData.integrations.sonarr.enabled) {
           if (!formData.integrations.sonarr.url) errors.push('Sonarr URL is required');
@@ -333,63 +262,17 @@ const SetupWizardView = ({ onComplete }) => {
 
     setIsTesting(true);
     try {
-      if (currentStep === 2) {
-        // Test aMule and/or Rucio (step 2) - only the enabled ones
-        if (formData.amule.enabled !== false) {
-          const data = await testConfig({ amule: formData.amule });
-          if (data?.results?.amule) {
-            setClientTestResults(prev => ({
-              ...prev,
-              amule: { ...data.results.amule, _label: 'aMule Connection' }
-            }));
-          }
+      if (step.group) {
+        const payload = Object.fromEntries(step.group.types
+          .filter(type => formData[type]?.enabled)
+          .map(type => [type, formData[type]]));
+        if (Object.keys(payload).length > 0) {
+          const data = await testConfig(payload);
+          setClientTestResults(prev => ({ ...prev, ...clientResultsFrom(data) }));
         }
-        if (formData.rucio?.enabled) {
-          const data = await testConfig({ rucio: formData.rucio });
-          if (data?.results?.rucio) {
-            setClientTestResults(prev => ({
-              ...prev,
-              rucio: { ...data.results.rucio, _label: 'Rucio Connection' }
-            }));
-          }
-        }
-      } else if (currentStep === 3) {
-        // Test BitTorrent clients (step 3) - test enabled clients
-        const testPayload = {};
-        if (formData.rtorrent.enabled) {
-          testPayload.rtorrent = formData.rtorrent;
-        }
-        if (formData.qbittorrent?.enabled) {
-          testPayload.qbittorrent = formData.qbittorrent;
-        }
-        if (formData.deluge?.enabled) {
-          testPayload.deluge = formData.deluge;
-        }
-        if (formData.transmission?.enabled) {
-          testPayload.transmission = formData.transmission;
-        }
-        if (Object.keys(testPayload).length > 0) {
-          const data = await testConfig(testPayload);
-          const newResults = {};
-          if (data?.results?.rtorrent) {
-            newResults.rtorrent = { ...data.results.rtorrent, _label: 'rTorrent Connection' };
-          }
-          if (data?.results?.qbittorrent) {
-            newResults.qbittorrent = { ...data.results.qbittorrent, _label: 'qBittorrent Connection' };
-          }
-          if (data?.results?.deluge) {
-            newResults.deluge = { ...data.results.deluge, _label: 'Deluge Connection' };
-          }
-          if (data?.results?.transmission) {
-            newResults.transmission = { ...data.results.transmission, _label: 'Transmission Connection' };
-          }
-          setClientTestResults(prev => ({ ...prev, ...newResults }));
-        }
-      } else if (currentStep === 4) {
-        // Test directories (step 4)
+      } else if (step.key === 'directories') {
         await testConfig({ directories: formData.directories });
-      } else if (currentStep === 5) {
-        // Test integrations (step 5)
+      } else if (step.key === 'integrations') {
         const testPayload = {};
         if (formData.integrations.sonarr.enabled) {
           testPayload.sonarr = formData.integrations.sonarr;
@@ -420,14 +303,7 @@ const SetupWizardView = ({ onComplete }) => {
       const clients = buildClientsFromFormData();
       const payload = buildTestPayload({ clients, directories: formData.directories, integrations: formData.integrations });
       const data = await testConfig(payload);
-      // Extract client results into clientTestResults
-      const newClientResults = {};
-      if (data?.results?.amule) newClientResults.amule = { ...data.results.amule, _label: 'aMule Connection' };
-      if (data?.results?.rtorrent) newClientResults.rtorrent = { ...data.results.rtorrent, _label: 'rTorrent Connection' };
-      if (data?.results?.qbittorrent) newClientResults.qbittorrent = { ...data.results.qbittorrent, _label: 'qBittorrent Connection' };
-      if (data?.results?.deluge) newClientResults.deluge = { ...data.results.deluge, _label: 'Deluge Connection' };
-      if (data?.results?.transmission) newClientResults.transmission = { ...data.results.transmission, _label: 'Transmission Connection' };
-      setClientTestResults(newClientResults);
+      setClientTestResults(clientResultsFrom(data));
     } catch (err) {
       // Error handled by useConfig
     } finally {
@@ -464,13 +340,7 @@ const SetupWizardView = ({ onComplete }) => {
       setIsTesting(false);
       setIsSaving(false);
 
-      // Extract client results for per-instance tracking
-      const newClientResults = {};
-      if (results?.results?.amule) newClientResults.amule = { ...results.results.amule, _label: 'aMule Connection' };
-      if (results?.results?.rtorrent) newClientResults.rtorrent = { ...results.results.rtorrent, _label: 'rTorrent Connection' };
-      if (results?.results?.qbittorrent) newClientResults.qbittorrent = { ...results.results.qbittorrent, _label: 'qBittorrent Connection' };
-      if (results?.results?.deluge) newClientResults.deluge = { ...results.results.deluge, _label: 'Deluge Connection' };
-      if (results?.results?.transmission) newClientResults.transmission = { ...results.results.transmission, _label: 'Transmission Connection' };
+      const newClientResults = clientResultsFrom(results);
       setClientTestResults(newClientResults);
 
       // Check results directly from the return value
@@ -533,46 +403,34 @@ const SetupWizardView = ({ onComplete }) => {
   const meta = defaults?._meta;
 
   // Build a clients array from flat formData (used by test and save paths)
-  const buildClientsFromFormData = () => {
-    const clients = [];
-    if (formData.amule.enabled !== false) {
-      const { enabled, ...fields } = formData.amule;
-      const entry = { type: 'amule', enabled, ...fields };
-      if (meta?.fromEnv.amuleHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    if (formData.rucio?.enabled) {
-      const { enabled, ...fields } = formData.rucio;
-      const entry = { type: 'rucio', enabled, ...fields };
-      if (meta?.fromEnv.rucioHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    if (formData.rtorrent.enabled) {
-      const { enabled, ...fields } = formData.rtorrent;
-      const entry = { type: 'rtorrent', enabled, ...fields };
-      if (meta?.fromEnv.rtorrentHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    if (formData.qbittorrent?.enabled) {
-      const { enabled, ...fields } = formData.qbittorrent;
-      const entry = { type: 'qbittorrent', enabled, ...fields };
-      if (meta?.fromEnv.qbittorrentHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    if (formData.deluge?.enabled) {
-      const { enabled, ...fields } = formData.deluge;
-      const entry = { type: 'deluge', enabled, ...fields };
-      if (meta?.fromEnv.delugeHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    if (formData.transmission?.enabled) {
-      const { enabled, ...fields } = formData.transmission;
-      const entry = { type: 'transmission', enabled, ...fields };
-      if (meta?.fromEnv.transmissionHost) entry.source = 'env';
-      clients.push(entry);
-    }
-    return clients;
-  };
+  const buildClientsFromFormData = () => CLIENT_TYPES
+    .filter(type => formData[type]?.enabled)
+    .map(type => {
+      const { enabled, ...fields } = formData[type];
+      const entry = { type, enabled, ...fields };
+      if (meta?.fromEnv?.[`${type}Host`]) entry.source = 'env';
+      return entry;
+    });
+
+  // Client steps come from the client registry: source-based clients, then
+  // torrent clients (trackers capability)
+  const typeCaps = (type) => meta?.clientCapabilities?.[type] || {};
+  const clientGroups = [false, true]
+    .map(torrent => CLIENT_TYPES.filter(type => !!typeCaps(type).trackers === torrent))
+    .filter(types => types.length > 0)
+    .map(types => ({
+      types,
+      title: [...new Set(types.map(type => NETWORK_NAMES[CLIENT_NETWORK_TYPES[type]] || TYPE_LABELS[type]))].join(' & ')
+    }));
+  const steps = [
+    { key: 'welcome', title: 'Welcome' },
+    { key: 'security', title: 'Security' },
+    ...clientGroups.map((group, i) => ({ key: `clients-${i}`, title: group.title, group })),
+    { key: 'directories', title: 'Directories' },
+    { key: 'integrations', title: 'Integrations' },
+    { key: 'review', title: 'Review' }
+  ];
+  const step = steps[currentStep];
 
   // Wizard steps content
   const WelcomeStep = () => h('div', { className: 'text-center max-w-2xl mx-auto' },
@@ -770,229 +628,53 @@ const SetupWizardView = ({ onComplete }) => {
     );
   };
 
-  const AmuleStep = () => h('div', {},
-    h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, 'aMule & Rucio'),
-    h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Optionally configure connection to your aMule daemon (ed2k/Kademlia) and/or a Rucio daemon (P2P + eMule/Kad)'),
-
-    h(EnableToggle, {
-      label: 'Enable aMule Integration',
-      description: 'Connect to aMule for managing ed2k/Kademlia downloads',
-      enabled: formData.amule.enabled !== false,
-      onChange: (enabled) => updateField('amule', 'enabled', enabled)
-    }),
-
-    formData.amule.enabled !== false && h('div', { className: 'mt-6 space-y-4' },
-      isDocker && h(AlertBox, { type: 'info' },
-        h('p', {}, 'You are running in Docker. If aMule is running on your host machine, use the special hostname ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), '. If aMule is running in another container, use that container\'s name as the hostname.')
-      ),
-
-      h(ClientFieldsRenderer, {
-        type: 'amule',
-        fields: CLIENT_FIELDS.amule,
-        values: formData.amule,
-        onFieldChange: (field, value) => updateField('amule', field, value),
-        isFieldFromEnv: (field) => wizardFromEnv(meta, 'amule', field),
-        isEnabled: formData.amule.enabled !== false
-      }),
-
-      h('div', { className: 'mt-6' },
-        h(TestButton, {
-          onClick: handleTestCurrentStep,
-          loading: isTesting,
-          disabled: !formData.amule.host || !formData.amule.port || (!formData.amule.password && !meta?.fromEnv.amulePassword)
-        }, 'Test aMule Connection')
-      ),
-
-      clientTestResults.amule && h(TestResultIndicator, {
-        result: clientTestResults.amule,
-        label: 'aMule Connection Test'
-      })
-    ),
-
-    formData.amule.enabled === false && h(AlertBox, { type: 'info', className: 'mt-4' },
-      h('p', {}, 'aMule integration is optional. You can skip this step if you only want to use other clients.')
-    ),
-
-    // ── Rucio ───────────────────────────────────────────────────────────
-    h('div', { className: 'mt-8 pt-6 border-t border-gray-200 dark:border-gray-700' },
-      h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1' }, 'Rucio'),
-      h('p', { className: 'text-sm text-gray-600 dark:text-gray-400 mb-4' },
-        'Optionally connect to a Rucio daemon (P2P libp2p network + eMule/Kad compatibility).'),
-
-      h(EnableToggle, {
-        label: 'Enable Rucio Integration',
-        description: 'Connect to a Rucio daemon for managing downloads, shares and search',
-        enabled: formData.rucio?.enabled === true,
-        onChange: (enabled) => updateField('rucio', 'enabled', enabled)
-      }),
-
-      formData.rucio?.enabled && h('div', { className: 'mt-6 space-y-4' },
-        h(ClientFieldsRenderer, {
-          type: 'rucio',
-          fields: CLIENT_FIELDS.rucio,
-          values: formData.rucio,
-          onFieldChange: (field, value) => updateField('rucio', field, value),
-          isFieldFromEnv: (field) => wizardFromEnv(meta, 'rucio', field),
-          isEnabled: formData.rucio?.enabled === true
-        }),
-
-        h('div', { className: 'mt-6' },
-          h(TestButton, {
-            onClick: handleTestCurrentStep, loading: isTesting,
-            disabled: !formData.rucio.host || !formData.rucio.port
-          }, 'Test Rucio Connection')
-        ),
-
-        clientTestResults.rucio && h(TestResultIndicator, {
-          result: clientTestResults.rucio,
-          label: 'Rucio Connection Test'
-        })
-      )
-    ),
-
-    // Validation error message
-    stepValidationError && currentStep === 2 && h(AlertBox, { type: 'error', className: 'mt-4' },
-      h('p', {}, stepValidationError)
-    )
-  );
-
-  const BitTorrentStep = () => {
-    const hasAnyBitTorrentClient = formData.rtorrent.enabled || formData.qbittorrent?.enabled || formData.deluge?.enabled || formData.transmission?.enabled;
+  const ClientsStep = ({ group }) => {
+    const enabledTypes = group.types.filter(type => formData[type]?.enabled);
+    const hasMagnetClient = enabledTypes.some(type => (typeCaps(type).linkSchemes || []).includes(MAGNET_SCHEME));
+    const canTest = enabledTypes.length > 0 && enabledTypes.every(type =>
+      missingRequiredFields(type, formData[type], (field) => wizardFromEnv(meta, type, field)).length === 0);
 
     return h('div', {},
-      h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, 'BitTorrent Integration'),
-      h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Configure one or more BitTorrent clients. Multiple clients can run simultaneously.'),
+      h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, group.title),
+      h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Enable the clients you use. Several can run at the same time.'),
 
       isDocker && h(AlertBox, { type: 'info', className: 'mb-6' },
-        h('p', {}, 'You are running in Docker. If your BitTorrent clients are running on your host machine, use ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), ' as the hostname.')
+        h('p', {}, 'You are running in Docker. If a client runs on your host machine, use ', h('code', { className: 'bg-white dark:bg-gray-800 px-1 rounded' }, 'host.docker.internal'), ' as the hostname. If it runs in another container, use that container\'s name.')
       ),
 
-      // rTorrent Section
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
-        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'rTorrent (XML-RPC / SCGI)'),
+      ...group.types.map(type => h('div', { key: type, className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
+        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, TYPE_LABELS[type]),
 
         h(EnableToggle, {
-          label: 'Enable rTorrent',
-          description: 'Connect to rTorrent for managing BitTorrent downloads via XML-RPC or SCGI',
-          enabled: formData.rtorrent.enabled,
-          onChange: (enabled) => updateField('rtorrent', 'enabled', enabled)
+          label: `Enable ${TYPE_LABELS[type]}`,
+          description: TYPE_DESCRIPTIONS[type],
+          enabled: !!formData[type]?.enabled,
+          onChange: (enabled) => updateField(type, 'enabled', enabled)
         }),
 
-        formData.rtorrent.enabled && h('div', { className: 'mt-4 space-y-4' },
+        formData[type]?.enabled && h('div', { className: 'mt-4 space-y-4' },
           h(ClientFieldsRenderer, {
-            type: 'rtorrent',
-            fields: CLIENT_FIELDS.rtorrent,
-            values: formData.rtorrent,
-            onFieldChange: (field, value) => updateField('rtorrent', field, value),
-            isFieldFromEnv: (field) => wizardFromEnv(meta, 'rtorrent', field),
-            isEnabled: formData.rtorrent.enabled
+            type,
+            fields: CLIENT_FIELDS[type],
+            values: formData[type],
+            onFieldChange: (field, value) => updateField(type, field, value),
+            isFieldFromEnv: (field) => wizardFromEnv(meta, type, field),
+            isEnabled: true
           }),
 
-          clientTestResults.rtorrent && h(TestResultIndicator, {
-            result: clientTestResults.rtorrent,
-            label: 'rTorrent Connection Test'
+          clientTestResults[type] && h(TestResultIndicator, {
+            result: clientTestResults[type],
+            label: `${TYPE_LABELS[type]} Connection Test`
           })
         )
+      )),
+
+      enabledTypes.length > 0 && h('div', { className: 'mb-6' },
+        h(TestButton, { onClick: handleTestCurrentStep, loading: isTesting, disabled: !canTest }, 'Test Connections')
       ),
 
-      // qBittorrent Section
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
-        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'qBittorrent (WebUI API)'),
-
-        h(EnableToggle, {
-          label: 'Enable qBittorrent',
-          description: 'Connect to qBittorrent for managing BitTorrent downloads via WebUI API',
-          enabled: formData.qbittorrent?.enabled || false,
-          onChange: (enabled) => updateField('qbittorrent', 'enabled', enabled)
-        }),
-
-        formData.qbittorrent?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ClientFieldsRenderer, {
-            type: 'qbittorrent',
-            fields: CLIENT_FIELDS.qbittorrent,
-            values: formData.qbittorrent || {},
-            onFieldChange: (field, value) => updateField('qbittorrent', field, value),
-            isFieldFromEnv: (field) => wizardFromEnv(meta, 'qbittorrent', field),
-            isEnabled: !!formData.qbittorrent?.enabled
-          }),
-
-          clientTestResults.qbittorrent && h(TestResultIndicator, {
-            result: clientTestResults.qbittorrent,
-            label: 'qBittorrent Connection Test'
-          })
-        )
-      ),
-
-      // Deluge Section
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
-        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'Deluge (WebUI JSON-RPC)'),
-
-        h(EnableToggle, {
-          label: 'Enable Deluge',
-          description: 'Connect to Deluge for managing BitTorrent downloads via WebUI JSON-RPC',
-          enabled: formData.deluge?.enabled || false,
-          onChange: (enabled) => updateField('deluge', 'enabled', enabled)
-        }),
-
-        formData.deluge?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ClientFieldsRenderer, {
-            type: 'deluge',
-            fields: CLIENT_FIELDS.deluge,
-            values: formData.deluge || {},
-            onFieldChange: (field, value) => updateField('deluge', field, value),
-            isFieldFromEnv: (field) => wizardFromEnv(meta, 'deluge', field),
-            isEnabled: !!formData.deluge?.enabled
-          }),
-
-          clientTestResults.deluge && h(TestResultIndicator, {
-            result: clientTestResults.deluge,
-            label: 'Deluge Connection Test'
-          })
-        )
-      ),
-
-      // Transmission Section
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
-        h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'Transmission (HTTP RPC)'),
-
-        h(EnableToggle, {
-          label: 'Enable Transmission',
-          description: 'Connect to Transmission for managing BitTorrent downloads via HTTP RPC',
-          enabled: formData.transmission?.enabled || false,
-          onChange: (enabled) => updateField('transmission', 'enabled', enabled)
-        }),
-
-        formData.transmission?.enabled && h('div', { className: 'mt-4 space-y-4' },
-          h(ClientFieldsRenderer, {
-            type: 'transmission',
-            fields: CLIENT_FIELDS.transmission,
-            values: formData.transmission || {},
-            onFieldChange: (field, value) => updateField('transmission', field, value),
-            isFieldFromEnv: (field) => wizardFromEnv(meta, 'transmission', field),
-            isEnabled: !!formData.transmission?.enabled
-          }),
-
-          clientTestResults.transmission && h(TestResultIndicator, {
-            result: clientTestResults.transmission,
-            label: 'Transmission Connection Test'
-          })
-        )
-      ),
-
-      // Test button for BitTorrent clients
-      hasAnyBitTorrentClient && h('div', { className: 'mb-6' },
-        h(TestButton, {
-          onClick: handleTestCurrentStep,
-          loading: isTesting,
-          disabled: (formData.rtorrent.enabled && (formData.rtorrent.mode === 'scgi-socket' ? !formData.rtorrent.socketPath : (!formData.rtorrent.host || !formData.rtorrent.port))) ||
-                    (formData.qbittorrent?.enabled && (!formData.qbittorrent.host || !formData.qbittorrent.port)) ||
-                    (formData.deluge?.enabled && (!formData.deluge.host || !formData.deluge.port)) ||
-                    (formData.transmission?.enabled && (!formData.transmission.host || !formData.transmission.port))
-        }, 'Test BitTorrent Connections')
-      ),
-
-      // Prowlarr Integration (for torrent searches)
-      hasAnyBitTorrentClient && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
+      // Prowlarr hands over magnets, so it sits with a client that takes them
+      hasMagnetClient && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-6' },
         h('h3', { className: 'text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4' }, 'Prowlarr (Torrent Search)'),
         h(EnableToggle, {
           enabled: formData.integrations.prowlarr?.enabled || false,
@@ -1030,12 +712,11 @@ const SetupWizardView = ({ onComplete }) => {
         )
       ),
 
-      !hasAnyBitTorrentClient && h(AlertBox, { type: 'info', className: 'mt-4' },
-        h('p', {}, 'BitTorrent integration is optional. You can skip this step if you only want to use other clients. At least one download client must be enabled.')
+      enabledTypes.length === 0 && h(AlertBox, { type: 'info', className: 'mt-4' },
+        h('p', {}, 'These clients are optional. At least one download client must be enabled.')
       ),
 
-      // Validation error message
-      stepValidationError && currentStep === 3 && h(AlertBox, { type: 'error', className: 'mt-4' },
+      stepValidationError && h(AlertBox, { type: 'error', className: 'mt-4' },
         h('p', {}, stepValidationError)
       )
     );
@@ -1097,7 +778,7 @@ const SetupWizardView = ({ onComplete }) => {
     ),
 
     // Validation error message
-    stepValidationError && currentStep === 4 && h(AlertBox, { type: 'error', className: 'mt-4' },
+    stepValidationError && h(AlertBox, { type: 'error', className: 'mt-4' },
       h('p', {}, stepValidationError)
     )
   );
@@ -1111,8 +792,8 @@ const SetupWizardView = ({ onComplete }) => {
       h('h2', { className: 'text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2' }, 'Integrations'),
       h('p', { className: 'text-gray-600 dark:text-gray-400 mb-6' }, 'Configure optional integrations for automatic searches.'),
 
-      // Integration config info (shown when aMule is enabled for *arr integration)
-      formData.amule.enabled !== false && h(IntegrationConfigInfo, {
+      // *arr integration info, when an enabled client serves it
+      CLIENT_TYPES.some(type => formData[type]?.enabled && typeCaps(type).arrIntegration) && h(IntegrationConfigInfo, {
         title: '*arr Integration Configuration',
         port: formData.server.port,
         authEnabled: formData.server.auth.enabled,
@@ -1245,7 +926,7 @@ const SetupWizardView = ({ onComplete }) => {
       ),
 
       // Validation error message
-      stepValidationError && currentStep === 5 && h(AlertBox, { type: 'error', className: 'mt-4' },
+      stepValidationError && h(AlertBox, { type: 'error', className: 'mt-4' },
         h('p', {}, stepValidationError)
       )
     );
@@ -1277,70 +958,22 @@ const SetupWizardView = ({ onComplete }) => {
         )
       ),
 
-      // aMule
-      h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'aMule Connection'),
-        formData.amule.enabled !== false
-          ? h('div', {},
-              h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.amule.host}`),
-              h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.amule.port}`),
-              h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'Password: ********')
-            )
-          : h('p', { className: 'text-sm text-gray-500 dark:text-gray-500 italic' }, 'Disabled')
-      ),
-
-      // Rucio
-      formData.rucio?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Rucio Connection'),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.rucio.host}`),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.rucio.port}`),
-        formData.rucio.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `URL path: ${formData.rucio.path}`),
-        formData.rucio.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: enabled')
-      ),
-
-      // rtorrent
-      formData.rtorrent.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'rTorrent Connection'),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Mode: ${formData.rtorrent.mode === 'scgi-socket' ? 'SCGI (Unix socket)' : formData.rtorrent.mode === 'scgi' ? 'SCGI (direct TCP)' : 'HTTP (XML-RPC proxy)'}`),
-        formData.rtorrent.mode === 'scgi-socket'
-          ? h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Socket: ${formData.rtorrent.socketPath}`)
-          : [
-              h('p', { key: 'host', className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.rtorrent.host}`),
-              h('p', { key: 'port', className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.rtorrent.port}`)
-            ],
-        formData.rtorrent.mode === 'http' && formData.rtorrent.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.rtorrent.path}`),
-        formData.rtorrent.mode === 'http' && formData.rtorrent.username && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.rtorrent.username}`),
-        formData.rtorrent.mode === 'http' && formData.rtorrent.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
-      ),
-
-      // qBittorrent
-      formData.qbittorrent?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'qBittorrent Connection'),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.qbittorrent.host}`),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.qbittorrent.port}`),
-        formData.qbittorrent.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.qbittorrent.path}`),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.qbittorrent.username || 'admin'}`),
-        formData.qbittorrent.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
-      ),
-
-      // Deluge
-      formData.deluge?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Deluge Connection'),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.deluge.host}`),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.deluge.port}`),
-        formData.deluge.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.deluge.path}`),
-        formData.deluge.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
-      ),
-
-      // Transmission
-      formData.transmission?.enabled && h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
-        h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, 'Transmission Connection'),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Host: ${formData.transmission.host}`),
-        h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Port: ${formData.transmission.port}`),
-        formData.transmission.path && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Path: ${formData.transmission.path}`),
-        formData.transmission.username && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, `Username: ${formData.transmission.username}`),
-        formData.transmission.useSsl && h('p', { className: 'text-sm text-gray-600 dark:text-gray-400' }, 'SSL: Enabled')
-      ),
+      // Enabled clients: their visible fields, passwords masked
+      ...CLIENT_TYPES.filter(type => formData[type]?.enabled).map(type => {
+        const values = formData[type];
+        const shown = CLIENT_FIELDS[type].filter(f => !f.hideWhen?.(values));
+        const text = (f) => f.sensitive ? '********'
+          : f.select ? (f.options.find(o => o.value === values[f.field])?.label ?? values[f.field])
+          : values[f.field];
+        return h('div', { key: type, className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
+          h('h3', { className: 'font-semibold text-gray-900 dark:text-gray-100 mb-2' }, `${TYPE_LABELS[type]} Connection`),
+          ...shown.filter(f => !f.toggle && String(values[f.field] ?? '') !== '').map(f =>
+            h('p', { key: f.field, className: 'text-sm text-gray-600 dark:text-gray-400' }, `${f.label}: ${text(f)}`)),
+          // Toggles that are on by default (category sync, notifications) only when changed
+          ...shown.filter(f => f.toggle && !!values[f.field] !== (f.defaultValue === true)).map(f =>
+            h('p', { key: f.field, className: 'text-sm text-gray-600 dark:text-gray-400' }, `${f.label}: ${values[f.field] ? 'Enabled' : 'Disabled'}`))
+        );
+      }),
 
       // Directories
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700' },
@@ -1407,14 +1040,15 @@ const SetupWizardView = ({ onComplete }) => {
     )
   );
 
-  const stepComponents = [WelcomeStep, SecurityStep, AmuleStep, BitTorrentStep, DirectoriesStep, IntegrationsStep, ReviewStep];
+  const stepComponents = { welcome: WelcomeStep, security: SecurityStep, directories: DirectoriesStep, integrations: IntegrationsStep, review: ReviewStep };
+  const renderStep = () => step.group ? ClientsStep({ group: step.group }) : stepComponents[step.key]();
 
   return h('div', { className: 'min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4' },
     h('div', { className: 'max-w-3xl mx-auto' },
       // Progress indicator
       h('div', { className: 'mb-8' },
         h('div', { className: 'flex items-center' },
-          steps.map((step, idx) => [
+          steps.map(({ title }, idx) => [
             // Circle and label wrapper
             h('div', {
               key: `step-${idx}`,
@@ -1430,7 +1064,7 @@ const SetupWizardView = ({ onComplete }) => {
               }, idx < currentStep ? h(Icon, { name: 'check', size: 16 }) : idx + 1),
               h('span', {
                 className: `text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap ${idx === currentStep ? 'font-medium text-blue-600 dark:text-blue-400' : ''}`
-              }, step)
+              }, title)
             ),
             // Connecting line
             idx < steps.length - 1 && h('div', {
@@ -1443,7 +1077,7 @@ const SetupWizardView = ({ onComplete }) => {
 
       // Step content
       h('div', { className: 'bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6' },
-        stepComponents[currentStep]()
+        renderStep()
       ),
 
       // Navigation buttons

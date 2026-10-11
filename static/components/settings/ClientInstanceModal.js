@@ -18,7 +18,8 @@ import {
   TYPE_DESCRIPTIONS,
   CLIENT_FIELDS,
   TYPE_DEFAULTS,
-  ClientFieldsRenderer
+  ClientFieldsRenderer,
+  missingRequiredFields
 } from './clientFields.js';
 
 const { createElement: h, useState, useEffect } = React;
@@ -90,10 +91,7 @@ const ClientInstanceModal = ({ isOpen, onClose, onSave, onTest, editClient = nul
     return editClient?._fromEnv?.[field] || false;
   };
 
-  // Every visible required field (clientFields.js) has a value or comes from env
-  const canTest = isEnabled && fields
-    .filter(f => f.required && !f.hideWhen?.(formState))
-    .every(f => String(formState[f.field] ?? '').trim() !== '' || isFieldFromEnv(f.field));
+  const canTest = isEnabled && missingRequiredFields(formState.type, formState, isFieldFromEnv).length === 0;
 
   const handleTypeSelect = (type) => {
     const baseName = TYPE_LABELS[type];

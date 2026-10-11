@@ -192,6 +192,18 @@ export const TYPE_DEFAULTS = Object.fromEntries(
   ])
 );
 
+/**
+ * Visible required fields of a client form that are empty and not set by env.
+ * @param {string} type - client type
+ * @param {Object} values - form values
+ * @param {function} [isFromEnv] - (field) => true when env provides it
+ * @returns {Object[]} field definitions
+ */
+export const missingRequiredFields = (type, values, isFromEnv = () => false) =>
+  (CLIENT_FIELDS[type] || [])
+    .filter(f => f.required && !f.hideWhen?.(values))
+    .filter(f => String(values?.[f.field] ?? '').trim() === '' && !isFromEnv(f.field));
+
 // Env prefix used for sensitive-field env-var name display ("aMule EC password
 // is set via AMULE_PASSWORD"). Kept in one place to avoid drift.
 const ENV_PREFIX = { amule: 'AMULE', rucio: 'RUCIO', rtorrent: 'RTORRENT', qbittorrent: 'QBITTORRENT', deluge: 'DELUGE', transmission: 'TRANSMISSION' };

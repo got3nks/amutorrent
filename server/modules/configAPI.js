@@ -46,6 +46,21 @@ class ConfigAPI extends BaseModule {
   }
 
   /**
+   * Client half of _meta.fromEnv, from the env-var registry: one
+   * `${type}${Field}` flag per client env field (e.g. qbittorrentHost).
+   * @returns {Object}
+   */
+  buildClientFromEnvMeta() {
+    const flags = {};
+    for (const [type, fields] of Object.entries(config.CLIENT_ENV_FIELDS)) {
+      for (const { field } of Object.values(fields)) {
+        flags[`${type}${field.charAt(0).toUpperCase()}${field.slice(1)}`] = config.isFromEnv(`${type}.${field}`);
+      }
+    }
+    return flags;
+  }
+
+  /**
    * Build the _meta.fromEnv object for API responses
    * For getDefaults: checks environment variables directly
    * For getCurrent: uses config.isFromEnv() to check if value is from env and not overridden
@@ -59,47 +74,7 @@ class ConfigAPI extends BaseModule {
       serverAuthEnabled: config.isFromEnv('server.auth.enabled'),
       serverAuthPassword: config.isFromEnv('server.auth.password'),
       serverAuthAdminUsername: config.isFromEnv('server.auth.adminUsername'),
-      amuleEnabled: config.isFromEnv('amule.enabled'),
-      amuleHost: config.isFromEnv('amule.host'),
-      amulePort: config.isFromEnv('amule.port'),
-      amulePassword: config.isFromEnv('amule.password'),
-      amuleSharedFilesReloadInterval: config.isFromEnv('amule.sharedFilesReloadIntervalHours'),
-      rucioEnabled: config.isFromEnv('rucio.enabled'),
-      rucioHost: config.isFromEnv('rucio.host'),
-      rucioPort: config.isFromEnv('rucio.port'),
-      rucioPath: config.isFromEnv('rucio.path'),
-      rucioUsername: config.isFromEnv('rucio.username'),
-      rucioPassword: config.isFromEnv('rucio.password'),
-      rucioUseSsl: config.isFromEnv('rucio.useSsl'),
-      rtorrentEnabled: config.isFromEnv('rtorrent.enabled'),
-      rtorrentMode: config.isFromEnv('rtorrent.mode'),
-      rtorrentHost: config.isFromEnv('rtorrent.host'),
-      rtorrentPort: config.isFromEnv('rtorrent.port'),
-      rtorrentPath: config.isFromEnv('rtorrent.path'),
-      rtorrentSocketPath: config.isFromEnv('rtorrent.socketPath'),
-      rtorrentUsername: config.isFromEnv('rtorrent.username'),
-      rtorrentPassword: config.isFromEnv('rtorrent.password'),
-      rtorrentUseSsl: config.isFromEnv('rtorrent.useSsl'),
-      qbittorrentEnabled: config.isFromEnv('qbittorrent.enabled'),
-      qbittorrentHost: config.isFromEnv('qbittorrent.host'),
-      qbittorrentPort: config.isFromEnv('qbittorrent.port'),
-      qbittorrentUsername: config.isFromEnv('qbittorrent.username'),
-      qbittorrentPassword: config.isFromEnv('qbittorrent.password'),
-      qbittorrentPath: config.isFromEnv('qbittorrent.path'),
-      qbittorrentUseSsl: config.isFromEnv('qbittorrent.useSsl'),
-      delugeEnabled: config.isFromEnv('deluge.enabled'),
-      delugeHost: config.isFromEnv('deluge.host'),
-      delugePort: config.isFromEnv('deluge.port'),
-      delugePassword: config.isFromEnv('deluge.password'),
-      delugePath: config.isFromEnv('deluge.path'),
-      delugeUseSsl: config.isFromEnv('deluge.useSsl'),
-      transmissionEnabled: config.isFromEnv('transmission.enabled'),
-      transmissionHost: config.isFromEnv('transmission.host'),
-      transmissionPort: config.isFromEnv('transmission.port'),
-      transmissionUsername: config.isFromEnv('transmission.username'),
-      transmissionPassword: config.isFromEnv('transmission.password'),
-      transmissionUseSsl: config.isFromEnv('transmission.useSsl'),
-      transmissionPath: config.isFromEnv('transmission.path'),
+      ...this.buildClientFromEnvMeta(),
       sonarrUrl: config.isFromEnv('integrations.sonarr.url'),
       sonarrApiKey: config.isFromEnv('integrations.sonarr.apiKey'),
       sonarrSearchInterval: config.isFromEnv('integrations.sonarr.searchIntervalHours'),

@@ -24,3 +24,40 @@ describe('Stop and pausing a shared item', () => {
     }
   });
 });
+
+describe('settings and wizard metadata', () => {
+  const configAPI = require('../modules/configAPI');
+  const api = typeof configAPI === 'function' ? new configAPI() : configAPI;
+  const config = require('../modules/config');
+
+  it('ships capabilities for every client type', () => {
+    assert.deepEqual(Object.keys(api.buildClientCapabilities()), Object.keys(clientMeta.CLIENT_TYPES));
+  });
+
+  it('builds one from-env flag per client env field, from the env registry', () => {
+    // Used to be a hand-written list that each new client had to extend.
+    const flags = api.buildClientFromEnvMeta();
+    for (const [type, fields] of Object.entries(config.CLIENT_ENV_FIELDS)) {
+      for (const { field } of Object.values(fields)) {
+        assert.ok(`${type}${field[0].toUpperCase()}${field.slice(1)}` in flags, `${type}.${field}`);
+      }
+    }
+  });
+});
+
+describe('*arr instance', () => {
+  const registry = require('../lib/ClientRegistry');
+  const { resolveArrManager } = require('../lib/arrInstance');
+  const fake = (instanceId, clientType, connected) => ({ instanceId, clientType, isConnected: () => connected });
+
+  it('picks the first connected instance with arrIntegration', () => {
+    registry.register('transmission-arr', 'transmission', fake('transmission-arr', 'transmission', true));
+    registry.register('amule-arr-off', 'amule', fake('amule-arr-off', 'amule', false));
+    registry.register('amule-arr-on', 'amule', fake('amule-arr-on', 'amule', true));
+    try {
+      assert.equal(resolveArrManager()?.instanceId, 'amule-arr-on');
+    } finally {
+      for (const id of ['transmission-arr', 'amule-arr-off', 'amule-arr-on']) registry.unregister(id);
+    }
+  });
+});
