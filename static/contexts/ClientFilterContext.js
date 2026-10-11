@@ -10,7 +10,7 @@
  * - Individual instance chips toggle a single instance
  * - When all instances of a network type are disabled, clicking one instance enables only that one
  *
- * Derived convenience booleans (isEd2kEnabled, isBittorrentEnabled) combine:
+ * isNetworkTypeEnabled and isCapabilityEnabled combine:
  * - User preference (not in disabledInstances)
  * - Connection status (instance.connected)
  */
@@ -76,11 +76,7 @@ function loadPersistedState() {
 
 export const ClientFilterProvider = ({ children }) => {
   // Get instances metadata and derived helpers from StaticDataContext
-  const { instances, isNetworkTypeConnected } = useStaticData();
-
-  // Pure connection status (not affected by user filter preference)
-  const ed2kConnected = isNetworkTypeConnected('ed2k');
-  const bittorrentConnected = isNetworkTypeConnected('bittorrent');
+  const { instances } = useStaticData();
 
   // Single source of truth: Set of disabled instance IDs
   const [disabledInstances, setDisabledInstances] = useState(() => {
@@ -215,11 +211,13 @@ export const ClientFilterProvider = ({ children }) => {
     return Array.from(seen);
   }, [instances]);
 
-  // Back-compat convenience booleans for ed2k/bittorrent (still consumed by
-  // aMule/BitTorrent-specific UI — the stats tree, the tracker filter). New,
-  // network-agnostic code uses connectedNetworks + isNetworkTypeEnabled instead.
-  const isEd2kEnabled = useMemo(() => isNetworkTypeEnabled('ed2k'), [isNetworkTypeEnabled]);
-  const isBittorrentEnabled = useMemo(() => isNetworkTypeEnabled('bittorrent'), [isNetworkTypeEnabled]);
+  // Derived: does any connected, enabled instance have this capability (e.g.
+  // 'trackers' for the tracker filter, 'statsTree' for the stats tree)?
+  const isCapabilityEnabled = useCallback((capability) => {
+    return Object.entries(instances).some(([id, inst]) =>
+      inst.connected && !disabledInstances.has(id) && !!inst.capabilities?.[capability]
+    );
+  }, [instances, disabledInstances]);
 
   // Memoize context value
   const value = useMemo(() => ({
@@ -232,23 +230,15 @@ export const ClientFilterProvider = ({ children }) => {
     toggleInstance,
     isInstanceEnabled,
 
-    // Connection state (pure, not affected by filter preference)
-    ed2kConnected,
-    bittorrentConnected,
-
     // Generic, network-agnostic view of enablement
     connectedNetworks,
     isNetworkTypeEnabled,
     // Every connected network has at least one enabled instance
     allClientsEnabled: connectedNetworks.every(nt => isNetworkTypeEnabled(nt)),
-
-    // Convenience booleans: user preference AND connected (ed2k/bittorrent only)
-    isEd2kEnabled,
-    isBittorrentEnabled
+    isCapabilityEnabled
   }), [toggleNetworkType, filterByEnabledClients,
     disabledInstances, toggleInstance, isInstanceEnabled,
-    ed2kConnected, bittorrentConnected, connectedNetworks,
-    isEd2kEnabled, isBittorrentEnabled, isNetworkTypeEnabled]);
+    connectedNetworks, isNetworkTypeEnabled, isCapabilityEnabled]);
 
   return h(ClientFilterContext.Provider, { value }, children);
 };

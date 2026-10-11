@@ -20,12 +20,12 @@ import { filterByTracker, buildTrackerFilterOptions } from '../utils/downloadHel
  */
 export const useTrackerFilter = ({ includeNoTracker = false } = {}) => {
   const { knownTrackers } = useStaticData();
-  const { isBittorrentEnabled } = useClientFilter();
+  const { isCapabilityEnabled } = useClientFilter();
 
   // Array of selected tracker hostnames (or 'none' sentinel). Empty = all.
   const [trackerFilters, setTrackerFilters] = useState([]);
 
-  const showTrackerFilter = isBittorrentEnabled;
+  const showTrackerFilter = isCapabilityEnabled('trackers');
 
   // Full list of options (sans the synthetic 'all' entry used by the legacy
   // native <select>; the multi-select treats "no selection" as "all").

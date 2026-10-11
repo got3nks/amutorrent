@@ -35,13 +35,14 @@ import { useAuth } from '../../contexts/AuthContext.js';
 import { CAPABILITY_LABELS, CAPABILITY_GROUPS, PRESETS, SSO_DEFAULT_CAPABILITIES, detectPreset } from '../../utils/capabilities.js';
 import { hasTestErrors as checkTestErrors, checkResultsForErrors } from '../../utils/testHelpers.js';
 import { VIEW_TITLE_STYLES } from '../../utils/index.js';
+import { MAGNET_SCHEME } from '../../utils/constants.js';
 
 /**
  * SettingsView component
  */
 const SettingsView = () => {
   const { setAppCurrentView } = useAppState();
-  const { instances } = useStaticData();
+  const { instances, instancesAcceptingScheme } = useStaticData();
   const { authEnabled: authIsActive, username: currentUsername } = useAuth();
   const onClose = () => setAppCurrentView('home');
 
@@ -352,8 +353,8 @@ const SettingsView = () => {
   const isDocker = configStatus?.isDocker;
   const meta = currentConfig?._meta;
 
-  // Check if any BitTorrent client exists (for Prowlarr section)
-  const hasAnyBittorrent = Object.values(instances).some(inst => inst.networkType === 'bittorrent');
+  // Prowlarr hands over magnets, so its section needs a client that takes them
+  const hasMagnetClient = instancesAcceptingScheme(MAGNET_SCHEME, { connectedOnly: false }).length > 0;
 
   // Badge helper
   const pill = (text) => h('span', {
@@ -630,10 +631,10 @@ const SettingsView = () => {
       ),
 
       // Prowlarr Integration
-      !hasAnyBittorrent && h(AlertBox, { type: 'info', className: 'mt-4' },
+      !hasMagnetClient && h(AlertBox, { type: 'info', className: 'mt-4' },
         h('p', {}, 'Add a BitTorrent client to enable Prowlarr integration.')
       ),
-      hasAnyBittorrent && h('div', { className: 'mt-4 pt-4 border-t border-gray-200 dark:border-gray-700' },
+      hasMagnetClient && h('div', { className: 'mt-4 pt-4 border-t border-gray-200 dark:border-gray-700' },
         h(EnableToggle, {
           enabled: formData.integrations.prowlarr?.enabled || false,
           onChange: (value) => updateNestedField('integrations', 'prowlarr', 'enabled', value),

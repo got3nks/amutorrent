@@ -2,7 +2,7 @@
  * FileInfoModal Component
  *
  * Unified modal for displaying file information.
- * Adapts sections based on network type (bittorrent, ed2k-download, ed2k-shared).
+ * Adapts sections to the item: torrent, download or shared file.
  * Looks up live data from context internally — caller only passes a hash.
  */
 
@@ -31,7 +31,7 @@ const { createElement: h, useState, useEffect } = React;
  * Default expanded-sections state for each variant
  */
 const getDefaultExpanded = (variant) => {
-  if (variant === 'bittorrent') {
+  if (variant === 'torrent') {
     return {
       'Files': true,
       'Peers': true,
@@ -47,7 +47,7 @@ const getDefaultExpanded = (variant) => {
       'Uncategorized': false
     };
   }
-  if (variant === 'ed2k-download') {
+  if (variant === 'download') {
     return {
       'Download Sources': true,
       'Active Uploads': true,
@@ -62,7 +62,7 @@ const getDefaultExpanded = (variant) => {
       'Uncategorized': false
     };
   }
-  // ed2k-shared
+  // shared
   return {
     'Active Uploads': true,
     'File Identification': true,
@@ -75,7 +75,7 @@ const getDefaultExpanded = (variant) => {
  * Header config for each variant
  */
 const getHeaderConfig = (variant, item) => {
-  if (variant === 'bittorrent') {
+  if (variant === 'torrent') {
     const isSeeding = item.status === 'seeding';
     return {
       icon: isSeeding ? 'upload' : 'download',
@@ -83,7 +83,7 @@ const getHeaderConfig = (variant, item) => {
       color: isSeeding ? 'green' : 'blue'
     };
   }
-  if (variant === 'ed2k-download') {
+  if (variant === 'download') {
     return { icon: 'download', title: 'Download Details', color: 'blue' };
   }
   return { icon: 'upload', title: 'Shared File Details', color: 'green' };
@@ -93,9 +93,9 @@ const getHeaderConfig = (variant, item) => {
  * Get variant string from a unified item
  */
 const getVariant = (item) => {
-  if (item.networkType === 'bittorrent') return 'bittorrent';
-  if (item.downloading) return 'ed2k-download';
-  return 'ed2k-shared';
+  if (item.hasTrackers) return 'torrent';
+  if (item.downloading) return 'download';
+  return 'shared';
 };
 
 /**
@@ -120,17 +120,17 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
 
   const variant = liveItem ? getVariant(liveItem) : null;
 
-  // Subscribe to segment data when showing ed2k-download (for SegmentsBar)
+  // Subscribe to segment data for a download (for SegmentsBar)
   const { subscribe, unsubscribe } = useWebSocketConnection();
   useEffect(() => {
-    if (variant !== 'ed2k-download') return;
+    if (variant !== 'download') return;
     subscribe('segmentData');
     return () => unsubscribe('segmentData');
   }, [variant, subscribe, unsubscribe]);
 
   // Expanded sections state — resets when hash or variant changes
   const [expandedSections, setExpandedSections] = useState(() =>
-    getDefaultExpanded(variant || 'bittorrent')
+    getDefaultExpanded(variant || 'torrent')
   );
 
   useEffect(() => {
@@ -150,7 +150,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
 
   // Fetch files when modal opens for multi-file torrent items, refresh periodically
   useEffect(() => {
-    const isTorrent = variant === 'bittorrent';
+    const isTorrent = variant === 'torrent';
     if (!hash || !liveItem || !isTorrent) {
       setFiles(null);
       return;
@@ -238,7 +238,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
   // - aMule: EC_TAG_ fields may be at raw top level or nested at raw.raw.
   //   Resolve to whichever level has EC_TAG_ keys.
   // Note: raw is fetched on-demand via API (stripped from broadcasts for performance)
-  const isTorrent = variant === 'bittorrent';
+  const isTorrent = variant === 'torrent';
   const rawFull = itemDetail?.raw || {};
   const ecTagSource = !isTorrent && rawFull.raw && typeof rawFull.raw === 'object'
     ? rawFull.raw
@@ -300,7 +300,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
         .filter(c => allFields[c] && allFields[c].length > 0)
         .map(c => [c, allFields[c]])
     );
-  } else if (variant === 'ed2k-download') {
+  } else if (variant === 'download') {
     const allFields = categorizeDownloadFields(raw);
     const categoryOrder = [
       'File Identification', 'Source Information', 'State & Progress',
@@ -313,7 +313,7 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
         .map(c => [c, allFields[c]])
     );
   } else {
-    // ed2k-shared
+    // shared
     const allFields = categorizeSharedFields(raw, liveItem);
     const categoryOrder = ['File Identification', 'Upload Statistics', 'Source Information'];
     categorizedFields = Object.fromEntries(
@@ -377,13 +377,13 @@ const FileInfoModal = ({ hash, instanceId, onClose }) => {
           )
         ),
 
-        // --- ed2k-download: Segments visualization ---
+        // --- download: Segments visualization ---
         // Render whenever we have gap data (aMule always emits gapStatus for
         // active partfiles). `partStatus` may be missing when the file has 0
         // connected sources contributing part-frequency data — SegmentsBar
         // falls back to red for gap regions in that case, which is exactly
         // the right "missing, no sources" signal.
-        variant === 'ed2k-download' && (liveItem.partStatus || liveItem.gapStatus) && h('div', { className: 'bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700' },
+        variant === 'download' && (liveItem.partStatus || liveItem.gapStatus) && h('div', { className: 'bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700' },
           h('div', { className: 'text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2' }, 'Segments'),
           h('div', { className: 'w-full overflow-hidden rounded-full h-6' },
             h(SegmentsBar, {

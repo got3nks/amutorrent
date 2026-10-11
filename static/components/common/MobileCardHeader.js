@@ -11,6 +11,7 @@ import ClientIcon from './ClientIcon.js';
 import TrackerLabel from './TrackerLabel.js';
 import { useDynamicFontSize } from '../../hooks/index.js';
 import { formatBytes } from '../../utils/index.js';
+import { NETWORK_COLORS } from '../../utils/constants.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import Tooltip from './Tooltip.js';
 
@@ -61,19 +62,16 @@ const MobileCardHeader = ({
   const networkType = instanceId && instances?.[instanceId]?.networkType
     || (clientType && Object.values(instances).find(i => i.type === clientType)?.networkType)
     || 'ed2k';
-  const isBittorrent = networkType === 'bittorrent';
 
-  // Badge background: use instance color when available, else network-type color
+  // Badge background: the instance colour when set; otherwise a tint of the
+  // network's colour from the registry
+  const networkColor = showBadge && NETWORK_COLORS[networkType];
   const badgeStyle = instanceInfo?.color
     ? { backgroundColor: instanceInfo.color, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }
-    : undefined;
+    : (networkColor ? { backgroundColor: `${networkColor}26`, color: networkColor } : undefined);
   const badgeBgClass = instanceInfo?.color
     ? 'text-white'
-    : (showBadge
-        ? (isBittorrent
-            ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300'
-            : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300')
-        : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300');
+    : (networkColor ? '' : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300');
 
   // Show size badge if we have fileSize or showBadge (for client icon)
   const showSizeBadge = fileSize > 0 || showBadge;

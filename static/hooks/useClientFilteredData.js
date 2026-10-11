@@ -19,9 +19,7 @@ export const useClientFilteredData = ({ data }) => {
   // Global client filter from context (toggle in header)
   const {
     filterByEnabledClients, disabledInstances,
-    connectedNetworks, isNetworkTypeEnabled,
-    // ed2k/bittorrent-specific UI still reads these two
-    isEd2kEnabled, isBittorrentEnabled
+    connectedNetworks, isNetworkTypeEnabled
   } = useClientFilter();
 
   // Local category/label filter state (view-specific)
@@ -68,8 +66,6 @@ export const useClientFilteredData = ({ data }) => {
     presentNetworks,
     // Client filter state (for conditional rendering and page reset)
     enabledNetworksKey,
-    isEd2kEnabled,
-    isBittorrentEnabled,
     disabledInstances
   };
 };

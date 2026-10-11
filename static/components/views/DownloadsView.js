@@ -30,7 +30,7 @@ const DownloadsView = () => {
   // CONTEXT DATA
   // ============================================================================
   const { dataItems, dataLoaded: liveDataLoaded } = useLiveData();
-  const { dataCategories } = useStaticData();
+  const { dataCategories, getCapabilities } = useStaticData();
   const actions = useActions();
   const { theme } = useTheme();
   const { hasCap } = useCapabilities();
@@ -157,14 +157,17 @@ const DownloadsView = () => {
   const {
     handleDeleteClick,
     handleBatchDeleteClick,
-    selectedClientTypes,
-    selectedNetworkTypes,
     DeleteModalElement
   } = useViewDeleteModal({
     dataArray: downloads,
     selectedFiles,
     clearAllSelections
   });
+
+  // Stop is offered only when a selected item's client has it
+  const selectionCanStop = useMemo(() => downloads.some(d =>
+    selectedFiles.has(itemKey(d.instanceId, d.hash)) && getCapabilities(d.instanceId).stop
+  ), [downloads, selectedFiles, getCapabilities]);
 
   // Batch export with status feedback
   const { batchCopyStatus, handleBatchExport } = useBatchExport({
@@ -480,8 +483,8 @@ const DownloadsView = () => {
     },
       hasCap('pause_resume') && h(Button, { variant: 'warning', onClick: handleBatchPause, icon: 'pause', iconSize: 14 }, 'Pause'),
       hasCap('pause_resume') && h(Button, { variant: 'success', onClick: handleBatchResume, icon: 'play', iconSize: 14 }, 'Resume'),
-      hasCap('pause_resume') && (!selectedNetworkTypes.has('bittorrent')
-        ? h(Tooltip, { content: 'Stop is only available for BitTorrent downloads', position: 'top' },
+      hasCap('pause_resume') && (!selectionCanStop
+        ? h(Tooltip, { content: 'None of the selected downloads can be stopped', position: 'top' },
             h(Button, { variant: 'secondary', onClick: handleBatchStop, icon: 'stop', iconSize: 14, disabled: true }, 'Stop')
           )
         : h(Button, { variant: 'secondary', onClick: handleBatchStop, icon: 'stop', iconSize: 14 }, 'Stop')

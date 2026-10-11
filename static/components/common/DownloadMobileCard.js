@@ -13,7 +13,7 @@ import { ProgressBar } from './ProgressBar.js';
 import Icon from './Icon.js';
 import TrackerLabel from './TrackerLabel.js';
 import { MoreButton } from './ContextMenu.js';
-import { formatSpeed, formatSourceDisplay, getItemStatusInfo, isActiveStatus, getSeederColorClass, getTimeBasedColor, isBittorrentClient } from '../../utils/index.js';
+import { formatSpeed, formatSourceDisplay, getItemStatusInfo, isActiveStatus, getSeederColorClass, getTimeBasedColor, hasTrackers } from '../../utils/index.js';
 
 const { createElement: h } = React;
 
@@ -88,7 +88,7 @@ const DownloadMobileCard = ({
  */
 function renderInfoLine(item, statusInfo) {
   const parts = [];
-  const isBittorrent = isBittorrentClient(item);
+  const isTorrent = hasTrackers(item);
   const isActive = isActiveStatus(statusInfo.key);
 
   // Speed segment
@@ -113,7 +113,7 @@ function renderInfoLine(item, statusInfo) {
 
   // Peers/Sources segment - color coding matches desktop table
   const sourceText = formatSourceDisplay(item);
-  if (isBittorrent) {
+  if (isTorrent) {
     const seedColorClass = getSeederColorClass(item.sources?.seeders || 0);
     const hasMessage = item.message && item.message.trim();
     parts.push(h('span', { key: 'peers', className: `flex items-center gap-1 ${seedColorClass}` },
@@ -126,8 +126,8 @@ function renderInfoLine(item, statusInfo) {
     parts.push(h('span', { key: 'sources', className: colorClass }, sourceText));
   }
 
-  // Tracker segment (BitTorrent only)
-  if (isBittorrent && item.tracker) {
+  // Tracker segment (torrents only)
+  if (isTorrent && item.tracker) {
     parts.push(h(TrackerLabel, { key: 'tracker', tracker: item.tracker, maxWidth: 100 }));
   }
 

@@ -5,7 +5,7 @@
  * but skips the initial render to avoid unnecessary reset on mount.
  *
  * Usage:
- *   useClientFilterPageReset(onPageChange, isEd2kEnabled, isBittorrentEnabled, disabledInstances);
+ *   useClientFilterPageReset(onPageChange, enabledNetworksKey, disabledInstances);
  */
 
 import React from 'https://esm.sh/react@18.2.0';

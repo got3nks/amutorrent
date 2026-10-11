@@ -81,6 +81,9 @@ function createBaseItem(hash, client) {
     name: '',
     client,
     networkType: clientMeta.getNetworkType(client),
+    // Torrent-shaped item (trackers, peers, magnet link): lets the frontend's
+    // pure helpers decide by capability rather than by network.
+    hasTrackers: clientMeta.hasCapability(client, 'trackers'),
     ...COMMON_DEFAULTS,
     // Deep-copy mutable common fields to avoid shared-reference bugs
     sources: { ...COMMON_DEFAULTS.sources },

@@ -192,6 +192,8 @@ const CLIENT_TYPES = {
       moveActiveDownloads: true,   // can relocate active downloads
       pauseBeforeMove: true,       // must close/stop before file move
       trackers: true,              // has tracker info
+      stop: true,                  // offers Stop next to Pause
+      pauseSeeding: true,          // a shared (seeding) item can be paused
       search: false,               // no search API
       searchSources: [],
       linkSchemes: ['magnet:?'],
@@ -266,6 +268,8 @@ const CLIENT_TYPES = {
       moveActiveDownloads: true,   // can relocate active downloads
       pauseBeforeMove: true,       // should pause before manual move
       trackers: true,              // has tracker info
+      stop: true,                  // offers Stop next to Pause
+      pauseSeeding: true,          // a shared (seeding) item can be paused
       search: false,               // no search API (Prowlarr handles this)
       searchSources: [],
       linkSchemes: ['magnet:?'],
@@ -321,6 +325,8 @@ const CLIENT_TYPES = {
       moveActiveDownloads: true,   // can relocate active downloads
       pauseBeforeMove: false,      // Deluge handles move internally
       trackers: true,              // has tracker info
+      stop: true,                  // offers Stop next to Pause
+      pauseSeeding: true,          // a shared (seeding) item can be paused
       search: false,               // no search API
       searchSources: [],
       linkSchemes: ['magnet:?'],
@@ -377,6 +383,8 @@ const CLIENT_TYPES = {
       moveActiveDownloads: true,     // can relocate active downloads
       pauseBeforeMove: false,        // Transmission handles move internally
       trackers: true,                // has tracker info
+      stop: true,                  // offers Stop next to Pause
+      pauseSeeding: true,          // a shared (seeding) item can be paused
       search: false,                 // no search API
       searchSources: [],
       linkSchemes: ['magnet:?'],

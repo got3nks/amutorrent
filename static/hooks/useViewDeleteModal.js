@@ -331,30 +331,6 @@ export const useViewDeleteModal = ({
     return clientTypes.size > 1;
   }, [selectedFiles, dataArray]);
 
-  // Get selected client types set (selectedFiles contains compound keys)
-  const selectedClientTypes = useMemo(() => {
-    if (selectedFiles.size === 0) return new Set();
-    const types = new Set();
-    dataArray.forEach(d => {
-      if (selectedFiles.has(itemKey(d.instanceId, d.hash))) {
-        types.add(d.client);
-      }
-    });
-    return types;
-  }, [selectedFiles, dataArray]);
-
-  // Get selected network types set (future-proof: any new BitTorrent client works automatically)
-  const selectedNetworkTypes = useMemo(() => {
-    if (selectedFiles.size === 0) return new Set();
-    const types = new Set();
-    dataArray.forEach(d => {
-      if (selectedFiles.has(itemKey(d.instanceId, d.hash))) {
-        types.add(d.networkType);
-      }
-    });
-    return types;
-  }, [selectedFiles, dataArray]);
-
   // Pre-rendered modal element
   const DeleteModalElement = useMemo(() => {
     return h(DeleteModal, {
@@ -400,8 +376,6 @@ export const useViewDeleteModal = ({
     handleConfirmDelete,
     // Selection info
     isMixedSelection,
-    selectedClientTypes,
-    selectedNetworkTypes,
     // Pre-rendered modal element
     DeleteModalElement
   };

@@ -21,10 +21,6 @@ const { useState, useEffect } = React;
  * state and filter settings
  *
  * @returns {object} Chart configuration object with:
- *   - ed2kConnected: boolean - whether ED2K network client is connected
- *   - bittorrentConnected: boolean - whether any BitTorrent client is connected
- *   - isEd2kEnabled: boolean - whether ED2K network is enabled in filter
- *   - isBittorrentEnabled: boolean - whether BitTorrent is enabled in filter
  *   - showBothCharts: boolean - show side-by-side charts for both network types
  *   - showSingleClient: boolean - show single network type charts (full width)
  *   - singleNetworkType: 'ed2k' | 'bittorrent' - which network to show when single
@@ -32,7 +28,7 @@ const { useState, useEffect } = React;
  *   - shouldRenderCharts: boolean - deferred rendering state for performance
  */
 export const useClientChartConfig = () => {
-  const { isNetworkTypeEnabled, isEd2kEnabled, isBittorrentEnabled, ed2kConnected, bittorrentConnected } = useClientFilter();
+  const { isNetworkTypeEnabled } = useClientFilter();
   const { dataStats } = useLiveData();
 
   // Check if we're still waiting for WebSocket data
@@ -65,10 +61,6 @@ export const useClientChartConfig = () => {
   return {
     isLoading,
     networks,
-    ed2kConnected,
-    bittorrentConnected,
-    isEd2kEnabled,
-    isBittorrentEnabled,
     showBothCharts,
     showSingleClient,
     singleNetworkType,

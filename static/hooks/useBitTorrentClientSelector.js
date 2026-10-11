@@ -10,19 +10,19 @@
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
 import { useStaticData } from '../contexts/StaticDataContext.js';
-import { CLIENT_NAMES } from '../utils/constants.js';
+import { CLIENT_NAMES, MAGNET_SCHEME } from '../utils/constants.js';
 
 /**
  * Hook for BitTorrent client instance selection
  * @returns {Object} Client selection state and helpers
  */
 export function useBitTorrentClientSelector() {
-  const { instances } = useStaticData();
+  const { instances, instancesAcceptingScheme } = useStaticData();
 
-  // Build list of connected BitTorrent instances
+  // Connected instances that take magnet links (and so torrents)
   const connectedClients = useMemo(() => {
-    return Object.entries(instances || {})
-      .filter(([, inst]) => inst.connected && inst.networkType === 'bittorrent')
+    return instancesAcceptingScheme(MAGNET_SCHEME)
+      .map(id => [id, instances[id]])
       .map(([id, inst]) => ({
         id,           // instanceId (e.g., 'rtorrent-seedbox-5000')
         type: inst.type,
@@ -32,7 +32,7 @@ export function useBitTorrentClientSelector() {
         order: inst.order
       }))
       .sort((a, b) => a.order - b.order)
-  }, [instances]);
+  }, [instances, instancesAcceptingScheme]);
 
   // Whether any BitTorrent client is available
   const hasBitTorrentClient = connectedClients.length > 0;

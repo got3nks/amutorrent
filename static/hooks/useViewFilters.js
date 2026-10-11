@@ -56,8 +56,6 @@ export const useViewFilters = ({
     filterCategoryId,
     presentNetworks,
     enabledNetworksKey,
-    isEd2kEnabled,
-    isBittorrentEnabled,
     disabledInstances
   } = useClientFilteredData({ data });
 
@@ -192,8 +190,6 @@ export const useViewFilters = ({
     setUnifiedFilter,
     filterCategoryId,
     presentNetworks,
-    isEd2kEnabled,
-    isBittorrentEnabled,
 
     // Tracker filter (array-based multi-select)
     trackerFilters,

@@ -7,7 +7,7 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import { Icon, Table, FlagIcon, MobileCardHeader, Select, TrackerMultiSelect, ContextMenu, MoreButton, EmptyState, ItemMobileCard, MobileSortButton, ExpandableSearch, FilterInput, MobileFilterPills, MobileFilterSheet, MobileFilterButton, TrackerLabel } from '../common/index.js';
-import { formatBytes, formatSpeed, getClientSoftware, getIpString, getRowHighlightClass, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildFileNameColumn, buildSizeColumn, buildUploadSpeedColumn, buildUploadTotalColumn, buildClientColumn, buildCategoryColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter, isBittorrentClient, UPLOAD_STATE_LABELS } from '../../utils/index.js';
+import { formatBytes, formatSpeed, getClientSoftware, getIpString, getRowHighlightClass, DEFAULT_SORT_CONFIG, DEFAULT_SECONDARY_SORT_CONFIG, formatTitleCount, buildFileNameColumn, buildSizeColumn, buildUploadSpeedColumn, buildUploadTotalColumn, buildClientColumn, buildCategoryColumn, VIEW_TITLE_STYLES, createCategoryLabelFilter, createTrackerFilter, hasTrackers, UPLOAD_STATE_LABELS } from '../../utils/index.js';
 import { useLiveData } from '../../contexts/LiveDataContext.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useViewFilters, useCategoryFilterOptions, useColumnConfig, getSecondarySortConfig, useFileInfoModal } from '../../hooks/index.js';
@@ -191,7 +191,7 @@ const UploadsView = () => {
     const fileSize = item.size;
     const hasParentFile = !!item.parentHash;
     const hasGeoData = item.geoData?.countryCode || item.geoData?.city;
-    const isBittorrent = isBittorrentClient(item);
+    const isTorrent = hasTrackers(item);
     const clientSoftware = getClientSoftware(item);
     const ipString = getIpString(item);
 
@@ -256,7 +256,7 @@ const UploadsView = () => {
                   ),
             h('span', { className: 'text-gray-400' }, '·'),
             h('span', null,
-              isBittorrent || !item.software || item.software === 'Unknown'
+              isTorrent || !item.software || item.software === 'Unknown'
                 ? clientSoftware
                 : item.software
             ),

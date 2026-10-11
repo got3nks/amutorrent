@@ -124,7 +124,7 @@ export {
 
 // Download Helpers
 export {
-  isBittorrentClient,
+  hasTrackers,
   isItemPaused,
   isItemStopped,
   isItemChecking,

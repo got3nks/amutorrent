@@ -96,12 +96,6 @@ export const StaticDataProvider = ({ children }) => {
     [instances]
   );
 
-  // Derived: is any instance of this network type connected?
-  const isNetworkTypeConnected = useCallback((networkType) =>
-    Object.values(instances).some(i => i.networkType === networkType && i.connected),
-    [instances]
-  );
-
   // Derived: is any instance of this type registered (enabled in config)?
   const hasType = useCallback((type) =>
     Object.values(instances).some(i => i.type === type),
@@ -111,6 +105,15 @@ export const StaticDataProvider = ({ children }) => {
   // Derived: get capabilities object for a given instanceId
   const getCapabilities = useCallback((instanceId) =>
     instances[instanceId]?.capabilities || {},
+    [instances]
+  );
+
+  // Derived: ids of instances whose linkSchemes include `scheme` (e.g. 'magnet:?'),
+  // connected ones only unless `connectedOnly` is false
+  const instancesAcceptingScheme = useCallback((scheme, { connectedOnly = true } = {}) =>
+    Object.entries(instances)
+      .filter(([, i]) => (!connectedOnly || i.connected) && (i.capabilities?.linkSchemes || []).includes(scheme))
+      .map(([id]) => id),
     [instances]
   );
 
@@ -150,9 +153,9 @@ export const StaticDataProvider = ({ children }) => {
 
     // Derived helpers
     isTypeConnected,
-    isNetworkTypeConnected,
     hasType,
     getCapabilities,
+    instancesAcceptingScheme,
     hasClientConnectionWarnings,
     multipleClientsConnected,
 
@@ -190,7 +193,7 @@ export const StaticDataProvider = ({ children }) => {
   }), [
     dataServers, dataCategories, clientDefaultPaths, prowlarrEnabled, knownTrackers,
     historyTrackUsername, hasCategoryPathWarnings, instances, multiInstanceTypes, hasMultiInstance,
-    isTypeConnected, isNetworkTypeConnected, hasType, getCapabilities, hasClientConnectionWarnings, multipleClientsConnected,
+    isTypeConnected, hasType, getCapabilities, instancesAcceptingScheme, hasClientConnectionWarnings, multipleClientsConnected,
     dataLogs, dataServerInfo, dataAppLogs, dataQbittorrentLogs, dataStatsTree, dataDownloadedFiles, dataServersEd2kLinks,
     dataLoaded, markDataLoaded, resetDataLoaded
   ]);

@@ -170,23 +170,22 @@ export const isActiveStatus = (key) => {
 };
 
 /**
- * Check if item is from a BitTorrent client (rtorrent or qbittorrent)
+ * Is this a torrent-shaped item (trackers, peers, magnet link)? Set by the server
+ * from the client's `trackers` capability.
  * @param {Object} item - Download/shared item
- * @returns {boolean} True if BitTorrent client
+ * @returns {boolean}
  */
-export const isBittorrentClient = (item) => {
-  return item.networkType === 'bittorrent';
-};
+export const hasTrackers = (item) => !!item?.hasTrackers;
 
 /**
  * Format source count display with detailed breakdown
- * Handles both aMule and BitTorrent formats via unified sources object
+ * Handles both source-based and torrent formats via the unified sources object
  * @param {Object} item - Download item with sources object
  * @returns {string} Formatted source display (readable format)
  */
 export const formatSourceDisplay = (item, compact = false) => {
-  // BitTorrent (rtorrent/qbittorrent): "X peers (Y seeds)" or compact "X (Y seeds)"
-  if (isBittorrentClient(item)) {
+  // Torrents: "X peers (Y seeds)" or compact "X (Y seeds)"
+  if (hasTrackers(item)) {
     const sources = item.sources || {};
     const connected = sources.connected || 0;
     const seeders = sources.seeders || 0;
@@ -224,25 +223,6 @@ export const formatSourceDisplay = (item, compact = false) => {
 
   return display;
 };
-
-/**
- * Get unique BitTorrent labels/categories from a list of downloads
- * @param {Array} downloads - Array of download items
- * @returns {Array} Sorted array of unique labels
- */
-export const extractBittorrentLabels = (downloads) => {
-  const labels = new Set();
-  downloads.forEach(d => {
-    if (isBittorrentClient(d) && d.category && d.category !== '(none)') {
-      labels.add(d.category);
-    }
-  });
-  return Array.from(labels).sort();
-};
-
-// Legacy alias for backwards compatibility
-export const extractRtorrentLabels = extractBittorrentLabels;
-
 
 /**
  * The distinct network types present in a set of items — the network-agnostic
@@ -290,13 +270,13 @@ export const filterByUnifiedFilter = (downloads, unifiedFilter) => {
 
 /**
  * Get client software name from ID or string
- * For BitTorrent clients, softwareId is -1 and we use software string directly
+ * Torrent peers carry softwareId -1 and a full client string instead
  * @param {Object} item - Upload or peer item with client software info
  * @returns {string} Client software name
  */
 export const getClientSoftware = (item) => {
-  // For BitTorrent peers, use the client string directly (it contains full client name + version)
-  if (isBittorrentClient(item) || item.softwareId === -1) {
+  // Torrent peers: the client string already holds name and version
+  if (hasTrackers(item) || item.softwareId === -1) {
     return item.software || 'Unknown';
   }
   // For aMule, use the numeric software ID lookup
@@ -314,12 +294,12 @@ export const getIpString = (item) => {
 
 /**
  * Get export link for any download/shared file
- * Returns magnet link for rtorrent/qbittorrent, ED2K link for aMule
+ * Returns the magnet link for a torrent, the client's own link otherwise
  * @param {Object} item - Download or shared file item
  * @returns {string|null} Export link or null if not available
  */
 export const getExportLink = (item) => {
-  if (isBittorrentClient(item)) {
+  if (hasTrackers(item)) {
     return generateMagnetLink(item);
   }
   // Source-based clients: the neutral copy/export link (ed2k:// for aMule,

@@ -29,9 +29,9 @@ const StatisticsView = () => {
 
   // Get data from contexts
   const { appStatsState, setAppStatsState, addAppError } = useAppState();
-  const { hasType, instances } = useStaticData();
+  const { instances } = useStaticData();
   const { theme } = useTheme();
-  const { disabledInstances } = useClientFilter();
+  const { disabledInstances, isCapabilityEnabled } = useClientFilter();
 
   // Compute instanceIds filter param — empty string means use legacy (all connected enabled)
   const instanceIdsParam = useMemo(() => {
@@ -56,8 +56,6 @@ const StatisticsView = () => {
   // Get client chart configuration from hook
   const {
     networks,
-    ed2kConnected,
-    isEd2kEnabled,
     showBothCharts,
     showSingleClient,
     singleNetworkType,
@@ -65,11 +63,8 @@ const StatisticsView = () => {
     shouldRenderCharts
   } = useClientChartConfig();
 
-  // Check if aMule is enabled in config (not just connected)
-  const amuleConfigEnabled = hasType('amule');
-
-  // Show ED2K stats tree button only when aMule is enabled in config, connected, and enabled in filter
-  const showAmuleStatsTree = amuleConfigEnabled && ed2kConnected && isEd2kEnabled;
+  // Stats tree button: a connected instance with one, not filtered out
+  const showStatsTree = isCapabilityEnabled('statsTree');
 
   // State for stats tree modal
   const [showStatsTreeModal, setShowStatsTreeModal] = useState(false);
@@ -278,7 +273,7 @@ const StatisticsView = () => {
     ),
 
     // ED2K Statistics Tree button (only when aMule is connected and enabled)
-    showAmuleStatsTree && h('div', { className: 'flex items-center justify-center pt-2' },
+    showStatsTree && h('div', { className: 'flex items-center justify-center pt-2' },
       h(Button, {
         variant: 'secondary',
         onClick: () => setShowStatsTreeModal(true),

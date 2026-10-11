@@ -13,7 +13,7 @@ import { ProgressBar } from '../components/common/ProgressBar.js';
 import FlagIcon from '../components/common/FlagIcon.js';
 import { formatBytes, formatSpeed, formatLastSeenComplete, getTimeBasedColor, formatRatio, formatTimeAgo, formatDateTime, formatETASeconds } from './formatters.js';
 import { makeFilterHeaderRender } from './tableHelpers.js';
-import { STATUS_DISPLAY_MAP, getItemStatusInfo, formatSourceDisplay, getSeederColorClass, getClientSoftware, getIpString, isBittorrentClient } from './downloadHelpers.js';
+import { STATUS_DISPLAY_MAP, getItemStatusInfo, formatSourceDisplay, getSeederColorClass, getClientSoftware, getIpString, hasTrackers } from './downloadHelpers.js';
 import { UPLOAD_STATE_LABELS } from './constants.js';
 
 const { createElement: h } = React;
@@ -452,12 +452,12 @@ export const buildSourcesColumn = ({
   width,
   render: (item) => {
     const sourceText = formatSourceDisplay(item, true); // compact format for desktop
-    const isBittorrent = isBittorrentClient(item);
-    const hasMessage = isBittorrent && item.message && item.message.trim();
+    const isTorrent = hasTrackers(item);
+    const hasMessage = isTorrent && item.message && item.message.trim();
     const isClickable = onClick && !disabled;
 
-    // For BitTorrent: clickable, color based on seed count, optional alert icon
-    if (isBittorrent) {
+    // Torrents: clickable, color based on seed count, optional alert icon
+    if (isTorrent) {
       const seedColorClass = getSeederColorClass(item.sources?.seeders || 0);
 
       return h(isClickable ? 'button' : 'div', {
@@ -642,14 +642,14 @@ export const buildClientColumn = ({
   key: 'software',
   sortable: true,
   render: (item) => {
-    const isBittorrent = isBittorrentClient(item);
+    const isTorrent = hasTrackers(item);
     const clientSoftware = getClientSoftware(item);
     const ipString = getIpString(item);
 
     return h('div', { className: 'space-y-1 text-xs' }, [
       h('div', null,
         h('span', { className: 'font-medium align-baseline' },
-          isBittorrent || !item.software || item.software === 'Unknown'
+          isTorrent || !item.software || item.software === 'Unknown'
             ? clientSoftware
             : item.software
         )

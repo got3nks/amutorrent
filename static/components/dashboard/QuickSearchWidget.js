@@ -8,6 +8,7 @@ import React, { useEffect } from 'https://esm.sh/react@18.2.0';
 import { Icon, Button, Input, AmuleInstanceSelector, LoadingSpinner } from '../common/index.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { servingInstanceIds } from '../../utils/searchInstance.js';
+import { MAGNET_SCHEME } from '../../utils/constants.js';
 
 const { createElement: h } = React;
 
@@ -34,7 +35,7 @@ const QuickSearchWidget = ({
   searchInstanceId,
   onSearchInstanceChange
 }) => {
-  const { isNetworkTypeConnected, prowlarrEnabled, instances } = useStaticData();
+  const { instancesAcceptingScheme, prowlarrEnabled, instances } = useStaticData();
 
   // Connected instances (config order), each carrying the search sources it
   // serves (clientMeta `searchSources`, shipped via instances[id].capabilities).
@@ -61,7 +62,8 @@ const QuickSearchWidget = ({
     }
   }
 
-  const bittorrentConnected = isNetworkTypeConnected('bittorrent');
+  // Prowlarr results are magnets, so it needs a connected client that takes them
+  const magnetClientConnected = instancesAcceptingScheme(MAGNET_SCHEME).length > 0;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -75,7 +77,7 @@ const QuickSearchWidget = ({
   // that rides the BitTorrent clients, not a network of its own.
   const searchTypes = [
     ...clientSources.map(s => ({ value: s.value, label: s.label, icon: s.icon || null, disabled: false })),
-    { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !bittorrentConnected }
+    { value: 'prowlarr', label: 'Prowlarr', icon: '/static/prowlarr.svg', disabled: !prowlarrEnabled || !magnetClientConnected }
   ];
 
   // Keep the targeted instance consistent with the selected source: if the

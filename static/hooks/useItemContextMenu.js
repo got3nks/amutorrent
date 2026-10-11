@@ -30,7 +30,7 @@ import { canMoveItem } from '../utils/itemActionPolicy.js';
  * @param {Function} options.onCopyLink - Handler for copying export link (optional)
  * @param {string|null} options.copiedHash - Hash of recently copied item for "Copied!" feedback
  * @param {string} options.infoLabel - Label for info menu item (default: 'File Details')
- * @param {boolean} options.actionsForBittorrentOnly - If true, pause/resume/stop only shown for BitTorrent items (rtorrent/qbittorrent)
+ * @param {boolean} options.pauseSeedingOnly - If true, pause/resume only for items whose client can pause seeding (Shared view)
  * @param {Function} options.onSelect - Handler for entering selection mode with item selected (optional)
  * @param {Function} options.canShowInfo - Function to determine if info item should show (default: always true)
  * @param {string} options.deleteLabel - Label for delete menu item (default: 'Delete')
@@ -52,7 +52,7 @@ export const useItemContextMenu = ({
   onCopyLink,
   copiedHash = null,
   infoLabel = 'File Details',
-  actionsForBittorrentOnly = false,
+  pauseSeedingOnly = false,
   onSelect,
   canShowInfo,
   deleteLabel = 'Delete'
@@ -69,7 +69,6 @@ export const useItemContextMenu = ({
     if (!item) return [];
 
     const caps = getCapabilities(item.instanceId);
-    const isBittorrent = item.networkType === 'bittorrent';
     const status = getItemStatusInfo(item);
     const menuItems = [];
 
@@ -120,7 +119,7 @@ export const useItemContextMenu = ({
 
     // Pause/Resume/Start (skip for checking/queued state, gated on ownership)
     // Clients with stopReplacesPause: only show Resume/Start (no Pause - use Stop instead)
-    const canShowPauseResume = actionsForBittorrentOnly ? isBittorrent : true;
+    const canShowPauseResume = !pauseSeedingOnly || !!caps.pauseSeeding;
     if (canShowPauseResume && onPause && onResume && hasCap('pause_resume') && canMutate && status.key !== 'checking' && status.key !== 'hashing-queued') {
       const needsResume = status.key === 'paused' || status.key === 'stopped' || status.key === 'error';
       const showPauseResumeItem = !caps.stopReplacesPause || needsResume;
@@ -141,8 +140,8 @@ export const useItemContextMenu = ({
       }
     }
 
-    // Stop (BitTorrent clients only, when not already stopped/errored, gated on ownership)
-    if (onStop && isBittorrent && hasCap('pause_resume') && canMutate && status.key !== 'stopped' && status.key !== 'error') {
+    // Stop (clients that offer it, when not already stopped/errored, gated on ownership)
+    if (onStop && caps.stop && hasCap('pause_resume') && canMutate && status.key !== 'stopped' && status.key !== 'error') {
       menuItems.push({
         label: 'Stop',
         icon: 'stop',
@@ -184,9 +183,9 @@ export const useItemContextMenu = ({
     }
 
     // Export link (read-only action, not gated on ownership). getExportLink
-    // resolves the neutral `item.link` (ed2k:// or rucio:) or a BitTorrent magnet.
+    // resolves the client's own link or, for a torrent, its magnet.
     if (onCopyLink) {
-      const hasExportLink = isBittorrent || !!getExportLink(item);
+      const hasExportLink = !!getExportLink(item);
       const isCopied = copiedHash === item.hash;
       const linkLabel = getExportLinkLabel(item);
 
@@ -247,7 +246,7 @@ export const useItemContextMenu = ({
     onDelete,
     deleteLabel,
     copiedHash,
-    actionsForBittorrentOnly,
+    pauseSeedingOnly,
     closeContextMenu,
     onSelect
   ]);

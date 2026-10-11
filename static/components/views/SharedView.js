@@ -29,7 +29,7 @@ const SharedView = () => {
   // CONTEXT DATA
   // ============================================================================
   const { dataItems, dataLoaded } = useLiveData();
-  const { dataCategories, instances } = useStaticData();
+  const { dataCategories, instances, getCapabilities } = useStaticData();
   const { refreshSharedFiles } = useDataFetch();
   const actions = useActions();
   const { hasCap } = useCapabilities();
@@ -193,7 +193,7 @@ const SharedView = () => {
     dataArray: sharedFiles,
     selectedFiles,
     getSelectedHashes,
-    bittorrentOnly: true
+    pauseSeedingOnly: true
   });
 
   const handleShowInfo = useCallback((item) => {
@@ -203,14 +203,18 @@ const SharedView = () => {
   // ============================================================================
   // BULK OPERATIONS
   // ============================================================================
-  // Check if selection contains BitTorrent items (for showing pause/resume/stop buttons)
-  const hasSelectedBittorrentItems = useMemo(() => {
-    if (!selectionMode || selectedCount === 0) return false;
-    return Array.from(selectedFiles).some(key => {
-      const file = sharedFiles.find(f => itemKey(f.instanceId, f.hash) === key);
-      return file?.networkType === 'bittorrent';
-    });
-  }, [selectionMode, selectedCount, selectedFiles, sharedFiles]);
+  // What the selected items' clients can do (for the pause/resume/stop buttons)
+  const selectedCaps = useMemo(() => {
+    const caps = { pauseSeeding: false, stop: false };
+    if (!selectionMode || selectedCount === 0) return caps;
+    for (const f of sharedFiles) {
+      if (!selectedFiles.has(itemKey(f.instanceId, f.hash))) continue;
+      const c = getCapabilities(f.instanceId);
+      if (c.pauseSeeding) caps.pauseSeeding = true;
+      if (c.stop) caps.stop = true;
+    }
+    return caps;
+  }, [selectionMode, selectedCount, selectedFiles, sharedFiles, getCapabilities]);
 
   // ============================================================================
   // CONTEXT MENU
@@ -230,7 +234,7 @@ const SharedView = () => {
     onSetRatingComment: openRatingCommentModal,
     onCopyLink: handleCopyLink,
     copiedHash,
-    actionsForBittorrentOnly: true,
+    pauseSeedingOnly: true,
     onSelect: enterSelectionWithItem
   });
 
@@ -544,9 +548,9 @@ const SharedView = () => {
       onClearAll: clearAllSelections,
       onExit: toggleSelectionMode
     },
-      hasSelectedBittorrentItems && hasCap('pause_resume') && h(Button, { variant: 'warning', onClick: handleBatchPause, icon: 'pause', iconSize: 14 }, 'Pause'),
-      hasSelectedBittorrentItems && hasCap('pause_resume') && h(Button, { variant: 'success', onClick: handleBatchResume, icon: 'play', iconSize: 14 }, 'Resume'),
-      hasSelectedBittorrentItems && hasCap('pause_resume') && h(Button, { variant: 'secondary', onClick: handleBatchStop, icon: 'stop', iconSize: 14 }, 'Stop'),
+      selectedCaps.pauseSeeding && hasCap('pause_resume') && h(Button, { variant: 'warning', onClick: handleBatchPause, icon: 'pause', iconSize: 14 }, 'Pause'),
+      selectedCaps.pauseSeeding && hasCap('pause_resume') && h(Button, { variant: 'success', onClick: handleBatchResume, icon: 'play', iconSize: 14 }, 'Resume'),
+      selectedCaps.stop && hasCap('pause_resume') && h(Button, { variant: 'secondary', onClick: handleBatchStop, icon: 'stop', iconSize: 14 }, 'Stop'),
       hasCap('assign_categories') && h(Button, { variant: 'orange', onClick: handleBatchSetCategory, icon: 'folder', iconSize: 14 }, 'Edit Category'),
       hasCap('edit_downloads') && h(Button, { variant: 'cyan', onClick: handleBatchMove, icon: 'folderOpen', iconSize: 14 }, 'Move to...'),
       h(Button, { variant: batchCopyStatus === 'success' ? 'success' : 'purple', onClick: handleBatchExport, disabled: batchCopyStatus === 'success', icon: batchCopyStatus === 'success' ? 'check' : 'share', iconSize: 14 }, batchCopyStatus === 'success' ? 'Copied!' : 'Export Links'),

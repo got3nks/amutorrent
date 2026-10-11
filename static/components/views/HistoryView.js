@@ -71,8 +71,6 @@ const HistoryView = () => {
     // Data
     sortedData: sortedHistory,
     loadedData,
-    // Client filter
-    isBittorrentEnabled,
     // Category filter (unified)
     unifiedFilter,
     setUnifiedFilter,
@@ -453,7 +451,7 @@ const HistoryView = () => {
         statusCounts,
         totalCount,
         onTabChange: (key) => { setStatusFilter(key); resetLoaded(); },
-        leadingContent: (categories.length > 0 || (isBittorrentEnabled && trackerOptions.length > 1)) && h(MobileFilterButton, {
+        leadingContent: (categories.length > 0 || trackerOptions.length > 1) && h(MobileFilterButton, {
           onClick: mobileFilters.handleFilterSheetOpen,
           activeCount: mobileFilters.mobileCategoryFilters.length
         })
