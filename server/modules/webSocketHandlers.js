@@ -339,7 +339,7 @@ class WebSocketHandlers extends BaseModule {
         case 'getAppLog': await this.handleGetAppLog(data, context); break;
         case 'getQbittorrentLog': await this.handleGetQbittorrentLog(data, context); break;
         case 'batchDownloadSearchResults': await this.handleBatchDownloadSearchResults(data, context); break;
-        case 'addEd2kLinks': await this.handleAddEd2kLinks(data, context); break;
+        case 'addEd2kLinks': await this.handleAddLinks(data, context); break;
         case 'addMagnetLinks': await this.handleAddMagnetLinks(data, context); break;
         case 'addTorrentFile': await this.handleAddTorrentFile(data, context); break;
         case 'getCategories': await this.handleGetCategories(context); break;
@@ -689,7 +689,7 @@ class WebSocketHandlers extends BaseModule {
     }
   }
 
-  async handleAddEd2kLinks(data, context) {
+  async handleAddLinks(data, context) {
     try {
       const links = data.links;
       const username = context.clientInfo.username !== 'unknown' ? context.clientInfo.username : null;
@@ -718,7 +718,7 @@ class WebSocketHandlers extends BaseModule {
       for (const link of cleaned) {
         context.log(`Adding ED2K link: ${link} (category: ${categoryId})`);
         // Process links sequentially using the existing queue to maintain order and avoid saturating aMule
-        const success = await manager.addEd2kLink(link, categoryId, username);
+        const success = await manager.addLink(link, categoryId, username);
         results.push({ link, success });
         // Record ownership — ask the manager to parse its own link (ed2k MD4 or
         // rucio: BLAKE3, lower-cased), so this generic handler needs no per-

@@ -1,11 +1,8 @@
 /**
- * useAmuleInstanceSelector Hook
+ * useInstanceSelector Hook
  *
- * Provides state and helpers for selecting which aMule instance
- * to use for ED2K operations (search, add downloads, servers, stats).
- *
- * Instance-aware: builds list from connected instances metadata.
- * Shows selection UI when 2+ ED2K instances are connected.
+ * State and helpers for picking which connected instance a feature uses
+ * (adding links, search, servers, stats tree, shared folders).
  */
 
 import { useState, useMemo, useCallback } from 'https://esm.sh/react@18.2.0';
@@ -25,7 +22,7 @@ import { CLIENT_NAMES } from '../utils/constants.js';
  * @param {Function} [options.onSelect] - External selection handler (overrides internal state)
  * @returns {Object} Instance selection state and helpers
  */
-export function useAmuleInstanceSelector(options = {}) {
+export function useInstanceSelector(options = {}) {
   const { instances } = useStaticData();
   const scheme = options.scheme || 'ed2k://';
   const capability = options.capability || null;
@@ -86,4 +83,4 @@ export function useAmuleInstanceSelector(options = {}) {
   };
 }
 
-export default useAmuleInstanceSelector;
+export default useInstanceSelector;

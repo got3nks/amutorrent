@@ -158,7 +158,7 @@ function registerRoutes(app) {
 
   // Add ED2K links
   router.post('/downloads/ed2k', requireCapability('add_downloads'), (req, res) =>
-    bridge('handleAddEd2kLinks', req, res)
+    bridge('handleAddLinks', req, res)
   );
 
   // Add torrent file (base64 in JSON body: { data: "base64...", fileName: "...", ... })

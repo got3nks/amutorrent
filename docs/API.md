@@ -165,7 +165,7 @@ Add magnet links to a BitTorrent client.
 
 #### POST `/api/v1/downloads/ed2k`
 
-Add ED2K links to an aMule instance.
+Add ED2K links (or `rucio:` links for Rucio) to an instance that accepts them.
 
 **Capabilities:** `add_downloads`
 
@@ -1022,8 +1022,10 @@ All messages are JSON objects with an `action` field.
 
 #### ED2K Links
 
+Takes any link the target client accepts (`ed2k://`, and `rucio:` for Rucio).
+
 ```json
-{ "action": "addEd2kLink", "link": "ed2k://...", "categoryId": 0 }
+{ "action": "addEd2kLinks", "links": ["ed2k://..."], "categoryName": "Default", "instanceId": "amule-host-4712" }
 ```
 
 ### Server → Client Messages

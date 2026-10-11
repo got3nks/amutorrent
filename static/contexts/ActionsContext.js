@@ -10,7 +10,7 @@ import { useAppState } from './AppStateContext.js';
 import { useSearch } from './SearchContext.js';
 import { useStaticData } from './StaticDataContext.js';
 import { useWebSocketConnection } from './WebSocketContext.js';
-import { extractEd2kLinks } from '../utils/index.js';
+import { extractLinks } from '../utils/index.js';
 import { resolveServingInstanceId } from '../utils/searchInstance.js';
 
 const { createElement: h } = React;
@@ -205,7 +205,7 @@ const useWebSocketActions = () => {
     });
   };
 
-  const handleAddEd2kLinks = (input, categoryName = 'Default', isServerList = false, instanceId = null) => {
+  const handleAddLinks = (input, categoryName = 'Default', isServerList = false, instanceId = null) => {
     // Extract using the schemes the connected ed2k-path (non-tracker) clients
     // accept, so a new network's scheme isn't dropped here. Fall back to the
     // defaults when nothing's connected yet.
@@ -214,7 +214,7 @@ const useWebSocketActions = () => {
         .filter(i => i.connected && !i.capabilities?.trackers)
         .flatMap(i => i.capabilities?.linkSchemes || [])
     )];
-    const links = extractEd2kLinks(input, ed2kSchemes.length ? ed2kSchemes : undefined);
+    const links = extractLinks(input, ed2kSchemes.length ? ed2kSchemes : undefined);
 
     if (links.length === 0) {
       addAppError('No valid ED2K links found');
@@ -362,7 +362,7 @@ const useWebSocketActions = () => {
     search: {
       perform: handleSearch,
       batchDownload: handleBatchDownload,
-      addEd2kLinks: handleAddEd2kLinks,
+      addLinks: handleAddLinks,
       addMagnetLinks: handleAddMagnetLinks,
       addTorrentFile: handleAddTorrentFile,
       addProwlarrTorrent: handleAddProwlarrTorrent

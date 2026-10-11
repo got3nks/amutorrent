@@ -725,7 +725,7 @@ class RucioManager extends BaseClientManager {
   /**
    * Add an ed2k:// link (called by the ED2K-links handler).
    */
-  async addEd2kLink(link, categoryId = 0, username = null) {
+  async addLink(link, categoryId = 0, username = null) {
     if (!this.client) throw new Error('Rucio not connected');
     const category_id = this._normalizeCategoryId(categoryId);
     // The ed2k-links path can carry a rucio: magnet too (the Add Download modal

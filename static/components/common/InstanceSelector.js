@@ -1,8 +1,8 @@
 /**
- * AmuleInstanceSelector Component
+ * InstanceSelector Component
  *
- * A reusable dropdown/button group for selecting which aMule instance
- * to use for ED2K operations. Only renders when 2+ instances are connected.
+ * A reusable dropdown/button group for picking which connected instance a
+ * feature uses. Only renders when 2+ instances qualify.
  *
  * Mirrors BitTorrentClientSelector with both 'buttons' and 'dropdown' variants.
  */
@@ -15,7 +15,7 @@ const { createElement: h } = React;
 
 /**
  * aMule instance selector component
- * @param {Array} connectedInstances - List of connected instances from useAmuleInstanceSelector
+ * @param {Array} connectedInstances - List of connected instances from useInstanceSelector
  * @param {string} selectedId - Currently selected instance ID
  * @param {function} onSelect - Handler for instance selection
  * @param {boolean} showSelector - Whether to show the selector (from hook)
@@ -24,7 +24,7 @@ const { createElement: h } = React;
  * @param {string|null} [label='Instance'] - Label text (null to hide)
  * @param {boolean} [disabled=false] - Disable the selector
  */
-const AmuleInstanceSelector = ({
+const InstanceSelector = ({
   connectedInstances,
   selectedId,
   onSelect,
@@ -81,4 +81,4 @@ const AmuleInstanceSelector = ({
   );
 };
 
-export default AmuleInstanceSelector;
+export default InstanceSelector;

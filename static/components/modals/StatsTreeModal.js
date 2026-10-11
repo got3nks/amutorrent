@@ -6,10 +6,10 @@
  */
 
 import React from 'https://esm.sh/react@18.2.0';
-import { StatsTree, Icon, ClientIcon, Portal, AmuleInstanceSelector } from '../common/index.js';
+import { StatsTree, Icon, ClientIcon, Portal, InstanceSelector } from '../common/index.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
-import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { useInstanceSelector } from '../../hooks/useInstanceSelector.js';
 
 const { createElement: h, useEffect, useState } = React;
 
@@ -24,12 +24,12 @@ const StatsTreeModal = ({ show, onClose }) => {
   const { dataStatsTree: statsTree } = useStaticData();
   const { fetchStatsTree } = useDataFetch();
   const {
-    connectedInstances: amuleInstances,
-    showSelector: showAmuleSelector,
+    connectedInstances: instanceChoices,
+    showSelector: showInstanceChoice,
     selectedId: effectiveInstance,
     selectedInstance: selectedObj,
     selectInstance
-  } = useAmuleInstanceSelector({ capability: 'statsTree' });
+  } = useInstanceSelector({ capability: 'statsTree' });
 
   // Persist expanded nodes across open/close
   const [expandedNodes, setExpandedNodes] = useState({});
@@ -98,11 +98,11 @@ const StatsTreeModal = ({ show, onClose }) => {
           showHeader: false,
           expandedNodes,
           onExpandedNodesChange: setExpandedNodes,
-          toolbarPrefix: h(AmuleInstanceSelector, {
-            connectedInstances: amuleInstances,
+          toolbarPrefix: h(InstanceSelector, {
+            connectedInstances: instanceChoices,
             selectedId: effectiveInstance,
             onSelect: selectInstance,
-            showSelector: showAmuleSelector,
+            showSelector: showInstanceChoice,
             variant: 'dropdown',
             className: 'text-sm'
           })

@@ -11,9 +11,9 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
-import { Button, Icon, IconButton, AlertBox, LoadingSpinner, AmuleInstanceSelector, Tooltip, Input } from '../common/index.js';
+import { Button, Icon, IconButton, AlertBox, LoadingSpinner, InstanceSelector, Tooltip, Input } from '../common/index.js';
 import DirectoryBrowserModal from './DirectoryBrowserModal.js';
-import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { useInstanceSelector } from '../../hooks/useInstanceSelector.js';
 
 const { createElement: h, useState, useEffect, useCallback } = React;
 
@@ -42,12 +42,12 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
     : { capability: 'sharedDirsEditor' };
 
   const {
-    connectedInstances: amuleInstances,
-    showSelector: showAmuleSelector,
+    connectedInstances: instanceChoices,
+    showSelector: showInstanceChoice,
     selectedId: instanceId,
     selectedInstance,
-    selectInstance: selectAmuleInstance
-  } = useAmuleInstanceSelector(selectorOptions);
+    selectInstance: pickInstance
+  } = useInstanceSelector(selectorOptions);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,8 +73,8 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
     if (id === instanceId) return;
     if (dirty && !window.confirm('Discard unsaved changes to this instance?')) return;
     setDirty(false);
-    selectAmuleInstance(id);
-  }, [instanceId, dirty, selectAmuleInstance]);
+    pickInstance(id);
+  }, [instanceId, dirty, pickInstance]);
 
   const load = useCallback(async () => {
     if (!instanceId) return;
@@ -303,12 +303,12 @@ const SharedDirsModal = ({ show, onClose, initialInstanceId = null }) => {
             h(IconButton, { variant: 'secondary', icon: 'x', iconSize: 16, onClick: onClose, title: 'Close' })
           ),
 
-          showAmuleSelector && h('div', { className: 'px-6 pt-4' },
-            h(AmuleInstanceSelector, {
-              connectedInstances: amuleInstances,
+          showInstanceChoice && h('div', { className: 'px-6 pt-4' },
+            h(InstanceSelector, {
+              connectedInstances: instanceChoices,
               selectedId: instanceId,
               onSelect: selectInstance,
-              showSelector: showAmuleSelector,
+              showSelector: showInstanceChoice,
               label: 'aMule Instance'
             })
           ),

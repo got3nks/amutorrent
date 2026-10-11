@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect } from 'https://esm.sh/react@18.2.0';
-import { Icon, Button, Input, AmuleInstanceSelector, LoadingSpinner } from '../common/index.js';
+import { Icon, Button, Input, InstanceSelector, LoadingSpinner } from '../common/index.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { servingInstanceIds } from '../../utils/searchInstance.js';
 import { MAGNET_SCHEME } from '../../utils/constants.js';
@@ -158,7 +158,7 @@ const QuickSearchWidget = ({
         // Instance selector — only when 2+ instances serve the selected source.
         (() => {
           const list = searchType === 'prowlarr' ? [] : instancesForSource(searchType);
-          return typeof onSearchInstanceChange === 'function' && list.length > 1 && h(AmuleInstanceSelector, {
+          return typeof onSearchInstanceChange === 'function' && list.length > 1 && h(InstanceSelector, {
             connectedInstances: list,
             selectedId: searchInstanceId,
             onSelect: onSearchInstanceChange,

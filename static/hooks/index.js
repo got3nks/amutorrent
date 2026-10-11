@@ -37,7 +37,7 @@ export { useFileRenameModal } from './useFileRenameModal.js';
 export { useFileRatingCommentModal } from './useFileRatingCommentModal.js';
 export { useNotifications } from './useNotifications.js';
 export { useBitTorrentClientSelector } from './useBitTorrentClientSelector.js';
-export { useAmuleInstanceSelector } from './useAmuleInstanceSelector.js';
+export { useInstanceSelector } from './useInstanceSelector.js';
 export { useCapabilities } from './useCapabilities.js';
 export { useDebouncedValue } from './useDebouncedValue.js';
 export { useSettingsFormData } from './useSettingsFormData.js';

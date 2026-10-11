@@ -735,14 +735,14 @@ describe('RucioManager.fetchData category generation race (2)', () => {
   });
 });
 
-describe('RucioManager.addEd2kLink history (10)', () => {
+describe('RucioManager.addLink history (10)', () => {
   it('records the name and size parsed from the ed2k link', async () => {
     let tracked = null;
     const m = makeManager({
       client: { addEd2k: async () => {}, addMagnet: async () => {} },
       trackDownload: (hash, name, size) => { tracked = { hash, name, size }; }
     });
-    await m.addEd2kLink('ed2k://|file|Big%20Buck%20Bunny.mkv|12345|aabbccddeeff00112233445566778899|/');
+    await m.addLink('ed2k://|file|Big%20Buck%20Bunny.mkv|12345|aabbccddeeff00112233445566778899|/');
     assert.equal(tracked.name, 'Big Buck Bunny.mkv', 'name decoded from the link, not "Unknown"');
     assert.equal(tracked.size, 12345, 'size parsed from the link');
     assert.equal(tracked.hash, 'aabbccddeeff00112233445566778899');
@@ -778,7 +778,7 @@ describe('hashFromLink field-based ed2k parse (11)', () => {
   });
 
   it('parses an uppercase ED2K:// scheme (4)', () => {
-    // extractEd2kLinks accepts any scheme case, so an ED2K://… link reaches the
+    // extractLinks accepts any scheme case, so an ED2K://… link reaches the
     // parser; a case-sensitive regex would miss it and record no ownership.
     assert.equal(
       hashFromLink('ED2K://|file|Movie.avi|12345|AABBCCDDEEFF00112233445566778899|/'),

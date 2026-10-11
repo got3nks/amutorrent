@@ -7,10 +7,10 @@
 
 import React from 'https://esm.sh/react@18.2.0';
 import Portal from '../common/Portal.js';
-import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, AmuleInstanceSelector, PathPicker } from '../common/index.js';
+import { Button, Select, Textarea, Icon, Input, IconButton, ClientIcon, BitTorrentClientSelector, InstanceSelector, PathPicker } from '../common/index.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
 import { useBitTorrentClientSelector } from '../../hooks/useBitTorrentClientSelector.js';
-import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { useInstanceSelector } from '../../hooks/useInstanceSelector.js';
 import { LINK_SCHEME_LABELS, MAGNET_SCHEME } from '../../utils/constants.js';
 
 const { createElement: h, useState, useRef, useEffect } = React;
@@ -18,7 +18,7 @@ const { createElement: h, useState, useRef, useEffect } = React;
 /**
  * Add download modal
  * @param {boolean} show - Whether to show the modal
- * @param {function} onAddEd2kLinks - Handler for ED2K links (links, categoryName)
+ * @param {function} onAddLinks - Handler for ED2K links (links, categoryName)
  * @param {function} onAddMagnetLinks - Handler for magnet links (links, label, clientId)
  * @param {function} onAddTorrentFile - Handler for .torrent file (file, label, clientId)
  * @param {function} onClose - Close handler
@@ -26,7 +26,7 @@ const { createElement: h, useState, useRef, useEffect } = React;
  */
 const AddDownloadModal = ({
   show,
-  onAddEd2kLinks,
+  onAddLinks,
   onAddMagnetLinks,
   onAddTorrentFile,
   onClose,
@@ -54,11 +54,11 @@ const AddDownloadModal = ({
 
   // aMule instance selector for ED2K links
   const {
-    connectedInstances: amuleInstances,
-    showSelector: showAmuleSelector,
-    selectedId: effectiveAmuleInstance,
-    selectInstance: selectAmuleInstance
-  } = useAmuleInstanceSelector();
+    connectedInstances: instanceChoices,
+    showSelector: showInstanceChoice,
+    selectedId: effectiveInstance,
+    selectInstance: pickInstance
+  } = useInstanceSelector();
 
   // State
   const [links, setLinks] = useState('');
@@ -119,7 +119,7 @@ const AddDownloadModal = ({
   };
   const ed2kTargetFor = (scheme) => {
     const accepting = connectedAccepting(scheme);
-    return accepting.find(i => i.id === effectiveAmuleInstance) || accepting[0] || null;
+    return accepting.find(i => i.id === effectiveInstance) || accepting[0] || null;
   };
 
   // Check if we can submit (ed2kLinks are already filtered to routable ones).
@@ -154,11 +154,11 @@ const AddDownloadModal = ({
     // Add ed2k-path links: send each scheme group to the instance that accepts it
     // (the selected one when it does, else the first) so a rucio: link never lands
     // on an aMule instance.
-    if (ed2kLinks.length > 0 && onAddEd2kLinks) {
+    if (ed2kLinks.length > 0 && onAddLinks) {
       for (const [scheme, groupLinks] of Object.entries(ed2kGroupsByScheme())) {
         const target = ed2kTargetFor(scheme);
         if (!target) continue;
-        onAddEd2kLinks(groupLinks, finalCategory, false, target.id);
+        onAddLinks(groupLinks, finalCategory, false, target.id);
       }
     }
 
@@ -469,14 +469,14 @@ const AddDownloadModal = ({
           // Instance selector for the ed2k-path links — visible when 2+
           // accepting instances (aMule/Rucio) are connected.
           ed2kLinks.length > 0 && h('div', null,
-            showAmuleSelector && h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1' },
+            showInstanceChoice && h('label', { className: 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1' },
               'Instance'
             ),
-            h(AmuleInstanceSelector, {
-              connectedInstances: amuleInstances,
-              selectedId: effectiveAmuleInstance,
-              onSelect: selectAmuleInstance,
-              showSelector: showAmuleSelector,
+            h(InstanceSelector, {
+              connectedInstances: instanceChoices,
+              selectedId: effectiveInstance,
+              onSelect: pickInstance,
+              showSelector: showInstanceChoice,
               label: null
             })
           ),

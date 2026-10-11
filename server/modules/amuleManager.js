@@ -814,7 +814,7 @@ class AmuleManager extends BaseClientManager {
    * @param {string|null} username - Username for history tracking
    * @returns {Promise<boolean>} Success
    */
-  async addEd2kLink(link, categoryId = 0, username = null) {
+  async addLink(link, categoryId = 0, username = null) {
     if (!this.client) {
       throw new Error('aMule not connected');
     }

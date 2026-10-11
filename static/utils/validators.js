@@ -9,7 +9,7 @@
 // Callers normally pass the connected clients' own linkSchemes, so an added
 // network's scheme (rucio:, …) comes from its capability, not from this generic
 // file — nothing could route it here with no instance connected anyway.
-export const DEFAULT_ED2K_SCHEMES = ['ed2k://'];
+export const DEFAULT_LINK_SCHEMES = ['ed2k://'];
 
 /**
  * Extract the links the ed2k-add path handles from text, for the given schemes.
@@ -19,7 +19,7 @@ export const DEFAULT_ED2K_SCHEMES = ['ed2k://'];
  * @param {string[]} [schemes] - Link schemes to extract (default: ed2k:// only)
  * @returns {string[]} Array of unique links
  */
-export const extractEd2kLinks = (text, schemes = DEFAULT_ED2K_SCHEMES) => {
+export const extractLinks = (text, schemes = DEFAULT_LINK_SCHEMES) => {
   if (!text || !schemes || schemes.length === 0) return [];
   const escaped = schemes.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   // (?:^|[^\w]) keeps the scheme from matching inside a word (no lookbehind, for

@@ -23,7 +23,7 @@ export {
 
 // Validators
 export {
-  extractEd2kLinks,
+  extractLinks,
   isValidEd2kLink
 } from './validators.js';
 

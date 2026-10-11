@@ -11,7 +11,7 @@ import QuickSearchWidget from '../dashboard/QuickSearchWidget.js';
 import { useSearch } from '../../contexts/SearchContext.js';
 import { useActions } from '../../contexts/ActionsContext.js';
 import { useDataFetch } from '../../contexts/DataFetchContext.js';
-import { useAmuleInstanceSelector } from '../../hooks/useAmuleInstanceSelector.js';
+import { useInstanceSelector } from '../../hooks/useInstanceSelector.js';
 
 const { createElement: h, useEffect } = React;
 
@@ -36,15 +36,15 @@ const SearchView = () => {
   const actions = useActions();
   const { fetchPreviousSearchResults } = useDataFetch();
   const {
-    selectedId: effectiveAmuleInstance,
-    selectInstance: selectAmuleInstance
-  } = useAmuleInstanceSelector({ selectedId: searchInstanceId, onSelect: setSearchInstanceId });
+    selectedId: effectiveInstance,
+    selectInstance: pickInstance
+  } = useInstanceSelector({ selectedId: searchInstanceId, onSelect: setSearchInstanceId });
 
   // Fetch previous search results on mount (always fetch fresh from backend)
   useEffect(() => {
     setSearchPreviousResultsLoaded(false);
-    fetchPreviousSearchResults(effectiveAmuleInstance);
-  }, [fetchPreviousSearchResults, setSearchPreviousResultsLoaded, effectiveAmuleInstance]);
+    fetchPreviousSearchResults(effectiveInstance);
+  }, [fetchPreviousSearchResults, setSearchPreviousResultsLoaded, effectiveInstance]);
 
   return h('div', { className: 'space-y-2 sm:space-y-3 px-2 sm:px-0' },
     // Search form (reusing QuickSearchWidget without border)
@@ -57,8 +57,8 @@ const SearchView = () => {
         onSearch: actions.search.perform,
         searchLocked,
         noBorder: true,
-        searchInstanceId: effectiveAmuleInstance,
-        onSearchInstanceChange: selectAmuleInstance
+        searchInstanceId: effectiveInstance,
+        onSearchInstanceChange: pickInstance
       })
     ),
 
