@@ -7,6 +7,7 @@
 import React, { useEffect } from 'https://esm.sh/react@18.2.0';
 import { Icon, Button, Input, AmuleInstanceSelector, LoadingSpinner } from '../common/index.js';
 import { useStaticData } from '../../contexts/StaticDataContext.js';
+import { servingInstanceIds } from '../../utils/searchInstance.js';
 
 const { createElement: h } = React;
 
@@ -42,8 +43,13 @@ const QuickSearchWidget = ({
     .map(([id, i]) => ({ id, type: i.type, name: i.name || i.type, color: i.color, order: i.order ?? 0, searchSources: i.capabilities?.searchSources || [] }))
     .sort((a, b) => a.order - b.order);
 
-  // Connected instances that serve a given search source value.
-  const instancesForSource = (value) => connectedInsts.filter(i => i.searchSources.some(s => s.value === value));
+  // Connected instances (enriched descriptors) that serve a given search source
+  // value — the serving filter comes from searchInstance.js, shared with the
+  // search dispatcher, so this doesn't re-implement the rule.
+  const instancesForSource = (value) => {
+    const ids = new Set(servingInstanceIds(instances, value));
+    return connectedInsts.filter(i => ids.has(i.id));
+  };
 
   // Distinct client search sources across all connected instances, in instance
   // order — a new searchable network contributes its own, no edit here.
