@@ -37,10 +37,10 @@ describe('RucioManager.onConnectSync', () => {
       getCategoriesSnapshot: () => ({ entries: () => Array.from(appCats.entries()) }),
       propagateToOtherClients: async () => { calls.propagate++; },
       save: async () => { calls.saved++; },
-      linkAmuleId: (n, inst, id) => {
+      linkClientCategoryId: (n, inst, id) => {
         calls.linked.push([n, inst, id]);
         const c = appCats.get(n);
-        if (c) { c.amuleIds = c.amuleIds || {}; c.amuleIds[inst] = id; }
+        if (c) { c.clientCategoryIds = c.clientCategoryIds || {}; c.clientCategoryIds[inst] = id; }
       }
     };
     return { cm, calls };
@@ -643,17 +643,17 @@ describe('RucioManager.onConnectSync category id re-link by name (round 9, item 
       getCategoriesSnapshot: () => ({ entries: () => appCats.entries() }),
       propagateToOtherClients: async () => {},
       save: async () => {},
-      linkAmuleId: (n, inst, id) => {
+      linkClientCategoryId: (n, inst, id) => {
         linked.push([n, inst, id]);
         const c = appCats.get(n);
-        if (c) { c.amuleIds = c.amuleIds || {}; c.amuleIds[inst] = id; }
+        if (c) { c.clientCategoryIds = c.clientCategoryIds || {}; c.clientCategoryIds[inst] = id; }
       }
     };
     return { cm, linked };
   }
 
   it('re-links a stored category id to the daemon\'s current id by name', async () => {
-    const appCats = new Map([['Movies', { name: 'Movies', amuleIds: { 'rucio-1': 5 } }]]);
+    const appCats = new Map([['Movies', { name: 'Movies', clientCategoryIds: { 'rucio-1': 5 } }]]);
     const { cm, linked } = makeCm(appCats);
     const m = makeManager({
       client: { getCategories: async () => [{ id: 12, name: 'Movies' }] },
@@ -665,7 +665,7 @@ describe('RucioManager.onConnectSync category id re-link by name (round 9, item 
   });
 
   it('does not re-link when the stored id already matches', async () => {
-    const appCats = new Map([['Movies', { name: 'Movies', amuleIds: { 'rucio-1': 12 } }]]);
+    const appCats = new Map([['Movies', { name: 'Movies', clientCategoryIds: { 'rucio-1': 12 } }]]);
     const { cm, linked } = makeCm(appCats);
     const m = makeManager({
       client: { getCategories: async () => [{ id: 12, name: 'Movies' }] },

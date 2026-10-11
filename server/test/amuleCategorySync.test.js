@@ -46,7 +46,7 @@ describe('aMule category sync', async () => {
 
     const inCore = await core.categoryRows(mgr);
     for (const [name, cat] of categoryManager.getCategoriesSnapshot().entries()) {
-      const id = cat.amuleIds?.[instanceId];
+      const id = cat.clientCategoryIds?.[instanceId];
       if (id == null || name === 'Default') continue;
       assert.equal(inCore.find(c => c.id === id)?.title, name,
         `cached id ${id} for "${name}" points at a different category`);
@@ -87,7 +87,7 @@ describe('aMule category sync', async () => {
     // EC_OP_FAILED + a path tag means the rest landed (amule-org/amule#1213).
     await seed([['pathcat', '/tmp/pathcat']]);
     const result = await mgr.editCategory({
-      id: categoryManager.getByName('pathcat').amuleIds[instanceId],
+      id: categoryManager.getByName('pathcat').clientCategoryIds[instanceId],
       name: 'pathcat', lookupName: 'pathcat',
       path: '/sbin/cannot-create-this', defaultPath: '/tmp'
     });

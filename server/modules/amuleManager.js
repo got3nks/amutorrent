@@ -487,7 +487,7 @@ class AmuleManager extends BaseClientManager {
 
     // ── Normalize downloads ──────────────────────────────────────────────
     const categoryManager = require('../lib/CategoryManager');
-    const resolveCategoryName = (catId) => categoryManager.getCategoryNameByAmuleId(this.instanceId, catId);
+    const resolveCategoryName = (catId) => categoryManager.getCategoryNameByClientCategoryId(this.instanceId, catId);
     const downloads = rawDownloads.map(d => normalizeAmuleDownload(d, resolveCategoryName));
     // aMule keeps finished downloads listed until cleared; deleteItem clears them.
     this._finishedEcidByHash = new Map(downloads
@@ -894,7 +894,7 @@ class AmuleManager extends BaseClientManager {
     if (!this.client) {
       throw new Error('aMule not connected');
     }
-    const amuleId = await this.ensureAmuleCategoryId(categoryName);
+    const amuleId = await this.ensureCategoryId(categoryName);
     if (amuleId === null) {
       return { success: false, error: 'Could not resolve aMule category ID' };
     }
@@ -910,7 +910,7 @@ class AmuleManager extends BaseClientManager {
    * @param {string} categoryName - Category name
    * @returns {Promise<number|null>} amuleId or null on failure
    */
-  async ensureAmuleCategoryId(categoryName) {
+  async ensureCategoryId(categoryName) {
     const categoryManager = require('../lib/CategoryManager');
     const { hexColorToAmule } = require('../lib/CategoryManager');
     const category = categoryManager.getByName(categoryName);
@@ -923,12 +923,12 @@ class AmuleManager extends BaseClientManager {
     // Re-check before setFileCategory: #1228 bounds-checks the update path only.
     // CPartFile::SetCategory guards with a bare wxASSERT, and a bad value is
     // persisted to the .met and later indexed on the file-completion path.
-    const existingId = category.amuleIds?.[this.instanceId];
+    const existingId = category.clientCategoryIds?.[this.instanceId];
     if (existingId != null) {
       const resolved = await this._resolveCategorySlot({ id: existingId, lookupName: category.name });
       if (resolved.ok) {
         if (resolved.id !== existingId) {
-          categoryManager.linkAmuleId(category.name, this.instanceId, resolved.id);
+          categoryManager.linkClientCategoryId(category.name, this.instanceId, resolved.id);
           await categoryManager.save();
         }
         return resolved.id;
@@ -943,10 +943,10 @@ class AmuleManager extends BaseClientManager {
         comment: category.comment || '',
         color: hexColorToAmule(category.color), priority: category.priority || 0
       });
-      if (result?.amuleId != null) {
-        categoryManager.linkAmuleId(category.name, this.instanceId, result.amuleId);
+      if (result?.clientCategoryId != null) {
+        categoryManager.linkClientCategoryId(category.name, this.instanceId, result.clientCategoryId);
         await categoryManager.save();
-        return result.amuleId;
+        return result.clientCategoryId;
       }
     } catch (err) {
       this.warn(`⚠️ Failed to ensure aMule category "${categoryName}": ${err.message}`);
@@ -1049,17 +1049,17 @@ class AmuleManager extends BaseClientManager {
     let relinked = 0, dropped = 0;
 
     for (const [name, cat] of categoryManager.getCategoriesSnapshot().entries()) {
-      const cached = cat.amuleIds?.[this.instanceId];
+      const cached = cat.clientCategoryIds?.[this.instanceId];
       if (cached == null) continue;
       // "Default" is pinned to aMule's built-in slot 0 regardless of its title.
       const fresh = name === 'Default' ? 0 : idByTitle.get(name);
 
       if (fresh == null) {
-        delete cat.amuleIds[this.instanceId];
+        delete cat.clientCategoryIds[this.instanceId];
         dropped++;
         this.log(`🔗 Dropped stale aMule ID ${cached} for category "${name}" (no longer in aMule)`);
       } else if (fresh !== cached) {
-        cat.amuleIds[this.instanceId] = fresh;
+        cat.clientCategoryIds[this.instanceId] = fresh;
         relinked++;
         this.log(`🔗 Re-linked category "${name}": aMule ID ${cached} → ${fresh}`);
       }
@@ -1215,7 +1215,7 @@ class AmuleManager extends BaseClientManager {
   /**
    * Ensure a category exists in aMule (find existing by name or create).
    * @param {Object} opts - { name, path, color, comment, priority }
-   * @returns {Promise<Object>} { amuleId } or { amuleId: null } on failure
+   * @returns {Promise<Object>} { clientCategoryId } or { clientCategoryId: null } on failure
    */
   async ensureCategoryExists({ name, path = '', color = 0xCCCCCC, comment = '', priority = 0 } = {}) {
     if (!this.client) throw new Error('aMule not connected');
@@ -1226,13 +1226,13 @@ class AmuleManager extends BaseClientManager {
 
       if (existing && existing.id != null) {
         this.log(`🔗 Linked to existing aMule category "${name}" (ID: ${existing.id})`);
-        return { amuleId: existing.id };
+        return { clientCategoryId: existing.id };
       }
 
       const result = await this.createCategory({ name, path, comment, color, priority });
       if (result.success && result.categoryId != null) {
         this.log(`📤 Created category "${name}" in aMule (ID: ${result.categoryId})`);
-        return { amuleId: result.categoryId };
+        return { clientCategoryId: result.categoryId };
       }
       if (result.success) {
         this.warn(`⚠️ Category "${name}" created in aMule but ID not found`);
@@ -1240,13 +1240,13 @@ class AmuleManager extends BaseClientManager {
     } catch (err) {
       this.warn(`⚠️ Failed to ensure category in aMule: ${err.message}`);
     }
-    return { amuleId: null };
+    return { clientCategoryId: null };
   }
 
   /**
    * Ensure multiple categories exist in aMule (batch-aware: fetches existing list once).
    * @param {Array<Object>} categories - Array of { name, path, color, comment, priority }
-   * @returns {Promise<Array<Object>>} Results per created/linked category: [{ name, amuleId }]
+   * @returns {Promise<Array<Object>>} Results per created/linked category: [{ name, clientCategoryId }]
    */
   async ensureCategoriesBatch(categories) {
     if (!this.client || !categories?.length) return [];
@@ -1259,14 +1259,14 @@ class AmuleManager extends BaseClientManager {
       for (const cat of categories) {
         const existing = existingByName.get(cat.name);
         if (existing && existing.id != null) {
-          results.push({ name: cat.name, amuleId: existing.id });
+          results.push({ name: cat.name, clientCategoryId: existing.id });
           continue;
         }
 
         try {
           const result = await this.createCategory(cat);
           if (result.success && result.categoryId != null) {
-            results.push({ name: cat.name, amuleId: result.categoryId });
+            results.push({ name: cat.name, clientCategoryId: result.categoryId });
             this.log(`📤 Propagated category "${cat.name}" to aMule (ID: ${result.categoryId})`);
           }
         } catch (err) {
@@ -1463,7 +1463,7 @@ class AmuleManager extends BaseClientManager {
     if (categoryId <= 0) return null;
     try {
       // Lazy require to avoid circular dependency (CategoryManager requires amuleManager)
-      return require('../lib/CategoryManager').getCategoryNameByAmuleId(this.instanceId, categoryId);
+      return require('../lib/CategoryManager').getCategoryNameByClientCategoryId(this.instanceId, categoryId);
     } catch {
       return null;
     }
@@ -1508,18 +1508,18 @@ class AmuleManager extends BaseClientManager {
 
       // aMule ID 0 is always the built-in default — map to our "Default" regardless of aMule's name
       if (amuleId === 0) {
-        const existingLink = snapshot.getByAmuleId(this.instanceId, 0);
+        const existingLink = snapshot.getByClientCategoryId(this.instanceId, 0);
         if (!existingLink || existingLink.name === 'Default') {
           // Not linked yet, or already correct
           if (!existingLink) {
-            categoryManager.linkAmuleId('Default', this.instanceId, 0);
+            categoryManager.linkClientCategoryId('Default', this.instanceId, 0);
             linked++;
           }
         } else {
           // Linked to wrong category (e.g., "all" from old sync) — migrate to "Default"
           this.log(`🔄 Migrating aMule default category link from "${existingLink.name}" to "Default"`);
-          delete existingLink.amuleIds[this.instanceId];
-          categoryManager.linkAmuleId('Default', this.instanceId, 0);
+          delete existingLink.clientCategoryIds[this.instanceId];
+          categoryManager.linkClientCategoryId('Default', this.instanceId, 0);
           linked++;
         }
         continue;
@@ -1530,12 +1530,12 @@ class AmuleManager extends BaseClientManager {
       // "Default" is pinned to slot 0 above — never re-link it by title.
       if (appCat && appCat.name !== 'Default') {
         if (this.isCategorySyncOut()) categoryManager.addSource(amuleTitle, this.instanceId);
-        if (appCat.amuleIds?.[this.instanceId] !== amuleId) {
-          categoryManager.linkAmuleId(amuleTitle, this.instanceId, amuleId);
+        if (appCat.clientCategoryIds?.[this.instanceId] !== amuleId) {
+          categoryManager.linkClientCategoryId(amuleTitle, this.instanceId, amuleId);
           linked++;
         }
       }
-      if (!appCat) appCat = snapshot.getByAmuleId(this.instanceId, amuleId);
+      if (!appCat) appCat = snapshot.getByClientCategoryId(this.instanceId, amuleId);
 
       if (appCat) {
         // Category exists — check if params differ (app wins)
@@ -1570,7 +1570,7 @@ class AmuleManager extends BaseClientManager {
             source: this.instanceId,
             name: amuleTitle, color: amuleColorToHex(amuleCat.color),
             path: amuleCat.path || null, comment: amuleCat.comment || 'Imported from aMule',
-            priority: amuleCat.priority ?? 0, amuleIds: { [this.instanceId]: amuleId }
+            priority: amuleCat.priority ?? 0, clientCategoryIds: { [this.instanceId]: amuleId }
           });
           imported++;
         }
@@ -1591,7 +1591,7 @@ class AmuleManager extends BaseClientManager {
             color: hexColorToAmule(unlinkedCat.color), priority: unlinkedCat.priority || 0
           });
           if (result.success && result.categoryId != null) {
-            categoryManager.linkAmuleId(unlinkedCat.name, this.instanceId, result.categoryId);
+            categoryManager.linkClientCategoryId(unlinkedCat.name, this.instanceId, result.categoryId);
             pushed++;
             this.log(`📤 Pushed category "${unlinkedCat.name}" to aMule (ID: ${result.categoryId})`);
           }

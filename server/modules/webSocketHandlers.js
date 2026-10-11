@@ -626,7 +626,7 @@ class WebSocketHandlers extends BaseModule {
       if (categoryName) {
         // Ensure category exists in aMule (creates if needed)
         // This handles rTorrent-only categories that don't have an amuleId yet
-        categoryId = await manager.ensureAmuleCategoryId(categoryName) ?? 0;
+        categoryId = await manager.ensureCategoryId(categoryName) ?? 0;
         context.log(`Category lookup: name="${categoryName}" → amuleId=${categoryId}`);
       } else if (rawCategoryId !== undefined && rawCategoryId !== null) {
         categoryId = rawCategoryId;
@@ -709,7 +709,7 @@ class WebSocketHandlers extends BaseModule {
       // Resolve category: prefer categoryName (new), fall back to categoryId (legacy)
       let categoryId = data.categoryId || 0;
       if (data.categoryName) {
-        const resolved = await manager.ensureAmuleCategoryId(data.categoryName);
+        const resolved = await manager.ensureCategoryId(data.categoryName);
         categoryId = resolved ?? 0;
         context.log(`Category lookup: name="${data.categoryName}" → amuleId=${categoryId}`);
       }

@@ -624,7 +624,7 @@ class BaseClientManager extends BaseModule {
    * Ensure a category exists in this client (create if missing, link if found).
    * Override in managers with category support.
    * @param {Object} _opts - { name, path, color, comment, priority }
-   * @returns {Promise<Object|null>} Result (e.g. { amuleId } for aMule), or null
+   * @returns {Promise<Object|null>} Result (e.g. { clientCategoryId }), or null
    */
   async ensureCategoryExists(_opts) {
     return null;
@@ -634,7 +634,7 @@ class BaseClientManager extends BaseModule {
    * Ensure multiple categories exist in this client (batch-aware: fetches existing list once).
    * Override in managers with category support for efficient batch operations.
    * @param {Array<Object>} _categories - Array of { name, path, color, comment, priority }
-   * @returns {Promise<Array<Object>>} Results per category (e.g. [{ name, amuleId }] for aMule)
+   * @returns {Promise<Array<Object>>} Results per category (e.g. [{ name, clientCategoryId }])
    */
   async ensureCategoriesBatch(_categories) {
     return [];

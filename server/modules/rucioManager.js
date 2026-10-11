@@ -539,7 +539,7 @@ class RucioManager extends BaseClientManager {
       // the daemon files by category on the download, not the share.
       throw new Error('Rucio can only change the category of a download, not a file that was only ever shared');
     }
-    const categoryId = await this.ensureAmuleCategoryId(categoryName);
+    const categoryId = await this.ensureCategoryId(categoryName);
     await this.client.setDownloadCategory(id, categoryId);
     return { success: true };
   }
@@ -554,7 +554,7 @@ class RucioManager extends BaseClientManager {
    * carries over the app category's name, colour and download dir, so it isn't
    * name-only.
    */
-  async ensureAmuleCategoryId(categoryName) {
+  async ensureCategoryId(categoryName) {
     if (!this.client) throw new Error('Rucio not connected');
     if (!categoryName || categoryName === 'Default') return null;
     // Carry over the colour and download dir from the app's category so a
@@ -667,7 +667,7 @@ class RucioManager extends BaseClientManager {
     }
   }
 
-  // categoryId comes from ensureAmuleCategoryId() (or the legacy `?? 0` in the
+  // categoryId comes from ensureCategoryId() (or the legacy `?? 0` in the
   // handlers); normalize anything non-positive to null = global category.
   _normalizeCategoryId(categoryId) {
     return categoryId && categoryId > 0 ? categoryId : null;
@@ -752,7 +752,7 @@ class RucioManager extends BaseClientManager {
    */
   async addMagnet(link, { categoryName, username } = {}) {
     if (!this.client) throw new Error('Rucio not connected');
-    const category_id = await this.ensureAmuleCategoryId(categoryName);
+    const category_id = await this.ensureCategoryId(categoryName);
     await this._addLink(link, { category_id });
     const hash = hashFromLink(link);
     if (hash) this.trackDownload(hash, 'Unknown', null, username, categoryName || null);
@@ -915,7 +915,7 @@ class RucioManager extends BaseClientManager {
   }
 
   // Update colour/dir (and name) of an existing category. `id` is the daemon
-  // category id we returned earlier as `amuleId`; fall back to lookup by name,
+  // category id we returned earlier as `clientCategoryId`; fall back to lookup by name,
   // and create it if it isn't in the daemon yet.
   async editCategory({ id, name, path, color } = {}) {
     if (!this.client || !name) return null;
@@ -925,7 +925,7 @@ class RucioManager extends BaseClientManager {
     }
     if (catId == null) {
       const created = await this._createCategoryRaw({ name, color, path });
-      return created ? { success: true, verified: true, amuleId: created.id } : null;
+      return created ? { success: true, verified: true, clientCategoryId: created.id } : null;
     }
     await this._updateCategoryRaw(catId, { name, color, path });
     return { success: true, verified: true };
@@ -942,11 +942,11 @@ class RucioManager extends BaseClientManager {
     return { success: true };
   }
 
-  // CategoryManager keys off `amuleId` to record the per-instance category id;
+  // CategoryManager keys off `clientCategoryId` to record the per-instance category id;
   // return the Rucio id under that name so later edits can target it.
   async ensureCategoryExists({ name, path, color } = {}) {
     const id = await this._resolveOrCreateCategoryId(name, { color, path });
-    return id != null ? { name, amuleId: id } : null;
+    return id != null ? { name, clientCategoryId: id } : null;
   }
 
   async ensureCategoriesBatch(categories = []) {
@@ -959,7 +959,7 @@ class RucioManager extends BaseClientManager {
       try {
         // eslint-disable-next-line no-await-in-loop
         const id = await this._resolveOrCreateCategoryId(cat.name, { color: cat.color, path: cat.path }, cats);
-        if (id != null) out.push({ name: cat.name, amuleId: id });
+        if (id != null) out.push({ name: cat.name, clientCategoryId: id });
       } catch (err) {
         this.warn(`Failed to ensure category "${cat.name}": ${err.message}`);
       }
@@ -986,7 +986,7 @@ class RucioManager extends BaseClientManager {
     }
 
     // Re-link stored category ids by name (as aMule does): a category deleted and
-    // recreated in Rucio's own panel gets a NEW id, leaving the amuleId we recorded
+    // recreated in Rucio's own panel gets a NEW id, leaving the id we recorded
     // dangling — which would make delete/edit/rename target a gone id. Matching the
     // daemon's categories to the app's by name on every connect keeps the stored id
     // current in one place, independent of the sync-direction toggles below.
@@ -995,8 +995,8 @@ class RucioManager extends BaseClientManager {
       const name = cat?.name;
       if (!name || name === 'Default' || cat.id == null) continue;
       const appCat = categoryManager.getByName(name);
-      if (appCat && appCat.amuleIds?.[this.instanceId] !== cat.id) {
-        categoryManager.linkAmuleId(name, this.instanceId, cat.id);
+      if (appCat && appCat.clientCategoryIds?.[this.instanceId] !== cat.id) {
+        categoryManager.linkClientCategoryId(name, this.instanceId, cat.id);
         relinked++;
       }
     }

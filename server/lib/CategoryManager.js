@@ -387,12 +387,9 @@ class CategoryManager extends BaseModule {
 
       if (json.categories && typeof json.categories === 'object') {
         for (const [name, cat] of Object.entries(json.categories)) {
-          // Migrate legacy single amuleId → per-instance amuleIds
-          let amuleIds = cat.amuleIds || {};
-          if (!cat.amuleIds && cat.amuleId != null) {
-            // Legacy data: discard single amuleId — sync will re-discover per-instance IDs
-            amuleIds = {};
-          }
+          // Per-instance client category ids (saved as `amuleIds` by older versions).
+          // A legacy single `amuleId` is dropped; sync re-discovers the ids.
+          const clientCategoryIds = cat.clientCategoryIds || cat.amuleIds || {};
 
           // Categories written before provenance tracking are treated as
           // app-owned, so existing installs keep propagating exactly as before.
@@ -407,7 +404,7 @@ class CategoryManager extends BaseModule {
             pathMappings: cat.pathMappings || null,
             comment: cat.comment || '',
             priority: cat.priority ?? 0,
-            amuleIds,
+            clientCategoryIds,
             sources,
             createdAt: cat.createdAt || new Date().toISOString(),
             updatedAt: cat.updatedAt || new Date().toISOString()
@@ -457,7 +454,7 @@ class CategoryManager extends BaseModule {
           pathMappings: cat.pathMappings,
           comment: cat.comment,
           priority: cat.priority,
-          amuleIds: cat.amuleIds || {},
+          clientCategoryIds: cat.clientCategoryIds || {},
           sources: cat.sources || [APP_SOURCE],
           createdAt: cat.createdAt,
           updatedAt: cat.updatedAt
@@ -491,7 +488,7 @@ class CategoryManager extends BaseModule {
         pathMappings: null,
         comment: '',
         priority: 0,
-        amuleIds: {},
+        clientCategoryIds: {},
         createdAt: now,
         updatedAt: now
       });
@@ -542,15 +539,15 @@ class CategoryManager extends BaseModule {
   /**
    * Get category by aMule ID for a specific instance
    * @param {string} instanceId - aMule instance ID
-   * @param {number} amuleId - aMule category ID
+   * @param {number} clientCategoryId - the client's own category id
    * @returns {Object|null} Category object or null
    */
-  getByAmuleId(instanceId, amuleId) {
-    if (instanceId == null || amuleId == null) {
+  getByClientCategoryId(instanceId, clientCategoryId) {
+    if (instanceId == null || clientCategoryId == null) {
       return null;
     }
     for (const cat of this.categories.values()) {
-      if (cat.amuleIds?.[instanceId] === amuleId) {
+      if (cat.clientCategoryIds?.[instanceId] === clientCategoryId) {
         return cat;
       }
     }
@@ -560,11 +557,11 @@ class CategoryManager extends BaseModule {
   /**
    * Get category name for an aMule category ID on a specific instance
    * @param {string} instanceId - aMule instance ID
-   * @param {number} amuleId - aMule category ID
+   * @param {number} clientCategoryId - the client's own category id
    * @returns {string} Category name (defaults to 'Default')
    */
-  getCategoryNameByAmuleId(instanceId, amuleId) {
-    const cat = this.getByAmuleId(instanceId, amuleId);
+  getCategoryNameByClientCategoryId(instanceId, clientCategoryId) {
+    const cat = this.getByClientCategoryId(instanceId, clientCategoryId);
     return cat ? cat.name : 'Default';
   }
 
@@ -577,10 +574,10 @@ class CategoryManager extends BaseModule {
   /**
    * Import a category from external client data (used during sync).
    * Adds directly to the categories map without propagating to clients.
-   * @param {Object} data - { name, color, path, comment, priority, amuleIds }
+   * @param {Object} data - { name, color, path, comment, priority, clientCategoryIds }
    * @returns {Object} Created category object
    */
-  importCategory({ name, color = '#CCCCCC', path = null, comment = '', priority = 0, amuleIds = {}, source = null } = {}) {
+  importCategory({ name, color = '#CCCCCC', path = null, comment = '', priority = 0, clientCategoryIds = {}, source = null } = {}) {
     if (!name) throw new Error('Category name is required for import');
     // Required, not defaulted: guessing here fails silently in both directions.
     // A missing source on a new category would mark it app-owned and propagate
@@ -606,14 +603,14 @@ class CategoryManager extends BaseModule {
       pathMappings: null,
       comment: comment || '',
       priority: priority ?? 0,
-      amuleIds: amuleIds || {},
+      clientCategoryIds: clientCategoryIds || {},
       sources: [source],
       createdAt: now,
       updatedAt: now
     };
     this.categories.set(name, category);
-    const idEntries = Object.entries(amuleIds || {});
-    this.log(`📥 Imported category "${name}"${idEntries.length > 0 ? ` (amuleIds: ${idEntries.map(([k, v]) => `${k}=${v}`).join(', ')})` : ''}`);
+    const idEntries = Object.entries(clientCategoryIds || {});
+    this.log(`📥 Imported category "${name}"${idEntries.length > 0 ? ` (clientCategoryIds: ${idEntries.map(([k, v]) => `${k}=${v}`).join(', ')})` : ''}`);
     return category;
   }
 
@@ -621,16 +618,16 @@ class CategoryManager extends BaseModule {
    * Link an existing category to an aMule category ID for a specific instance.
    * @param {string} name - Category name
    * @param {string} instanceId - aMule instance ID
-   * @param {number} amuleId - aMule category ID
+   * @param {number} clientCategoryId - the client's own category id
    * @returns {boolean} True if linked, false if category not found
    */
-  linkAmuleId(name, instanceId, amuleId) {
+  linkClientCategoryId(name, instanceId, clientCategoryId) {
     const category = this.categories.get(name);
     if (!category) return false;
-    if (!category.amuleIds) category.amuleIds = {};
-    category.amuleIds[instanceId] = amuleId;
+    if (!category.clientCategoryIds) category.clientCategoryIds = {};
+    category.clientCategoryIds[instanceId] = clientCategoryId;
     category.updatedAt = new Date().toISOString();
-    this.log(`🔗 Linked category "${name}" to amuleId ${amuleId} on ${instanceId}`);
+    this.log(`🔗 Linked category "${name}" to id ${clientCategoryId} on ${instanceId}`);
     return true;
   }
 
@@ -679,16 +676,16 @@ class CategoryManager extends BaseModule {
 
   /**
    * Get a read-only snapshot of categories for sync comparison.
-   * @returns {Object} { getByAmuleId, getByName, entries, getUnlinkedFor }
+   * @returns {Object} { getByClientCategoryId, getByName, entries, getUnlinkedFor }
    */
   getCategoriesSnapshot() {
     const self = this;
     return {
-      getByAmuleId: (instanceId, id) => self.getByAmuleId(instanceId, id),
+      getByClientCategoryId: (instanceId, id) => self.getByClientCategoryId(instanceId, id),
       getByName: (name) => self.getByName(name),
       entries: () => Array.from(self.categories.entries()),
       getUnlinkedFor: (instanceId) => Array.from(self.categories.entries())
-        .filter(([name, cat]) => cat.amuleIds?.[instanceId] == null && name !== 'Default')
+        .filter(([name, cat]) => cat.clientCategoryIds?.[instanceId] == null && name !== 'Default')
         .filter(([, cat]) => self.hasActiveSource(cat))
         .map(([, cat]) => cat)
     };
@@ -726,14 +723,14 @@ class CategoryManager extends BaseModule {
 
       try {
         const results = await mgr.ensureCategoriesBatch(batch);
-        // Link any new amuleIds from aMule instances
+        // Link any new clientCategoryIds from aMule instances
         for (const r of results) {
-          if (r.amuleId != null) {
+          if (r.clientCategoryId != null) {
             const appCat = this.categories.get(r.name);
             if (appCat) {
-              if (!appCat.amuleIds) appCat.amuleIds = {};
-              if (appCat.amuleIds[mgr.instanceId] == null) {
-                appCat.amuleIds[mgr.instanceId] = r.amuleId;
+              if (!appCat.clientCategoryIds) appCat.clientCategoryIds = {};
+              if (appCat.clientCategoryIds[mgr.instanceId] == null) {
+                appCat.clientCategoryIds[mgr.instanceId] = r.clientCategoryId;
                 appCat.updatedAt = new Date().toISOString();
                 dirty = true;
               }
@@ -789,7 +786,7 @@ class CategoryManager extends BaseModule {
       pathMappings: normalizedMappings,
       comment: comment || '',
       priority: priority ?? 0,
-      amuleIds: {},
+      clientCategoryIds: {},
       sources: [APP_SOURCE],
       createdAt: now,
       updatedAt: now
@@ -805,8 +802,8 @@ class CategoryManager extends BaseModule {
             name, path: category.path || '', comment: category.comment || '',
             color: hexColorToAmule(finalColor), priority: category.priority || 0
           });
-          if (result?.amuleId != null) {
-            category.amuleIds[mgr.instanceId] = result.amuleId;
+          if (result?.clientCategoryId != null) {
+            category.clientCategoryIds[mgr.instanceId] = result.clientCategoryId;
           }
         } catch (err) {
           this.warn(`⚠️ Failed to ensure category in ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
@@ -817,8 +814,8 @@ class CategoryManager extends BaseModule {
     this.categories.set(name, category);
     await this.save();
 
-    const idEntries = Object.entries(category.amuleIds);
-    this.log(`✅ Created category: ${name}${idEntries.length > 0 ? ` (amuleIds: ${idEntries.map(([k, v]) => `${k}=${v}`).join(', ')})` : ''}`);
+    const idEntries = Object.entries(category.clientCategoryIds);
+    this.log(`✅ Created category: ${name}${idEntries.length > 0 ? ` (clientCategoryIds: ${idEntries.map(([k, v]) => `${k}=${v}`).join(', ')})` : ''}`);
     return category;
   }
 
@@ -867,7 +864,7 @@ class CategoryManager extends BaseModule {
         try {
           const amuleColor = hexColorToAmule(category.color);
           const result = await mgr.editCategory({
-            id: category.amuleIds?.[mgr.instanceId], name: category.name,
+            id: category.clientCategoryIds?.[mgr.instanceId], name: category.name,
             path: category.path || '',
             defaultPath: this.getClientDefaultPath(mgr.instanceId),
             comment: category.comment || '', color: amuleColor,
@@ -923,7 +920,7 @@ class CategoryManager extends BaseModule {
           comment: category.comment || '',
           color: hexColorToAmule(category.color),
           priority: category.priority || 0,
-          id: category.amuleIds?.[mgr.instanceId],
+          id: category.clientCategoryIds?.[mgr.instanceId],
           defaultPath: this.getClientDefaultPath(mgr.instanceId)
         });
         this.log(`📤 Renamed category "${oldName}" → "${newName}" on ${mgr.instanceId}`);
@@ -955,7 +952,7 @@ class CategoryManager extends BaseModule {
 
   /**
    * Delete a category
-   * Also deletes from aMule if connected and category has amuleId
+   * Also deletes it from every connected client that has it
    * @param {string} name - Category name
    * @returns {Promise<boolean>} True if deleted
    */
@@ -974,7 +971,7 @@ class CategoryManager extends BaseModule {
       if (!clientMeta.hasCapability(mgr.clientType, 'categories')) continue;
       if (!mgr.isCategorySyncIn()) continue;
       try {
-        await mgr.deleteCategory({ id: category.amuleIds?.[mgr.instanceId], name });
+        await mgr.deleteCategory({ id: category.clientCategoryIds?.[mgr.instanceId], name });
         this.log(`📤 Deleted category "${name}" from ${mgr.clientType} on ${mgr.instanceId}`);
       } catch (err) {
         this.warn(`⚠️ Failed to delete category from ${mgr.clientType} (${mgr.instanceId}): ${err.message}`);
