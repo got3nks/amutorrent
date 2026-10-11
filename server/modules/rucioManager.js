@@ -280,7 +280,10 @@ class RucioManager extends BaseClientManager {
       this.lastCategories = rucioCategories;
       this._lastCategoriesFetch = Date.now();
     }
-    const categoryList = this.lastCategories || [];
+    // Resolve names against the freshest list THIS poll has: the fetched one even
+    // when we didn't cache it (it raced an edit), so a discarded fetch doesn't
+    // blank every download's category to "Default" for one poll; else the cache.
+    const categoryList = (Array.isArray(rucioCategories) ? rucioCategories : this.lastCategories) || [];
 
     // Resolve category_id → name from the daemon's own category list.
     const catNameById = new Map(categoryList.map(c => [c.id, c.name]));
@@ -618,7 +621,7 @@ class RucioManager extends BaseClientManager {
     return created;
   }
 
-  async _updateCategoryRaw(id, { name, color, path }, { fallbackName } = {}) {
+  async _updateCategoryRaw(id, { name, color, path }) {
     // The daemon's PUT is a full replace, and aMuTorrent manages neither Rucio's
     // keyword auto-filing rules (match_keywords) nor its download dir — the latter
     // lives on the daemon host and onConnectSync imports categories without it.
@@ -628,20 +631,13 @@ class RucioManager extends BaseClientManager {
     // slow interval now, so a cached row's match_keywords could be stale and a
     // full-replace PUT would overwrite a change made in the panel since. And we
     // must NOT update at all when the values can't be read — a PUT without
-    // match_keywords would silently wipe the rules.
-    let cats;
+    // match_keywords would silently wipe the rules. (The stored id is kept current
+    // by the name re-link in onConnectSync, so a recreated category still resolves.)
+    let cur;
     try {
-      cats = await this._knownCategories({ fresh: true });
+      cur = (await this._knownCategories({ fresh: true })).find(c => c.id === id);
     } catch (err) {
       throw new Error(`Cannot read Rucio category ${id} before updating it (would wipe its keyword rules): ${err.message}`);
-    }
-    let cur = cats.find(c => c.id === id);
-    // Stored id gone: a category deleted and recreated in Rucio's own panel gets a
-    // NEW id, leaving the amuleId we recorded dangling. Recover by name so the
-    // edit/rename still lands on the live category instead of throwing "not found".
-    if (!cur && fallbackName) {
-      const reId = this._findCategoryId(cats, fallbackName);
-      if (reId != null) { id = reId; cur = cats.find(c => c.id === reId); }
     }
     if (!cur) {
       throw new Error(`Rucio category ${id} not found; refusing to update and wipe its keyword rules`);
@@ -929,9 +925,7 @@ class RucioManager extends BaseClientManager {
       const created = await this._createCategoryRaw({ name, color, path });
       return created ? { success: true, verified: true, amuleId: created.id } : null;
     }
-    // Pass the name so a stale stored id (category deleted+recreated in the panel)
-    // recovers by name instead of failing with "not found".
-    await this._updateCategoryRaw(catId, { name, color, path }, { fallbackName: name });
+    await this._updateCategoryRaw(catId, { name, color, path });
     return { success: true, verified: true };
   }
 
@@ -942,8 +936,7 @@ class RucioManager extends BaseClientManager {
       catId = this._findCategoryId(await this._knownCategories(), oldName);
     }
     if (catId == null) return null;
-    // Recover by the OLD name if the stored id is stale (deleted+recreated panel-side).
-    await this._updateCategoryRaw(catId, { name: newName, color, path }, { fallbackName: oldName });
+    await this._updateCategoryRaw(catId, { name: newName, color, path });
     return { success: true };
   }
 
@@ -989,6 +982,23 @@ class RucioManager extends BaseClientManager {
       this.error(`Failed to fetch categories for sync: ${logger.errorDetail(err)}`);
       return;
     }
+
+    // Re-link stored category ids by name (as aMule does): a category deleted and
+    // recreated in Rucio's own panel gets a NEW id, leaving the amuleId we recorded
+    // dangling — which would make delete/edit/rename target a gone id. Matching the
+    // daemon's categories to the app's by name on every connect keeps the stored id
+    // current in one place, independent of the sync-direction toggles below.
+    let relinked = 0;
+    for (const cat of (rucioCats || [])) {
+      const name = cat?.name;
+      if (!name || name === 'Default' || cat.id == null) continue;
+      const appCat = categoryManager.getByName(name);
+      if (appCat && appCat.amuleIds?.[this.instanceId] !== cat.id) {
+        categoryManager.linkAmuleId(name, this.instanceId, cat.id);
+        relinked++;
+      }
+    }
+    if (relinked > 0) await categoryManager.save();
 
     // Phase 1 — import the daemon's categories into the app (gated by sync-out).
     // Only name + colour cross over; Rucio's download dirs live on the daemon
