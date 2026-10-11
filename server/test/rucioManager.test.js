@@ -29,14 +29,19 @@ function makeManager(overrides = {}) {
 
 describe('RucioManager.onConnectSync', () => {
   function makeCategoryManager(appCats) {
-    const calls = { imported: [], addSource: [], propagate: 0, saved: 0 };
+    const calls = { imported: [], addSource: [], propagate: 0, saved: 0, linked: [] };
     const cm = {
       getByName: (n) => (appCats.has(n) ? appCats.get(n) : null),
       addSource: (n, s) => calls.addSource.push([n, s]),
       importCategory: (o) => { calls.imported.push(o); appCats.set(o.name, { color: o.color }); },
       getCategoriesSnapshot: () => ({ entries: () => Array.from(appCats.entries()) }),
       propagateToOtherClients: async () => { calls.propagate++; },
-      save: async () => { calls.saved++; }
+      save: async () => { calls.saved++; },
+      linkAmuleId: (n, inst, id) => {
+        calls.linked.push([n, inst, id]);
+        const c = appCats.get(n);
+        if (c) { c.amuleIds = c.amuleIds || {}; c.amuleIds[inst] = id; }
+      }
     };
     return { cm, calls };
   }
@@ -586,43 +591,53 @@ describe('RucioManager._updateCategoryRaw guards (3)', () => {
   });
 });
 
-describe('RucioManager category id recovery by name (3)', () => {
-  it('editCategory updates the recreated category when the stored id is stale', async () => {
-    // The panel deleted the old category and recreated 'Movies' with a new id;
-    // our stored amuleId (5) no longer exists. Recover by name and update id 12.
-    const puts = [];
-    const m = makeManager({
-      lastCategories: [{ id: 5, name: 'Movies' }],
-      _categoriesGeneration: 0,
-      client: {
-        getCategories: async () => [{ id: 12, name: 'Movies', match_keywords: 'keep|me', download_dir: '/d' }],
-        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
+describe('RucioManager.onConnectSync category id re-link by name (round 9, item 1)', () => {
+  // A category deleted and recreated in Rucio's own panel gets a NEW id, leaving
+  // the stored amuleId dangling. onConnectSync re-links it by name on every
+  // connect (as aMule does), so delete/edit/rename then target the live id.
+  function makeCm(appCats) {
+    const linked = [];
+    const cm = {
+      getByName: (n) => appCats.get(n) || null,
+      addSource: () => {},
+      importCategory: () => {},
+      getCategoriesSnapshot: () => ({ entries: () => appCats.entries() }),
+      propagateToOtherClients: async () => {},
+      save: async () => {},
+      linkAmuleId: (n, inst, id) => {
+        linked.push([n, inst, id]);
+        const c = appCats.get(n);
+        if (c) { c.amuleIds = c.amuleIds || {}; c.amuleIds[inst] = id; }
       }
+    };
+    return { cm, linked };
+  }
+
+  it('re-links a stored category id to the daemon\'s current id by name', async () => {
+    const appCats = new Map([['Movies', { name: 'Movies', amuleIds: { 'rucio-1': 5 } }]]);
+    const { cm, linked } = makeCm(appCats);
+    const m = makeManager({
+      client: { getCategories: async () => [{ id: 12, name: 'Movies' }] },
+      isCategorySyncOut: () => false,
+      isCategorySyncIn: () => false
     });
-    const res = await m.editCategory({ id: 5, name: 'Movies', path: '' });
-    assert.equal(puts.length, 1);
-    assert.equal(puts[0].id, 12, 'updated the recreated id, not the stale 5');
-    assert.equal(puts[0].body.match_keywords, 'keep|me', 'keyword rules preserved');
-    assert.ok(res.success);
+    await m.onConnectSync(cm);
+    assert.deepEqual(linked, [['Movies', 'rucio-1', 12]], 're-linked the stale id 5 → 12');
   });
 
-  it('renameCategory recovers by the old name when the stored id is stale', async () => {
-    const puts = [];
+  it('does not re-link when the stored id already matches', async () => {
+    const appCats = new Map([['Movies', { name: 'Movies', amuleIds: { 'rucio-1': 12 } }]]);
+    const { cm, linked } = makeCm(appCats);
     const m = makeManager({
-      lastCategories: [{ id: 5, name: 'Movies' }],
-      _categoriesGeneration: 0,
-      client: {
-        getCategories: async () => [{ id: 20, name: 'Movies', match_keywords: 'k' }],
-        updateCategory: async (id, body) => { puts.push({ id, body }); return { id }; }
-      }
+      client: { getCategories: async () => [{ id: 12, name: 'Movies' }] },
+      isCategorySyncOut: () => false,
+      isCategorySyncIn: () => false
     });
-    const res = await m.renameCategory({ id: 5, oldName: 'Movies', newName: 'Films' });
-    assert.equal(puts[0].id, 20, 'renamed the live category, not the stale id');
-    assert.equal(puts[0].body.name, 'Films');
-    assert.ok(res.success);
+    await m.onConnectSync(cm);
+    assert.equal(linked.length, 0, 'no re-link when the id is already current');
   });
 
-  it('still refuses to PUT when the id is gone and no name recovers it', async () => {
+  it('_updateCategoryRaw still refuses to PUT when the id is absent (no wipe)', async () => {
     let puts = 0;
     const m = makeManager({
       _categoriesGeneration: 0,
@@ -631,10 +646,7 @@ describe('RucioManager category id recovery by name (3)', () => {
         updateCategory: async () => { puts++; }
       }
     });
-    await assert.rejects(
-      () => m._updateCategoryRaw(5, { name: 'X' }, { fallbackName: 'Nonexistent' }),
-      /not found/
-    );
+    await assert.rejects(() => m._updateCategoryRaw(5, { name: 'X' }), /not found/);
     assert.equal(puts, 0, 'no PUT when the category cannot be located');
   });
 });
