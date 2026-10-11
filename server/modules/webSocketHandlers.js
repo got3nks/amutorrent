@@ -163,14 +163,7 @@ class WebSocketHandlers extends BaseModule {
   // `context.log/info/warn/error/debug` that funnel through the centralized
   // logger with a stable source label so the LogsView can filter by user/IP.
   createClientLog(ws, username, nickname, clientIp) {
-    const source = `${clientIp}(${username}, ${nickname})`;
-    return {
-      log: (...args) => logger.infoFor(source, ...args),
-      info: (...args) => logger.infoFor(source, ...args),
-      warn: (...args) => logger.warnFor(source, ...args),
-      error: (...args) => logger.errorFor(source, ...args),
-      debug: (...args) => logger.debugFor(source, ...args)
-    };
+    return logger.child(`${clientIp}(${username}, ${nickname})`);
   }
 
   // Create context object with all client-specific utilities

@@ -72,7 +72,8 @@ function createHttpContext(req) {
         subscriptions: new Set()
       }
     },
-    log: (...args) => logger.info(`[HTTP-API] [${clientIp}(${username})]`, ...args),
+    // log/info/warn/error/debug, as a WebSocket context has: handlers call them all
+    ...logger.child(`HTTP-API ${clientIp}(${username})`),
     send: onSend,
     broadcast: (data) => onBroadcast(data),
     clientInfo: {
