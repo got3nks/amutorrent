@@ -60,6 +60,11 @@ class RucioManager extends BaseClientManager {
     // just completing into a share).
     this._lastSharesFetch = 0;
     this._sharesRefreshIntervalMs = 30000;
+    // Bumped on every share invalidation (a delete, or a new completion). A poll
+    // captures it before its _getAllShares() and discards the fetched page-walk if
+    // it changed meanwhile — otherwise a delete landing while the (multi-page)
+    // fetch is in flight would let the poll cache the pre-delete list as fresh.
+    this._sharesGeneration = 0;
     // Completed-download hashes seen last poll, to spot a new completion and
     // refresh shares promptly (a finished download becomes a shared file).
     // null = not seeded yet: the first poll records the set without forcing a
@@ -73,6 +78,12 @@ class RucioManager extends BaseClientManager {
     this.lastCategories = null;
     this._lastCategoriesFetch = 0;
     this._categoriesRefreshIntervalMs = 30000;
+    // Bumped every time the cache is invalidated (our own create/update/delete, or
+    // a reconnect). A poll captures it before its getCategories() and discards the
+    // fetched list if it changed meanwhile — otherwise an edit landing while the
+    // poll is in flight would let the poll overwrite the fresh state with the
+    // pre-edit list and stamp it "fresh" for the whole refresh interval.
+    this._categoriesGeneration = 0;
     // hash (lowercase) → signed integer download id, rebuilt each fetchData.
     this.hashToId = new Map();
     // Search state. Rucio search is async (own id, polled); we mirror aMule's
@@ -121,7 +132,7 @@ class RucioManager extends BaseClientManager {
       // Drop the cached category list so the first poll after a (re)connect
       // refetches it immediately — categories may have changed while we were
       // disconnected, rather than waiting out the slow refresh interval.
-      this.lastCategories = null;
+      this._invalidateCategories();
       this._clearConnectionError();
       this.log(`Connected to Rucio ${result.version} successfully`);
       this.clearReconnect();
@@ -230,6 +241,11 @@ class RucioManager extends BaseClientManager {
     const refreshCategories = !Array.isArray(this.lastCategories) ||
       (Date.now() - this._lastCategoriesFetch) >= this._categoriesRefreshIntervalMs;
 
+    // Capture the category/share generations before dispatching: if an edit or a
+    // delete invalidates a cache while its fetch is in flight, the generation
+    // bumps and we discard that (now-stale) result instead of caching it as fresh.
+    const catGenAtFetch = this._categoriesGeneration;
+    const sharesGenAtFetch = this._sharesGeneration;
     let rawDownloads, sharesResult, rucioCategories;
     try {
       [rawDownloads, sharesResult, rucioCategories] = await Promise.all([
@@ -257,7 +273,10 @@ class RucioManager extends BaseClientManager {
     // instead of refetching per call (propagation / batch recategorize). On a
     // failed fetch keep the last known list — caching an empty one would blank
     // every category name this poll and let the next edit wipe match_keywords.
-    if (Array.isArray(rucioCategories)) {
+    // Skip adoption if an edit invalidated the cache mid-fetch (generation
+    // changed): that edit already read fresh and did its own PUT, so this stale
+    // snapshot must not overwrite it (next poll refetches, cache being null).
+    if (Array.isArray(rucioCategories) && this._categoriesGeneration === catGenAtFetch) {
       this.lastCategories = rucioCategories;
       this._lastCategoriesFetch = Date.now();
     }
@@ -283,8 +302,12 @@ class RucioManager extends BaseClientManager {
     downloads.forEach(d => { d.instanceId = instanceId; });
 
     // ── Shared files (refreshed on the slower interval; reused otherwise) ──
+    // Skip adoption if a delete/completion invalidated the cache mid-fetch
+    // (generation changed): keep the last list and leave _lastSharesFetch (set to
+    // 0 by the invalidation) so the next poll refetches, rather than caching this
+    // stale page-walk as fresh for the whole refresh interval.
     let sharedFiles;
-    if (sharesResult) {
+    if (sharesResult && this._sharesGeneration === sharesGenAtFetch) {
       sharedFiles = (sharesResult.shares || []).map(normalizeRucioSharedFile);
       sharedFiles.forEach(f => { f.instanceId = instanceId; });
       this.lastSharedFiles = sharedFiles;
@@ -415,6 +438,16 @@ class RucioManager extends BaseClientManager {
   // shows up on the next poll instead of after the slow refresh interval.
   _invalidateShares() {
     this._lastSharesFetch = 0;
+    this._sharesGeneration++;
+  }
+
+  // Drop the cached category list after a change the cache wouldn't reflect (our
+  // own create/update/delete, or a reconnect). Bumps the generation so a poll
+  // whose getCategories() was already in flight discards its now-stale result
+  // instead of caching the pre-change list.
+  _invalidateCategories() {
+    this.lastCategories = null;
+    this._categoriesGeneration++;
   }
 
   /**
@@ -581,11 +614,11 @@ class RucioManager extends BaseClientManager {
         throw err;
       }
     }
-    this.lastCategories = null; // the daemon's list changed
+    this._invalidateCategories();
     return created;
   }
 
-  async _updateCategoryRaw(id, { name, color, path }) {
+  async _updateCategoryRaw(id, { name, color, path }, { fallbackName } = {}) {
     // The daemon's PUT is a full replace, and aMuTorrent manages neither Rucio's
     // keyword auto-filing rules (match_keywords) nor its download dir — the latter
     // lives on the daemon host and onConnectSync imports categories without it.
@@ -596,11 +629,19 @@ class RucioManager extends BaseClientManager {
     // full-replace PUT would overwrite a change made in the panel since. And we
     // must NOT update at all when the values can't be read — a PUT without
     // match_keywords would silently wipe the rules.
-    let cur;
+    let cats;
     try {
-      cur = (await this._knownCategories({ fresh: true })).find(c => c.id === id);
+      cats = await this._knownCategories({ fresh: true });
     } catch (err) {
       throw new Error(`Cannot read Rucio category ${id} before updating it (would wipe its keyword rules): ${err.message}`);
+    }
+    let cur = cats.find(c => c.id === id);
+    // Stored id gone: a category deleted and recreated in Rucio's own panel gets a
+    // NEW id, leaving the amuleId we recorded dangling. Recover by name so the
+    // edit/rename still lands on the live category instead of throwing "not found".
+    if (!cur && fallbackName) {
+      const reId = this._findCategoryId(cats, fallbackName);
+      if (reId != null) { id = reId; cur = cats.find(c => c.id === reId); }
     }
     if (!cur) {
       throw new Error(`Rucio category ${id} not found; refusing to update and wipe its keyword rules`);
@@ -612,7 +653,7 @@ class RucioManager extends BaseClientManager {
     const body = { name, color: toHexColor(color), download_dir, match_keywords };
     const update = async (b) => {
       const res = await this.client.updateCategory(id, b);
-      this.lastCategories = null; // the daemon's list changed
+      this._invalidateCategories();
       return res;
     };
     try {
@@ -871,7 +912,7 @@ class RucioManager extends BaseClientManager {
     }
     if (catId != null) {
       await this.client.deleteCategory(catId);
-      this.lastCategories = null; // the daemon's list changed
+      this._invalidateCategories();
     }
   }
 
@@ -888,7 +929,9 @@ class RucioManager extends BaseClientManager {
       const created = await this._createCategoryRaw({ name, color, path });
       return created ? { success: true, verified: true, amuleId: created.id } : null;
     }
-    await this._updateCategoryRaw(catId, { name, color, path });
+    // Pass the name so a stale stored id (category deleted+recreated in the panel)
+    // recovers by name instead of failing with "not found".
+    await this._updateCategoryRaw(catId, { name, color, path }, { fallbackName: name });
     return { success: true, verified: true };
   }
 
@@ -899,7 +942,8 @@ class RucioManager extends BaseClientManager {
       catId = this._findCategoryId(await this._knownCategories(), oldName);
     }
     if (catId == null) return null;
-    await this._updateCategoryRaw(catId, { name: newName, color, path });
+    // Recover by the OLD name if the stored id is stale (deleted+recreated panel-side).
+    await this._updateCategoryRaw(catId, { name: newName, color, path }, { fallbackName: oldName });
     return { success: true };
   }
 
