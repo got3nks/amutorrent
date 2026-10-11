@@ -387,6 +387,8 @@ class WebSocketHandlers extends BaseModule {
   async handleSearch(data, context) {
     const manager = this._getManager(data.instanceId, 'amule');
     if (!manager) {
+      // No lock was taken, so no unlock will follow: clear the requester's optimistic one.
+      if (data.instanceId) context.send({ type: 'search-lock', locked: false, instanceId: data.instanceId });
       context.send({ type: 'error', message: 'No aMule instance available' });
       return;
     }
@@ -781,11 +783,10 @@ class WebSocketHandlers extends BaseModule {
           context.log(`Adding magnet link to ${clientName}: ${magnetUri.substring(0, 60)}... (category: ${label || 'none'}${directory ? `, path: ${directory}` : ''})`);
           await manager.addMagnet(magnetUri, addOptions);
           results.push({ link: magnetUri, success: true });
-          // Record ownership — extract hash from magnet URI xt=urn:btih:<hash>
           if (context.clientInfo.userId && this.userManager) {
-            const hashMatch = magnetUri.match(/xt=urn:btih:([a-fA-F0-9]{40})/i);
-            if (hashMatch) {
-              this.userManager.recordOwnership(itemKey(manager.instanceId, hashMatch[1]), context.clientInfo.userId);
+            const hash = manager.hashFromLink?.(magnetUri);
+            if (hash) {
+              this.userManager.recordOwnership(itemKey(manager.instanceId, hash), context.clientInfo.userId);
             }
           }
         } catch (err) {

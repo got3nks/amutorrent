@@ -17,6 +17,8 @@
  * Sonarr/Radarr which validate magnet links before sending to download clients.
  */
 
+const { parseEd2kLink } = require('./torrentUtils');
+
 /**
  * Convert ED2K link or hash to magnet link
  * @param {string} hashOrLink - ED2K hash or full ed2k:// link
@@ -27,12 +29,11 @@
 function convertEd2kToMagnet(hashOrLink, fileName = null, fileSize = null) {
   let hash, name, size;
 
-  // Parse if it's a full ed2k link
-  if (hashOrLink.startsWith('ed2k://')) {
-    const parsed = parseEd2kLink(hashOrLink);
+  const parsed = parseEd2kLink(hashOrLink);
+  if (parsed.hash) {
     hash = parsed.hash;
-    name = parsed.fileName;
-    size = parsed.fileSize;
+    name = parsed.filename;
+    size = parsed.size;
   } else {
     // Just a hash
     hash = hashOrLink.toLowerCase();
@@ -103,29 +104,7 @@ function convertMagnetToEd2k(magnetLink) {
   };
 }
 
-/**
- * Parse ED2K link into components
- * @param {string} ed2kLink - Full ed2k:// link
- * @returns {object} { fileName, fileSize, hash }
- * @throws {Error} If link format is invalid
- */
-function parseEd2kLink(ed2kLink) {
-  // Format: ed2k://|file|filename|size|hash|/
-  const parts = ed2kLink.split('|');
-
-  if (parts.length < 5 || parts[0] !== 'ed2k://' || parts[1] !== 'file') {
-    throw new Error('Invalid ED2K link format (expected: ed2k://|file|filename|size|hash|/)');
-  }
-
-  return {
-    fileName: parts[2],
-    fileSize: parseInt(parts[3], 10),
-    hash: parts[4].toLowerCase()
-  };
-}
-
 module.exports = {
   convertEd2kToMagnet,
-  convertMagnetToEd2k,
-  parseEd2kLink
+  convertMagnetToEd2k
 };
