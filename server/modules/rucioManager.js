@@ -476,6 +476,9 @@ class RucioManager extends BaseClientManager {
     // (possibly after cancel but before remove, leaving a partial state).
     const client = this.client;
     const h = String(hash).toLowerCase();
+    // Swallow only a 404 (already not shared / gone); let a real error — timeout,
+    // 500 — propagate so a still-shared file isn't reported as deleted.
+    const ignore404 = (err) => { if (err?.status !== 404) throw err; };
 
     const shared = (this.lastSharedFiles || []).find(f => String(f.hash).toLowerCase() === h);
     // `shared.path` is the containing folder (for resolveItemPath); the real
@@ -510,15 +513,13 @@ class RucioManager extends BaseClientManager {
       await client.removeDownload(id);
       // A completed download is seeded (seedsCompletedFiles), so un-share it too or
       // the daemon keeps seeding a now-deleted file and the row reappears. This is
-      // cleanup after the real removeDownload above, and best-effort either way:
-      // removeDownload may already have stopped the share (completed download and
-      // its share are the same file → a 404 here), or the item may not actually be
-      // shared yet. Throwing on that would wrongly fail an already-successful delete
-      // and skip the invalidate/track below — so both branches catch.
-      if (shared) {
-        await client.unshare(h).catch(() => {});
-      } else if (dl?.isComplete) {
-        await client.unshare(h).catch(() => {});
+      // cleanup after the real removeDownload above, and ignores ONLY a 404:
+      // removeDownload may already have stopped the share (a completed download and
+      // its share are the same file), or the item may not actually be shared yet —
+      // both surface as 404. A timeout/500 is a real failure (the file stays shared)
+      // and must propagate, so the delete isn't wrongly reported as success.
+      if (shared || dl?.isComplete) {
+        await client.unshare(h).catch(ignore404);
       }
     } else {
       await client.unshare(h);

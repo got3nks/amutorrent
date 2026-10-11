@@ -85,7 +85,11 @@ class RucioClient {
       if (!res.ok) {
         let detail = '';
         try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
-        throw new Error(`Rucio ${method} ${path} → HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+        const err = new Error(`Rucio ${method} ${path} → HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+        // Expose the HTTP status so callers can distinguish an expected 404 (e.g.
+        // un-sharing something already not shared) from a real failure (500/timeout).
+        err.status = res.status;
+        throw err;
       }
 
       if (res.status === 204) return null;
