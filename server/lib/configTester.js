@@ -409,7 +409,7 @@ async function testArrAPI(serviceName, url, apiKey) {
 
   try {
     // Remove trailing slash from URL
-    const baseUrl = url.replace(/\/$/, '');
+    const baseUrl = url.replace(/\/+$/, '');
     const endpoint = `${baseUrl}/api/v3/system/status`;
 
     const response = await fetch(endpoint, {

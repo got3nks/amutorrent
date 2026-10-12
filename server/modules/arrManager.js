@@ -59,12 +59,12 @@ class ArrManager extends BaseModule {
    * @param {string} contentType - 'episode' or 'movie'
    */
   async searchContent(service, contentId, contentType) {
-    const config_map = {
-      sonarr: { url: config.SONARR_URL, apiKey: config.SONARR_API_KEY, command: 'EpisodeSearch', idKey: 'episodeIds' },
-      radarr: { url: config.RADARR_URL, apiKey: config.RADARR_API_KEY, command: 'MoviesSearch', idKey: 'movieIds' }
+    const commands = {
+      sonarr: { command: 'EpisodeSearch', idKey: 'episodeIds' },
+      radarr: { command: 'MoviesSearch', idKey: 'movieIds' }
     };
 
-    const cfg = config_map[service];
+    const cfg = commands[service] && { ...this.getServiceConfig(service), ...commands[service] };
     if (!cfg) {
       this.error(`❌ Unknown service: ${service}`);
       return;
@@ -115,14 +115,17 @@ class ArrManager extends BaseModule {
    * Get service configuration by name
    */
   getServiceConfig(service) {
+    // A trailing slash makes `${url}/api/v3/command` a `//api` path, which
+    // Sonarr/Radarr answer with 405 for POST (#103)
+    const base = (url) => url?.replace(/\/+$/, '') || url;
     const configs = {
       sonarr: {
-        url: config.SONARR_URL,
+        url: base(config.SONARR_URL),
         apiKey: config.SONARR_API_KEY,
         searchInterval: config.SONARR_SEARCH_INTERVAL_HOURS
       },
       radarr: {
-        url: config.RADARR_URL,
+        url: base(config.RADARR_URL),
         apiKey: config.RADARR_API_KEY,
         searchInterval: config.RADARR_SEARCH_INTERVAL_HOURS
       }

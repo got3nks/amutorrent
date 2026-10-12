@@ -18,7 +18,7 @@ class ProwlarrHandler {
    * @param {Object} options - Configuration options
    */
   configure(options) {
-    if (options.url) this.baseUrl = options.url.replace(/\/$/, ''); // Remove trailing slash
+    if (options.url) this.baseUrl = options.url.replace(/\/+$/, ''); // Remove trailing slashes
     if (options.apiKey) this.apiKey = options.apiKey;
   }
 
