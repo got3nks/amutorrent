@@ -249,7 +249,18 @@ services:
 | `AMULE_HOST` | `127.0.0.1` | aMule daemon hostname or IP |
 | `AMULE_PORT` | `4712` | aMule EC protocol port |
 | `AMULE_PASSWORD` | - | aMule EC connection password (locks UI editing) |
+| `AMULE_SECURITY` | `compatible` | Connection security: `compatible`, `encrypted` or `strict` (see below) |
 | `AMULE_SHARED_FILES_RELOAD_INTERVAL_HOURS` | `3` | Interval to rescan shared folders (skipped while aMule's own folder watcher is on) |
+
+`AMULE_SECURITY` sets how strict the connection to aMule is. The same choice is in the client settings as **Connection Security**.
+
+| Level | Works with | What it does |
+|-------|------------|--------------|
+| `compatible` | any aMule | Encrypts the connection and uses SRP login whenever aMule supports them, and falls back otherwise |
+| `encrypted` | aMule 3.1 and later | Refuses an unencrypted connection |
+| `strict` | aMule 3.3 and later | Also refuses the older password login, except from an aMule on the same machine, so aMule 3.1 or 3.2 there still connects |
+
+**Test Connection** shows what your aMule supports, for example "encrypted (ChaCha20-Poly1305), SRP login". `compatible` can be weakened by someone able to tamper with the network between aMuTorrent and aMule, so pick the strictest level your aMule passes.
 
 #### rTorrent Connection
 

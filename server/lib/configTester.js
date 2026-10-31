@@ -13,6 +13,7 @@ const TransmissionClient = require('./transmission/TransmissionClient');
 const RucioClient = require('./rucio/RucioClient');
 const ProwlarrHandler = require('./prowlarr/ProwlarrHandler');
 const { checkDirectoryAccess } = require('./pathUtils');
+const { amuleSecurityOptions, amuleSecurityHint, describeAmuleSecurity } = require('./amuleConnection');
 const logger = require('./logger');
 
 /**
@@ -96,9 +97,10 @@ async function testDirectoryAccess(dirPath, options = {}) {
  * @param {string} host - aMule EC host
  * @param {number} port - aMule EC port
  * @param {string} password - aMule EC password
+ * @param {string} [security] - Connection security level (see amuleConnection.js)
  * @returns {Promise<{success: boolean, connected: boolean, version: string|null, error: string|null}>}
  */
-async function testAmuleConnection(host, port, password) {
+async function testAmuleConnection(host, port, password, security) {
   const result = {
     success: false,
     connected: false,
@@ -111,7 +113,10 @@ async function testAmuleConnection(host, port, password) {
   try {
     // Create temporary client
     // A throwaway test connection must never reconnect by itself.
-    client = new QueuedAmuleClient(host, port, password, { autoReconnect: false });
+    client = new QueuedAmuleClient(host, port, password, {
+      autoReconnect: false,
+      ...amuleSecurityOptions(security)
+    });
 
     // Try to connect with timeout
     const connectPromise = client.connect();
@@ -122,17 +127,18 @@ async function testAmuleConnection(host, port, password) {
     await Promise.race([connectPromise, timeoutPromise]);
 
     result.connected = true;
+    result.security = describeAmuleSecurity(client.session);
 
     // Try to get server status to verify the connection works
     try {
       const stats = await client.getStats();
       if (stats) {
-        result.message = 'Connected successfully';
+        result.message = `Connected successfully, ${result.security}`;
         result.success = true;
       }
     } catch (err) {
       // Connection works but couldn't get stats - still consider it successful
-      result.message = 'Connected (stats unavailable)';
+      result.message = `Connected (stats unavailable), ${result.security}`;
       result.success = true;
     }
 
@@ -147,7 +153,7 @@ async function testAmuleConnection(host, port, password) {
 
     return result;
   } catch (err) {
-    result.error = classifyNetworkError(err);
+    result.error = amuleSecurityHint(err) || classifyNetworkError(err);
 
     // Try to clean up connection
     if (client) {

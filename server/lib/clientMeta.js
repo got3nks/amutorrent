@@ -27,7 +27,7 @@ const CLIENT_TYPES = {
       // all other codes → 'active'
     },
     connectionDefaults: {
-      host: '', port: 4712, password: ''
+      host: '', port: 4712, password: '', security: 'compatible'
     },
     defaults: {
       downloadPriority: null,

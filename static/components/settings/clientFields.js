@@ -118,6 +118,7 @@ export const CLIENT_FIELDS = {
     // Inlined — three properties (description, placeholder, required) all
     // differ from the F.password template, not worth the override overhead.
     { field: 'password', label: 'Password', description: 'aMule EC password (set in aMule preferences)', placeholder: 'Enter aMule EC password', required: true, sensitive: true },
+    { field: 'security', label: 'Connection Security', description: 'Compatible works with every aMule and still encrypts the connection when aMule supports it. Encrypted only needs aMule 3.1 or later. Strict also requires SRP login, from aMule 3.3. Use Test Connection to see what your aMule supports.', select: true, options: [{ value: 'compatible', label: 'Compatible (any aMule)' }, { value: 'encrypted', label: 'Encrypted only (aMule 3.1+)' }, { value: 'strict', label: 'Strict (aMule 3.3+, SRP)' }], defaultValue: 'compatible' },
     { field: 'sharedFilesReloadIntervalHours', label: 'Shared Files Auto-Reload Interval (hours)', description: 'Hours between automatic shared files reload (0 = disabled, default: 3). Skipped while aMule watches its own shared folders, which it does by default from 3.0.0.', placeholder: '3', type: 'number', parseValue: v => parseInt(v) || 0, defaultValue: 3 },
     F.categorySync('Useful when foreign categories from BitTorrent clients would create stray directories in aMule.'),
     F.notifications()

@@ -92,6 +92,7 @@ const CLIENT_ENV_FIELDS = {
     HOST: { field: 'host', type: 'string' },
     PORT: { field: 'port', type: 'int' },
     PASSWORD: { field: 'password', type: 'string', sensitive: true },
+    SECURITY: { field: 'security', type: 'string' },
     SHARED_FILES_RELOAD_INTERVAL_HOURS: { field: 'sharedFilesReloadIntervalHours', type: 'int' },
     ID: { field: 'id', type: 'string' },
     NAME: { field: 'name', type: 'string' }

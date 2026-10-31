@@ -11,6 +11,7 @@ const logger = require('../lib/logger');
 const { parseEd2kLink } = require('../lib/torrentUtils');
 const { normaliseQueryForm, adaptQueryForKad } = require('../lib/searchQuery');
 const { abortableSleep } = require('../lib/FifoLock');
+const { amuleSecurityOptions, amuleSecurityHint, describeAmuleSecurity } = require('../lib/amuleConnection');
 const {
   normalizeAmuleDownload,
   normalizeAmuleSharedFile,
@@ -142,7 +143,8 @@ class AmuleManager extends BaseClientManager {
         // We rebuild the client ourselves: getUpdate() state only resyncs on a
         // fresh connection. A library reconnect alongside ours would bring a
         // discarded client back as an extra EC connection per outage.
-        autoReconnect: false
+        autoReconnect: false,
+        ...amuleSecurityOptions(this._clientConfig.security)
       });
 
       newClient.onError((err) => {
@@ -164,7 +166,7 @@ class AmuleManager extends BaseClientManager {
       this.log(`🔌 aMule capabilities: ${[...this._serverCapabilities].join(', ') || '(none)'}`);
       this._clearConnectionError();
 
-      this.log('✅ Connected to aMule successfully');
+      this.log(`✅ Connected to aMule successfully (${describeAmuleSecurity(newClient.session)})`);
 
       // Notify listeners (e.g. qBittorrent API category sync)
       this._onConnectCallbacks.forEach(cb => cb());
@@ -184,7 +186,9 @@ class AmuleManager extends BaseClientManager {
       return true;
     } catch (err) {
       this.error('❌ Failed to connect to aMule:', logger.errorDetail(err));
-      this._setConnectionError(err);
+      const hint = amuleSecurityHint(err);
+      if (hint) this.error(`❌ ${hint}`);
+      this._setConnectionError(hint ? new Error(hint) : err);
       this.client = null;
       // TCP can succeed and auth fail (a daemon still starting, a bad
       // password). That socket is open, and nothing else will close it.

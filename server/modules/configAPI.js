@@ -280,9 +280,11 @@ class ConfigAPI extends BaseModule {
 
       // Test aMule connection if provided and enabled
       if (amule && amule.enabled !== false) {
-        const password = amule.password || (amule.instanceId ? config.getClientConfig(amule.instanceId)?.password : null);
+        const saved = amule.instanceId ? config.getClientConfig(amule.instanceId) : null;
+        const password = amule.password || saved?.password || null;
+        const security = amule.security || saved?.security;
         this.log(`🧪 Testing aMule connection to ${amule.host}:${amule.port}...`);
-        results.amule = await configTester.testAmuleConnection(amule.host, amule.port, password);
+        results.amule = await configTester.testAmuleConnection(amule.host, amule.port, password, security);
         this.logTestResult('aMule connection', results.amule);
       }
 
