@@ -4,7 +4,7 @@
 
 <h1 align="center">aMuTorrent</h1>
 
-A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmission. Manage ED2K and BitTorrent downloads from a single modern web interface. Features multi-instance support, user management with SSO, Prowlarr integration for torrent search, Torznab indexer and qBittorrent-compatible API for aMule (Sonarr/Radarr integration), push notifications via Apprise, and GeoIP peer location display. Built with Node.js, WebSockets, and React.
+A unified download manager for aMule, Rucio, rTorrent, qBittorrent, Deluge, and Transmission. Manage ED2K, Rucio and BitTorrent downloads from a single modern web interface. Features multi-instance support, user management with SSO, Prowlarr integration for torrent search, Torznab indexer and qBittorrent-compatible API for aMule (Sonarr/Radarr integration), push notifications via Apprise, and GeoIP peer location display. Built with Node.js, WebSockets, and React.
 
 ![aMuTorrent](./docs/screenshots/home-desktop.png)
 
@@ -50,7 +50,7 @@ A unified download manager for aMule, rTorrent, qBittorrent, Deluge, and Transmi
 
 ## Quick Start (Docker)
 
-**Prerequisites:** At least one of: aMule with External Connections enabled, rTorrent with XML-RPC enabled, qBittorrent with WebUI enabled, Deluge with WebUI enabled, or Transmission with RPC enabled.
+**Prerequisites:** At least one of: aMule with External Connections enabled, a Rucio daemon with its REST API reachable, rTorrent with XML-RPC enabled, qBittorrent with WebUI enabled, Deluge with WebUI enabled, or Transmission with RPC enabled.
 
 ### 1. Pull the image
 

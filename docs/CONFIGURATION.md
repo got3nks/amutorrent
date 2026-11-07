@@ -311,6 +311,20 @@ services:
 | `TRANSMISSION_PASSWORD` | - | RPC auth password (locks UI editing) |
 | `TRANSMISSION_USE_SSL` | `false` | Use HTTPS for RPC connection |
 
+#### Rucio Connection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RUCIO_ENABLED` | `false` | Enable Rucio integration |
+| `RUCIO_HOST` | `localhost` | Rucio daemon hostname |
+| `RUCIO_PORT` | `3003` | Rucio REST API port |
+| `RUCIO_PATH` | - | Base path when Rucio is behind a reverse proxy |
+| `RUCIO_USERNAME` | - | HTTP basic auth username (only behind a proxy that asks for it) |
+| `RUCIO_PASSWORD` | - | HTTP basic auth password (locks UI editing) |
+| `RUCIO_USE_SSL` | `false` | Use HTTPS for the REST API |
+
+See [Rucio Integration](./RUCIO.md) for setup details.
+
 #### Prowlarr Integration
 
 | Variable | Default | Description |

@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.0] - Rucio, Encrypted aMule Connections, Safer Moves and Deletes
+
+### ✨ Added
+
+- **Rucio is now supported as a download client.** Rucio is a P2P daemon that runs its own libp2p network and also reaches eMule/Kad. aMuTorrent shows its downloads and shared files, keeps categories in sync in both directions, searches Rucio and eMule/Kad together, and adds `ed2k://` and `rucio:` links. It can be set up in the setup wizard, in Settings, or with the new `RUCIO_*` environment variables. See [Rucio Integration](docs/RUCIO.md) (#59, #60, contributed by @ogarcia).
+- **Encrypted connections to aMule.** aMule 3.1 and later can encrypt the connection to aMuTorrent, and aMule 3.3 adds a stronger login. A new **Connection Security** setting for each aMule instance chooses how strict to be: `compatible` (any aMule, the default), `encrypted` (aMule 3.1 and later) or `strict` (aMule 3.3 and later). `compatible` still encrypts whenever aMule offers it. Test Connection now shows what was agreed, for example "encrypted (ChaCha20-Poly1305), SRP login", so you can see how far you can tighten it. The setting is in the client settings, the setup wizard, or `AMULE_SECURITY`. Saved configurations need no change.
+
+### 🐛 Fixed
+
+- **Sonarr and Radarr kept an imported aMule download in their queue.** Sonarr and Radarr remove a download from the client right after importing it, seconds after aMule finished it, and before aMule had added the file to its shared files. aMuTorrent looked for the file there, did not find it, and the removal failed with "File path required for shared file deletion". A just-finished file is now found in its category folder, and removed (#110).
+- **Deleting a finished aMule download from the web interface failed.** aMule keeps a finished download in its list until it is cleared, and deleting it from there failed with the same "File path required" error. It is now deleted like a shared file, and aMule's finished entry is cleared so the row does not stay behind.
+- **A failed move could delete the only copy of a file.** Moving a file to another folder renames it first and then tells the client the new location. If the client did not answer at that moment (for example rTorrent disconnected), the clean-up deleted the file at the new location, which by then was the only copy. A failed move now puts the file back where it was. A move interrupted by a restart is handled the same way.
+- **Deleting a mix of files could delete torrent data you asked to keep.** In the Shared Files view, deleting an aMule shared file together with a torrent, with "Also delete files" unchecked, also deleted the torrent's data. The checkbox now applies to each item separately. An aMule download that was still running in the same selection was also not cancelled; it now is.
+- **Sonarr and Radarr refreshes failed with "HTTP 405 Method Not Allowed".** When the Sonarr or Radarr address in Settings ended with a slash, the scheduled refresh and missing-item searches failed, while the Test button still passed. The trailing slash is now ignored (#103).
+- **The Sonarr/Radarr file delete could miss a file under a mapped path.** When aMuTorrent sees the download folders under different paths than aMule (Docker volume mappings), removing an imported file looked in aMule's path, logged "File already gone", and left the file on disk. It now uses the mapped path, like deleting from the web interface does.
+- **Four REST API endpoints always failed.** `/api/v1/amule/stats-tree`, `/amule/server-info`, `/amule/servers` and `/logs/amule` answered "context.error is not a function" since 3.8.0. They now return their data.
+- **Magnet links with a base32 hash recorded no owner.** With user management on, a user without the "edit all downloads" permission could not pause or delete a torrent they had added from such a link. The owner is now recorded.
+- **The search box could stay on "Searching..." for good.** When no connected client could run the search, the error was shown but the box stayed locked. It is now released.
+
+### 🔧 Changed
+
+- **Settings: "aMule Instance for \*arr" is now "Instance for \*arr".** The saved setting moves from `integrations.amuleInstanceId` to `integrations.arrInstanceId`, and existing configurations are updated automatically on start. Category data is updated the same way. If you go back to an older version, it uses the first connected aMule for \*arr again, and re-links categories when it connects.
+- **REST API: adding a magnet or torrent without an instance** now uses any connected client that accepts magnet links, instead of looking for an rTorrent. `clientId` still picks a client type when given.
+
+### 📦 Dependencies
+
+- **amule-ec-node upgraded to 3.0.0**, which brings the encrypted aMule connection and the SRP login above.
+
+---
+
 ## [3.9.8] - Imports That Wait for the File, Configurable Refresh
 
 ### 🐛 Fixed
