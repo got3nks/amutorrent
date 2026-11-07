@@ -40,6 +40,7 @@ function makeHandler(dir, fileName, deleteResult = null) {
   handler.hashStore = { getEd2kHash: () => HASH, removeMapping: () => {} };
   handler._findCachedItem = () => ({
     hash: HASH,
+    client: 'amule',
     shared: true,
     downloading: false,
     name: fileName,
@@ -200,6 +201,42 @@ describe('qBittorrent delete: reporting what actually happened', () => {
       'a failed unlink was swallowed');
     assert.ok(!lines.log.some(l => l.includes('Successfully deleted')),
       'reported success despite the file surviving');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// Sonarr/Radarr remove a download right after importing it, which is seconds
+// after aMule finishes it: before the file shows up in the shared list. The
+// item had no filePath then, and aMule refused with "File path required for
+// shared file deletion", so the download stayed in the *arr queue (#110).
+describe('qBittorrent delete of a just-finished aMule download', () => {
+  const { normalizeAmuleDownload } = require('../lib/downloadNormalizer');
+  const { assembleUnifiedItems } = require('../lib/unifiedItemBuilder');
+
+  it('deletes it from its category folder', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amt-fin-'));
+    const fileName = 'Sample.Movie.2026.1080p.mkv';
+    fs.writeFileSync(path.join(dir, fileName), 'x');
+
+    // A finished download (PS_COMPLETE = 9) still in aMule's list, no shared entry yet
+    const download = Object.assign(normalizeAmuleDownload({
+      fileName, rawFileName: fileName, fileHash: HASH, fileSize: 1, fileSizeDownloaded: 1,
+      status: 9, isShared: true, raw: {}
+    }, () => 'Movies'), { instanceId: 'amule-test' });
+    const categories = {
+      getByName: (name) => (name === 'Movies' ? { name, path: dir } : null),
+      getClientDefaultPath: () => null
+    };
+    const [item] = assembleUnifiedItems([download], [], categories);
+
+    const { handler, deleted } = makeHandler(dir, fileName);
+    handler._findCachedItem = () => item;
+    const res = makeRes();
+    await handler.deleteTorrent({ body: { hashes: HASH, deleteFiles: 'true' } }, res);
+
+    assert.equal(deleted[0].isShared, true);
+    assert.equal(deleted[0].filePath, path.join(dir, fileName));
+    assert.equal(fs.existsSync(path.join(dir, fileName)), false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

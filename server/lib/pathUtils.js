@@ -199,8 +199,10 @@ function resolveItemPath(item) {
   const clientType = item.client;
   const isAmuleShared = clientMeta.hasCapability(clientType, 'sharedFiles') && item.shared && !item.downloading;
 
-  // Get base directory - aMule shared files use filePath, others use directory
-  const baseDir = isAmuleShared ? item.filePath : item.directory;
+  // Shared files use filePath, others directory. A finished aMule download not
+  // yet in the shared list has no filePath, but it already sits in its category
+  // folder, which is what directory holds (#110)
+  const baseDir = isAmuleShared ? (item.filePath || item.directory) : item.directory;
 
   if (!baseDir) {
     logger.debug(`[📦 resolveItemPath] no baseDir for ${item.name} (${clientType})`);

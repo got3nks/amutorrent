@@ -12,11 +12,13 @@ const response = require('../responseFormatter');
 const { minutesToMs } = require('../timeRange');
 const { verifyPassword } = require('../authUtils');
 const { convertToQBittorrentInfo, convertToQBittorrentProperties, convertToQBittorrentFiles } = require('./stateMapping');
-const path = require('path');
 const { convertMagnetToEd2k } = require('../linkConverter');
 const { itemKey } = require('../itemKey');
 const { resolveCategoryForAdd } = require('./addParams');
 const { matchesTorrentHash } = require('./torrentLookup');
+const clientMeta = require('../clientMeta');
+const { deletesAsShare } = require('../sharedFilePolicy');
+const { resolveItemPath } = require('../pathUtils');
 const preferences = require('./preferences.json');
 
 class QBittorrentHandler {
@@ -786,18 +788,14 @@ class QBittorrentHandler {
           const ed2kHash = this.hashStore.getEd2kHash(hash);
           const finalHash = ed2kHash || hash;
 
-          // Look up cached state to decide active-download vs shared-file path.
+          // Same decision and path as the UI delete (handleBatchDelete). A
+          // finished file is deleted as a shared file even before it reaches
+          // the shared list, which is when the *arr removes it (#110).
           const item = this._findCachedItem(finalHash);
-          const isShared = !!(item?.shared && !item?.downloading);
-          // `filePath` on a unified item is the DIRECTORY, not the file: aMule
-          // sends the containing directory in EC_TAG_KNOWNFILE_FILENAME for a
-          // completed file, despite the tag's name. Passing it straight to
-          // deleteItem made the unlink fail with EISDIR, so the file survived
-          // while the delete still reported success (#81). Join it with the
-          // filename, the same way handleBatchDelete already does.
-          const dir = item?.raw?.path || item?.filePath || null;
-          const name = item?.rawName || item?.name || null;
-          const filePath = isShared && dir && name ? path.join(dir, name) : null;
+          const caps = clientMeta.get(manager.clientType)?.capabilities || {};
+          const isShared = !!item && deletesAsShare(caps, item);
+          const resolved = isShared ? resolveItemPath(item) : null;
+          const filePath = resolved?.remotePath || null;
 
           logger.log(`[qBittorrent] Deleting hash: ${finalHash} (shared=${isShared}, deleteFiles=${deleteFiles})`);
 
@@ -808,7 +806,9 @@ class QBittorrentHandler {
           // used by webSocketHandlers.handleBatchDelete.
           let unlinkFailed = false;
           if (deleteFiles && Array.isArray(result?.pathsToDelete)) {
-            for (const p of result.pathsToDelete) {
+            for (const remote of result.pathsToDelete) {
+              // aMuTorrent may see the file under another path (category mappings)
+              const p = remote === resolved?.remotePath ? resolved.localPath : remote;
               try {
                 await fs.unlink(p);
                 logger.log(`[qBittorrent] Removed file: ${p}`);
